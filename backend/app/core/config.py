@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     # Model Configuration
     MODEL_STORAGE_DIR: str = "./ai_engine/models"
     ENROLLMENT_IMAGE_DIR: str = "./data/enrollment_images"
+    KNOWN_THRESHOLD: float = 0.65
+    REVIEW_THRESHOLD: float = 0.55
 
     model_config = SettingsConfigDict(
         env_file=".env",

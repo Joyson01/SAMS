@@ -3,6 +3,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.core.exceptions import SAMSException
 from backend.app.database.session import get_db
 from backend.app.schemas.class_section import (
     ClassSectionCreate,
@@ -96,6 +97,22 @@ async def delete_timetable_entry(
 ):
     await ClassService.delete_timetable_entry(db, entry_id)
     return None
+
+
+@router.get(
+    "/timetable/current",
+    response_model=Optional[TimetableEntryResponse],
+    summary="Get Current Active Timetable Entry",
+    description="Resolves the active timetable entry based on the current time, day, and optional room."
+)
+async def get_current_timetable_entry(
+    room: Optional[str] = Query(None, description="Optional room context to filter"),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[TimetableEntryResponse]:
+    entry = await ClassService.resolve_current_timetable_entry(db, room=room)
+    if not entry:
+        raise SAMSException(status_code=404, error_code="NO_ACTIVE_CLASS", message="No active class found for the current time.")
+    return entry
 
 
 @router.get(

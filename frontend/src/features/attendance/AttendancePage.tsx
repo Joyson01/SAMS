@@ -30,10 +30,12 @@ import {
   closeSession,
   fetchSessionRecords,
   overrideRecord,
+  recognizeImageAttendance,
 } from '../../services/attendanceApi';
 import { fetchSubjects, fetchClasses, fetchClassTimetable } from '../../services/subjectApi';
 import { fetchCameras } from '../../services/cameraApi';
 import { formatApiErrorMessage } from '../../utils/apiError';
+import { fetchCurrentTimetableEntry } from '../../services/timetableApi';
 import {
   AttendanceRecord,
   AttendanceSession,
@@ -109,6 +111,38 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [conflictSessionId, setConflictSessionId] = useState<string | null>(null);
   const [creatingSession, setCreatingSession] = useState<boolean>(false);
+
+  // Multi-Photo Upload State
+  const [uploadingPhotos, setUploadingPhotos] = useState<boolean>(false);
+  const [uploadProgress, setUploadProgress] = useState<string>('');
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0 || !selectedSessionId) return;
+    const files = Array.from(e.target.files);
+    
+    setUploadingPhotos(true);
+    let successCount = 0;
+    
+    try {
+      for (let i = 0; i < files.length; i++) {
+        setUploadProgress(`Processing image ${i + 1} of ${files.length}...`);
+        await recognizeImageAttendance(selectedSessionId, files[i]);
+        successCount++;
+      }
+      setUploadProgress('');
+      alert(`Successfully processed ${successCount} image(s). Roster updated.`);
+      await loadSessionDetails(selectedSessionId);
+    } catch (err: any) {
+      alert(formatApiErrorMessage(err, "Error processing one or more photos."));
+    } finally {
+      setUploadingPhotos(false);
+      setUploadProgress('');
+      // reset file input
+      if (e.target) {
+        e.target.value = '';
+      }
+    }
+  };
 
   // Helpers
   const getWeekdayName = (dateStr: string) => {
@@ -394,6 +428,21 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
   const isBeforeCurriculum = isDateBeforeEffective(selectedTimetableDate);
   const selectedClassObj = availableClasses.find((c) => c.id === selectedClassId);
 
+  const handleAutoDetectCurrentSession = async () => {
+    try {
+      const activeEntry = await fetchCurrentTimetableEntry();
+      if (activeEntry) {
+        setSelectedClassId(activeEntry.class_id);
+        setSelectedTimetableDate(new Date().toISOString().split('T')[0]);
+        setCreationMode('timetable');
+        setIsCreateModalOpen(true);
+        // We trigger fetching the timetable, and user can just pick the highlighted one.
+      }
+    } catch (err: any) {
+      alert("No active timetable slot detected for the current time/day.");
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* VIEW A: SESSION DETAIL VIEW */}
@@ -467,12 +516,24 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                       <span>View Live Stream</span>
                     </button>
                   )}
+                  <label className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition cursor-pointer">
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>{uploadingPhotos ? uploadProgress : "Upload Photos"}</span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      multiple 
+                      className="hidden" 
+                      onChange={handlePhotoUpload}
+                      disabled={uploadingPhotos}
+                    />
+                  </label>
                   <button
                     onClick={() => handleClose(selectedSession.id)}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-sm transition"
                   >
                     <Square className="w-3.5 h-3.5" />
-                    <span>Close Session</span>
+                    <span>Finalize & Lock Session</span>
                   </button>
                 </>
               )}
@@ -526,6 +587,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                   <option value="">All Statuses</option>
                   <option value="PRESENT">PRESENT</option>
                   <option value="LATE">LATE</option>
+                  <option value="REVIEW_REQUIRED">REVIEW REQUIRED</option>
                   <option value="ABSENT">ABSENT</option>
                   <option value="EXCUSED">EXCUSED</option>
                 </select>
@@ -573,10 +635,12 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                                 ? 'bg-amber-50 text-amber-700 border border-amber-200'
                                 : r.status.includes('EXCUSED')
                                 ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                : r.status.includes('REVIEW_REQUIRED')
+                                ? 'bg-orange-50 text-orange-700 border border-orange-200 animate-pulse'
                                 : 'bg-rose-50 text-rose-700 border border-rose-200'
                             }`}
                           >
-                            {r.status}
+                            {r.status.replace('_', ' ')}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-slate-500">{r.source}</td>
@@ -586,7 +650,35 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                         <td className="py-3 px-4 text-slate-500 font-mono">
                           {r.confidence ? `${Math.round(r.confidence * 100)}%` : '—'}
                         </td>
-                        <td className="py-3 px-4 text-right">
+                        <td className="py-3 px-4 text-right flex items-center justify-end gap-1">
+                          {r.status === 'REVIEW_REQUIRED' && (
+                            <>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await overrideRecord(r.id, { status: 'PRESENT', remarks: 'Faculty Approved from Review' });
+                                    if (selectedSessionId) loadSessionDetails(selectedSessionId);
+                                  } catch(e) { alert('Failed to update record'); }
+                                }}
+                                className="p-1.5 rounded-lg text-emerald-500 hover:bg-emerald-50 hover:text-emerald-700 transition"
+                                title="Accept as Present"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await overrideRecord(r.id, { status: 'ABSENT', remarks: 'Faculty Rejected from Review' });
+                                    if (selectedSessionId) loadSessionDetails(selectedSessionId);
+                                  } catch(e) { alert('Failed to update record'); }
+                                }}
+                                className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-50 hover:text-rose-600 transition"
+                                title="Reject Match (Absent)"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
                           <button
                             onClick={() => {
                               setSelectedRecord(r);
@@ -595,7 +687,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                               setIsOverrideModalOpen(true);
                             }}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition"
-                            title="Override Status"
+                            title="Override Status Manually"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
@@ -619,13 +711,22 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                 Schedule, monitor, and manage AI-driven attendance sessions directly from the college timetable.
               </p>
             </div>
-            <button
-              onClick={openCreateModal}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Create Session</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleAutoDetectCurrentSession}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Auto-Detect Current Class</span>
+              </button>
+              <button
+                onClick={openCreateModal}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create Session</span>
+              </button>
+            </div>
           </div>
 
           {/* Filter Bar */}
@@ -1461,6 +1562,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                 >
                   <option value="PRESENT">PRESENT</option>
                   <option value="LATE">LATE</option>
+                  <option value="REVIEW_REQUIRED">REVIEW REQUIRED</option>
                   <option value="ABSENT">ABSENT</option>
                   <option value="EXCUSED">EXCUSED</option>
                 </select>

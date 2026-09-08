@@ -416,3 +416,21 @@ class MediaProcessingJob(Base):
     session = relationship("AttendanceSession")
 
 
+
+class AttendanceAnomaly(Base):
+    __tablename__ = "attendance_anomalies"
+
+    id: Mapped[str] = mapped_column(GUID, primary_key=True, default=generate_uuid)
+    session_id: Mapped[Optional[str]] = mapped_column(GUID, ForeignKey("attendance_sessions.id", ondelete="CASCADE"), index=True, nullable=True)
+    student_id: Mapped[Optional[str]] = mapped_column(GUID, ForeignKey("students.id", ondelete="CASCADE"), index=True, nullable=True)
+    anomaly_type: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(String(32), default="WARNING", nullable=False)  # LOW, WARNING, CRITICAL
+    is_resolved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    resolved_by_user_id: Mapped[Optional[str]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
+
+    # Relationships
+    session = relationship("AttendanceSession")
+    student = relationship("Student")

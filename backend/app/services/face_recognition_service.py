@@ -24,7 +24,6 @@ logger = logging.getLogger("jojipa_sams.face_recognition_service")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 EMBEDDINGS_PATHS = [
     PROJECT_ROOT / "embeddings" / "student_embeddings.npy",
-    PROJECT_ROOT / "backend" / "embeddings" / "student_embeddings.npy",
 ]
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "uploads" / "media"
@@ -237,6 +236,7 @@ class FaceRecognitionService:
         threshold: float = UNKNOWN_THRESHOLD,
         min_face_size: int = 60,
         min_detection_confidence: float = 0.50,
+        eligible_student_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Detects faces in a single OpenCV BGR frame and matches against enrolled students.
@@ -245,7 +245,15 @@ class FaceRecognitionService:
         if frame is None or frame.size == 0:
             return []
 
-        stored_embeddings = self.load_embeddings()
+        global_embeddings = self.load_embeddings()
+        
+        roster_embeddings = global_embeddings
+        if eligible_student_ids is not None:
+            roster_embeddings = {
+                s_id: emb for s_id, emb in global_embeddings.items()
+                if s_id in eligible_student_ids
+            }
+
         faces = self.app.get(frame)
 
         results: List[Dict[str, Any]] = []
@@ -268,16 +276,28 @@ class FaceRecognitionService:
                 is_quality_valid = False
                 quality_reason = f"Low detection confidence ({det_score:.2f} < {min_detection_confidence:.2f})"
 
+            # Two-stage matching: first try roster, then fallback to global
             best_student_id, similarity = self.compare_embedding(
                 query_embedding=face.embedding,
-                stored_embeddings=stored_embeddings,
+                stored_embeddings=roster_embeddings,
                 threshold=threshold,
             )
+            
+            is_walk_in = False
+            if best_student_id is None and eligible_student_ids is not None:
+                # Fallback to global
+                best_student_id, similarity = self.compare_embedding(
+                    query_embedding=face.embedding,
+                    stored_embeddings=global_embeddings,
+                    threshold=threshold,
+                )
+                if best_student_id is not None:
+                    is_walk_in = True
 
             if not is_quality_valid:
                 status_str = "LOW_QUALITY"
             elif best_student_id is not None:
-                status_str = "VERIFIED"
+                status_str = "VERIFIED_WALK_IN" if is_walk_in else "VERIFIED"
             else:
                 status_str = "UNKNOWN"
 
@@ -289,6 +309,7 @@ class FaceRecognitionService:
                 "confidence": similarity,
                 "confidence_pct": round(similarity * 100.0, 1),
                 "is_recognized": bool(best_student_id is not None and is_quality_valid),
+                "is_walk_in": is_walk_in,
                 "status": status_str,
                 "is_quality_valid": is_quality_valid,
                 "quality_reason": quality_reason,
@@ -401,12 +422,14 @@ def recognize_frame(
     threshold: float = UNKNOWN_THRESHOLD,
     min_face_size: int = 60,
     min_detection_confidence: float = 0.50,
+    eligible_student_ids: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     return face_recognition_service.recognize_frame(
         frame=frame,
         threshold=threshold,
         min_face_size=min_face_size,
         min_detection_confidence=min_detection_confidence,
+        eligible_student_ids=eligible_student_ids,
     )
 
 

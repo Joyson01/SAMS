@@ -303,12 +303,20 @@ async def recognize_frame_or_image_attendance(
         )
 
     try:
-        # 3. Detect and recognize all faces using InsightFace buffalo_l
+        # 3. Resolve eligible students for the session's class
+        from backend.app.services.class_service import ClassService
+        eligible_students = []
+        if sess_obj.class_id:
+            eligible_students = await ClassService.get_eligible_students(db, sess_obj.class_id)
+        eligible_student_ids = [s.id for s in eligible_students] if eligible_students else None
+
+        # 4. Detect and recognize all faces using InsightFace buffalo_l
         detections = recognize_frame(
             frame=img_cv,
             threshold=threshold,
             min_face_size=min_face_size,
             min_detection_confidence=min_detection_confidence,
+            eligible_student_ids=eligible_student_ids,
         )
 
         student_names = sqlite_adapter.get_all_students()
@@ -330,8 +338,9 @@ async def recognize_frame_or_image_attendance(
             st_id = d.get("student_id")
             sim = float(d.get("similarity", 0.0))
             is_quality_valid = d.get("is_quality_valid", True)
+            is_walk_in = d.get("is_walk_in", False)
             status_str = str(d.get("status", "unknown"))
-            is_rec = bool((status_str.lower() in ["recognized", "verified"] or d.get("is_recognized")) and st_id)
+            is_rec = bool((status_str.lower() in ["recognized", "verified", "verified_walk_in"] or d.get("is_recognized")) and st_id)
 
             # Check in-frame duplicate
             if is_rec and st_id:
@@ -358,10 +367,15 @@ async def recognize_frame_or_image_attendance(
                     box_color = (255, 140, 0)  # Blue/Sky for already marked
                     label = f"{st_name} ({sim*100:.0f}%) [ALREADY MARKED]"
                 else:
+                    from backend.app.core.config import settings
+                    determined_status = "PRESENT"
+                    if sim < settings.KNOWN_THRESHOLD:
+                        determined_status = "REVIEW_REQUIRED"
+                        
                     mark_res = sqlite_adapter.mark_attendance(
                         student_id=st_id,
                         session_id=target_session_id.strip(),
-                        status="PRESENT",
+                        status=determined_status,
                         confidence=sim,
                         source="IP_CAMERA" if camera_id else "PHOTO_CAPTURE",
                         remarks=f"Photo Attendance ({sim*100:.1f}%)",
@@ -369,8 +383,13 @@ async def recognize_frame_or_image_attendance(
                     if mark_res.get("success") and mark_res.get("attendanceMarked"):
                         attendance_marked = True
                         attendance_marked_count += 1
-                        box_color = (0, 200, 0)  # Green
-                        label = f"{st_name} ({sim*100:.0f}%) [PRESENT]"
+                        if determined_status == "PRESENT":
+                            box_color = (0, 200, 0)  # Green
+                            label = f"{st_name} ({sim*100:.0f}%) [PRESENT]"
+                        else:
+                            box_color = (0, 165, 255) # Orange
+                            label = f"{st_name} ({sim*100:.0f}%) [REVIEW]"
+                            status_str = "review_required"
                     elif mark_res.get("alreadyPresent"):
                         already_marked = True
                         duplicates_skipped_count += 1

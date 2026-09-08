@@ -341,3 +341,62 @@ class ClassService:
             updated_at=class_obj.updated_at,
         )
 
+    @classmethod
+    async def get_eligible_students(cls, db: AsyncSession, class_id: str) -> List[Student]:
+        """Retrieves all students eligible for a given class section."""
+        class_obj = await db.get(ClassSection, class_id)
+        if not class_obj:
+            return []
+        
+        query = select(Student).where(Student.class_name == class_obj.name)
+        result = await db.execute(query)
+        return list(result.scalars().all())
+
+    @classmethod
+    async def resolve_current_timetable_entry(
+        cls,
+        db: AsyncSession,
+        current_time: Optional[time] = None,
+        day_of_week: Optional[str] = None,
+        room: Optional[str] = None
+    ) -> Optional[TimetableEntryResponse]:
+        """Resolves the currently active timetable entry based on time, day, and optional room context."""
+        import datetime
+        now = datetime.datetime.now()
+        
+        if not current_time:
+            current_time = now.time()
+            
+        if not day_of_week:
+            day_of_week = now.strftime("%A")
+            
+        query = select(TimetableEntry).where(
+            and_(
+                TimetableEntry.day_of_week.ilike(day_of_week),
+                TimetableEntry.status == "ACTIVE"
+            )
+        )
+        
+        if room:
+            query = query.where(TimetableEntry.room == room)
+            
+        result = await db.execute(query)
+        entries = result.scalars().all()
+        
+        # Find the entry where current_time falls between start_time and end_time
+        # Since start_time is stored as string like "09:00"
+        for e in entries:
+            try:
+                st = datetime.time.fromisoformat(e.start_time if len(e.start_time) == 5 else f"0{e.start_time}")
+                et = datetime.time.fromisoformat(e.end_time if len(e.end_time) == 5 else f"0{e.end_time}")
+                if st <= current_time <= et:
+                    # Found current active entry
+                    res = await cls.list_timetable_entries(db, class_id=e.class_id, day_of_week=e.day_of_week)
+                    for r in res:
+                        if r.id == e.id:
+                            return r
+            except Exception as exc:
+                logger.warning(f"Error parsing time for timetable entry {e.id}: {exc}")
+                continue
+                
+        return None

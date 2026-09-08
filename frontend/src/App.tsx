@@ -14,6 +14,7 @@ import { SettingsPage } from './features/settings/SettingsPage';
 import { MobileCameraPage } from './features/mobile/MobileCameraPage';
 import { MobileEnrollmentPage } from './features/mobile/MobileEnrollmentPage';
 import { CameraTestPage } from './features/camera-test/CameraTestPage';
+import { AuditLogsPage } from './features/security/AuditLogsPage';
 import { fetchHealthStatus } from './services/api';
 import { ServiceHealthResponse } from './types';
 
@@ -103,6 +104,7 @@ export const App: React.FC = () => {
           {activeTab === 'media' && <MediaAttendancePage onNavigate={handleNavigate} />}
           {activeTab === 'attendance' && <AttendancePage />}
           {activeTab === 'cameras' && <CameraManagementPage />}
+          {activeTab === 'audit' && <AuditLogsPage />}
           {activeTab === 'reports' && <ReportsPage />}
           {activeTab === 'settings' && <SettingsPage />}
         </ErrorBoundary>

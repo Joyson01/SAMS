@@ -10,6 +10,7 @@ import {
   CheckSquare,
   BarChart2,
   Tv,
+  ShieldCheck,
   Settings,
   X,
 } from 'lucide-react';
@@ -38,6 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'attendance', label: 'Attendance', icon: CheckSquare },
     { id: 'reports', label: 'Reports', icon: BarChart2 },
     { id: 'cameras', label: 'Cameras', icon: Tv },
+    { id: 'audit', label: 'Audit Logs', icon: ShieldCheck },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 

@@ -14,11 +14,15 @@ interface HeaderProps {
 const TAB_TITLES: Record<string, string> = {
   dashboard: 'Dashboard',
   students: 'Students',
+  subjects: 'Academic & Courses',
+  timetable: 'Weekly Timetable',
   enrollment: 'Face Enrollment',
   live: 'Live Attendance',
+  media: 'Media Attendance',
   attendance: 'Attendance Records',
   reports: 'Reports & Analytics',
   cameras: 'Cameras',
+  audit: 'Security Audit Logs',
   settings: 'Settings',
 };
 

@@ -1,3 +1,4 @@
+from sqlalchemy import case
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from sqlalchemy import and_, desc, func, or_, select
@@ -482,6 +483,61 @@ class DashboardService:
                 )
             )
 
+
+        # Projected Attendance Risk / Defaulters
+        defaulters_q = (
+            select(
+                AttendanceRecord.student_id,
+                func.count(AttendanceRecord.id).label("total_sessions"),
+                func.sum(
+                    case(
+                        (AttendanceRecord.status.in_(["PRESENT", "MANUAL_PRESENT", "LATE", "EXCUSED", "MANUAL_EXCUSED"]), 1),
+                        else_=0
+                    )
+                ).label("attended_sessions")
+            )
+            .group_by(AttendanceRecord.student_id)
+        )
+        defaulters_res = await db.execute(defaulters_q)
+        
+        critical_count = 0
+        warning_count = 0
+        watch_count = 0
+        
+        for row in defaulters_res.all():
+            total_sessions = row.total_sessions
+            if total_sessions > 0:
+                pct = (row.attended_sessions / total_sessions) * 100
+                if pct < 65:
+                    critical_count += 1
+                elif pct < 75:
+                    warning_count += 1
+                elif pct < 85:
+                    watch_count += 1
+                    
+        if critical_count > 0:
+            exceptions.append(
+                DashboardExceptionItem(
+                    type="CRITICAL_DEFAULTERS",
+                    title=f"{critical_count} student(s) critically low attendance (<65%)",
+                    description="Immediate action required. Students fall below minimum attendance threshold.",
+                    severity="danger",
+                    action_tab="students",
+                    count=critical_count,
+                )
+            )
+            
+        if warning_count > 0:
+            exceptions.append(
+                DashboardExceptionItem(
+                    type="WARNING_DEFAULTERS",
+                    title=f"{warning_count} student(s) at attendance risk (65-74%)",
+                    description="Students are approaching the critical attendance threshold.",
+                    severity="warning",
+                    action_tab="students",
+                    count=warning_count,
+                )
+            )
         return DashboardSummaryResponse(
             summary=summary,
             active_session=active_session_dto,

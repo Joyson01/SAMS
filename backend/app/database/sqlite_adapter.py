@@ -103,7 +103,11 @@ def is_marked_present(student_id: str, session_id: str) -> bool:
         )
         row = cursor.fetchone()
         conn.close()
-        return row is not None
+        
+        if not row:
+            return False
+            
+        return str(row["status"]).upper() in ["PRESENT", "MANUAL_PRESENT", "EXCUSED", "MANUAL_EXCUSED"]
     except Exception as e:
         logger.warning(f"Error checking attendance presence: {e}")
         return False
@@ -143,10 +147,18 @@ def mark_attendance(
         )
         existing = cursor.fetchone()
         if existing:
-            cursor.execute(
-                "UPDATE attendance_records SET last_seen = ?, confidence = MAX(confidence, ?), updated_at = ? WHERE id = ?",
-                (now_iso, float(confidence), now_iso, existing["id"]),
-            )
+            existing_status = existing["status"]
+            # Upgrade status to PRESENT if previously REVIEW_REQUIRED
+            if existing_status == "REVIEW_REQUIRED" and status == "PRESENT":
+                cursor.execute(
+                    "UPDATE attendance_records SET status = ?, last_seen = ?, confidence = ?, updated_at = ? WHERE id = ?",
+                    (status, now_iso, float(confidence), now_iso, existing["id"]),
+                )
+            else:
+                cursor.execute(
+                    "UPDATE attendance_records SET last_seen = ?, confidence = MAX(confidence, ?), updated_at = ? WHERE id = ?",
+                    (now_iso, float(confidence), now_iso, existing["id"]),
+                )
             conn.commit()
             conn.close()
             return {
