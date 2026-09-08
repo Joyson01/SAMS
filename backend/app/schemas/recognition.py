@@ -51,8 +51,8 @@ class ThresholdsConfig(BaseModel):
 
 class AIRecognitionConfig(BaseModel):
     # Recognition Thresholds
-    known_threshold: float = Field(0.60, ge=0.30, le=0.95, description="Minimum cosine similarity for VERIFIED identity")
-    uncertain_threshold: float = Field(0.45, ge=0.20, le=0.80, description="Medium confidence bound for VERIFYING / POSSIBLE MATCH")
+    known_threshold: float = Field(0.50, ge=0.30, le=0.95, description="Minimum cosine similarity for VERIFIED identity")
+    uncertain_threshold: float = Field(0.35, ge=0.20, le=0.80, description="Medium confidence bound for VERIFYING / POSSIBLE MATCH")
     margin_threshold: float = Field(0.05, ge=0.01, le=0.30, description="Minimum margin between 1st and 2nd top matches")
     
     # Temporal & Tracking
@@ -63,7 +63,7 @@ class AIRecognitionConfig(BaseModel):
     recognition_interval: int = Field(2, ge=1, le=10, description="Frames between heavy recognition inferences")
     
     # Quality & Filtering
-    min_face_size: int = Field(70, ge=30, le=200, description="Minimum width/height in pixels")
+    min_face_size: int = Field(40, ge=20, le=200, description="Minimum width/height in pixels")
     min_sharpness: float = Field(45.0, ge=10.0, le=200.0, description="Laplacian blur variance threshold")
     min_brightness: float = Field(40.0, ge=10.0, le=100.0, description="Minimum illumination")
     max_brightness: float = Field(235.0, ge=150.0, le=255.0, description="Maximum illumination / overexposure")
