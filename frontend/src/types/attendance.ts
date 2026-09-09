@@ -49,7 +49,7 @@ export interface AttendanceRecord {
   student_name: string;
   student_code: string;
   roll_number: string;
-  status: 'PRESENT' | 'LATE' | 'ABSENT' | 'EXCUSED' | 'MANUAL_PRESENT' | 'MANUAL_ABSENT' | 'MANUAL_EXCUSED';
+  status: 'PRESENT' | 'LATE' | 'ABSENT' | 'EXCUSED' | 'MANUAL_PRESENT' | 'MANUAL_ABSENT' | 'MANUAL_EXCUSED' | 'REVIEW_REQUIRED';
   source: 'AI' | 'MANUAL' | 'AUTO_ROSTER';
   confidence: number;
   first_seen: string;
@@ -62,6 +62,6 @@ export interface AttendanceRecord {
 }
 
 export interface AttendanceOverridePayload {
-  status: 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED' | 'MANUAL_PRESENT' | 'MANUAL_ABSENT' | 'MANUAL_EXCUSED';
+  status: 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED' | 'MANUAL_PRESENT' | 'MANUAL_ABSENT' | 'MANUAL_EXCUSED' | 'REVIEW_REQUIRED';
   remarks: string;
 }

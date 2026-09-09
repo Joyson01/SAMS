@@ -174,3 +174,19 @@ export const recognizeFrameAttendance = async (options: {
   );
   return response.data;
 };
+
+export interface StudentAttendanceSummary {
+  student_id: string;
+  total_sessions: number;
+  present_sessions: number;
+  late_sessions: number;
+  absent_sessions: number;
+  excused_sessions: number;
+  attendance_rate_pct: number;
+  records: AttendanceRecord[];
+}
+
+export const fetchStudentAttendance = async (studentId: string): Promise<StudentAttendanceSummary> => {
+  const response = await apiClient.get<StudentAttendanceSummary>(`/attendance/students/${studentId}`);
+  return response.data;
+};

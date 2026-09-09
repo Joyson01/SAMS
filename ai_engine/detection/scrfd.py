@@ -57,7 +57,7 @@ class SCRFDFaceDetector:
             name=self.model_name,
             root=self.root_dir,
             providers=providers,
-            allowed_modules=["detection", "landmark_2d_106", "landmark_3d_68"],
+            allowed_modules=["detection"],
         )
         self._app.prepare(ctx_id=self.ctx_id, det_size=self.det_size, det_thresh=self.det_thresh)
 

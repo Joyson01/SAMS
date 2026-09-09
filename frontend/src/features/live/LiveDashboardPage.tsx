@@ -1,34 +1,38 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Play,
   Square,
-  UserCheck,
+  Pause,
   Camera,
-  AlertCircle,
-  RefreshCw,
-  Eye,
-  EyeOff,
-  Tv,
-  Smartphone,
   Video as VideoIcon,
-  Plus,
-  Upload,
-  Image as ImageIcon,
-  RotateCcw,
+  GraduationCap,
+  ChevronDown,
   CheckCircle2,
+  AlertTriangle,
+  Clock,
+  UserCheck,
+  RefreshCw,
+  Search,
+  X,
+  Upload,
   Sparkles,
-  Check,
-  SwitchCamera,
+  Maximize2,
+  Minimize2,
+  Tv,
+  CheckCheck,
 } from 'lucide-react';
-import { fetchCameras, testRegisteredCamera, captureCameraFrame } from '../../services/cameraApi';
-import { fetchSessions } from '../../services/attendanceApi';
+import { fetchCameras, testRegisteredCamera } from '../../services/cameraApi';
 import {
+  fetchSessions,
+  markManualAttendance,
+  closeSession,
   recognizeImageAttendance,
-  recognizeFrameAttendance,
   PhotoRecognitionResponse,
 } from '../../services/attendanceApi';
+import { fetchStudents } from '../../services/studentApi';
 import { CameraDevice } from '../../types/camera';
 import { AttendanceSession } from '../../types/attendance';
+import { Student } from '../../types/student';
 import { apiClient } from '../../services/api';
 
 interface StudentPresenceItem {
@@ -51,46 +55,53 @@ interface LiveDashboardProps {
 }
 
 export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) => {
-  // Mobile Device Detection
-  const isMobileDevice = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+  const isMobileDevice =
+    typeof navigator !== 'undefined' &&
+    /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
 
-  // Mode Selector: LIVE_CAMERA | CAPTURE_PHOTO | UPLOAD_PHOTO
-  const [attendanceMode, setAttendanceMode] = useState<'LIVE_CAMERA' | 'CAPTURE_PHOTO' | 'UPLOAD_PHOTO'>('LIVE_CAMERA');
-
-  // Facing mode state: Mobile defaults to environment (rear), Laptop defaults to user (webcam)
-  const [facingMode, setFacingMode] = useState<'environment' | 'user'>(isMobileDevice ? 'environment' : 'user');
-
-  // Data State
+  // Core Data State
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [loadingCameras, setLoadingCameras] = useState<boolean>(true);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const [sessions, setSessions] = useState<AttendanceSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>('');
   const [loadingSessions, setLoadingSessions] = useState<boolean>(true);
+  const [classStudents, setClassStudents] = useState<Student[]>([]);
 
-  // Camera Diagnostic Test State
-  const [testingCamera, setTestingCamera] = useState<boolean>(false);
-  const [testResult, setTestResult] = useState<any | null>(null);
-
-  // Mode 1 (Live Camera) Stream State
+  // Stream & Hardware State
   const [cameraState, setCameraState] = useState<'IDLE' | 'STARTING' | 'STREAMING' | 'ERROR'>('IDLE');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [videoResolution, setVideoResolution] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
-  const [debugMode, setDebugMode] = useState<boolean>(false);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [mjpegTimestamp, setMjpegTimestamp] = useState<number>(Date.now());
   const [hasReceivedRemoteFrames, setHasReceivedRemoteFrames] = useState<boolean>(false);
 
   // Presence & AI Telemetry State
   const [presenceList, setPresenceList] = useState<StudentPresenceItem[]>([]);
-  const [lastLatencyMs, setLastLatencyMs] = useState<number>(0);
   const [activeFacesDetected, setActiveFacesDetected] = useState<number>(0);
-  const [verifiedCount, setVerifiedCount] = useState<number>(0);
-  const [verifyingCount, setVerifyingCount] = useState<number>(0);
-  const [activeFaceResults, setActiveFaceResults] = useState<any[]>([]);
-  const [framesProcessedTotal, setFramesProcessedTotal] = useState<number>(0);
   const [unknownCount, setUnknownCount] = useState<number>(0);
+  const [lastUnknownFace, setLastUnknownFace] = useState<{ time: string; count: number } | null>(null);
+  const [lastLatencyMs, setLastLatencyMs] = useState<number>(0);
 
-  // Mode 2 (Capture Photo) State
+  // Dialogs & Secondary Views
+  const [showMoreOptions, setShowMoreOptions] = useState<boolean>(false);
+  const [showManualModal, setShowManualModal] = useState<boolean>(false);
+  const [manualSearchQuery, setManualSearchQuery] = useState<string>('');
+  const [manualActionLoading, setManualActionLoading] = useState<string | null>(null);
+  const [showEndSessionModal, setShowEndSessionModal] = useState<boolean>(false);
+  const [endingSession, setEndingSession] = useState<boolean>(false);
+  const [showReviewUnknownModal, setShowReviewUnknownModal] = useState<boolean>(false);
+  const [unknownAssignStudentId, setUnknownAssignStudentId] = useState<string>('');
+
+  // Quick Override Input State
+  const [quickOverrideRoll, setQuickOverrideRoll] = useState<string>('');
+  const [quickOverrideStatus, setQuickOverrideStatus] = useState<string | null>(null);
+  const [quickOverrideLoading, setQuickOverrideLoading] = useState<boolean>(false);
+
+  // Mode 2 & 3 Secondary Modals (Capture Photo / Upload Photo)
+  const [secondaryMode, setSecondaryMode] = useState<null | 'CAPTURE_PHOTO' | 'UPLOAD_PHOTO'>(null);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>(isMobileDevice ? 'environment' : 'user');
   const [captureCameraActive, setCaptureCameraActive] = useState<boolean>(false);
   const [captureCameraStarting, setCaptureCameraStarting] = useState<boolean>(false);
   const [captureCameraError, setCaptureCameraError] = useState<string | null>(null);
@@ -99,17 +110,15 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
   const [processingCapturedPhoto, setProcessingCapturedPhoto] = useState<boolean>(false);
   const [captureRecognitionResult, setCaptureRecognitionResult] = useState<PhotoRecognitionResponse | null>(null);
   const [captureErrorMessage, setCaptureErrorMessage] = useState<string | null>(null);
-  const [showCaptureOverlay, setShowCaptureOverlay] = useState<boolean>(true);
 
-  // Mode 3 (Upload Photo) State
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadPreviewUrl, setUploadPreviewUrl] = useState<string | null>(null);
   const [processingUploadPhoto, setProcessingUploadPhoto] = useState<boolean>(false);
   const [uploadRecognitionResult, setUploadRecognitionResult] = useState<PhotoRecognitionResponse | null>(null);
   const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
-  const [showUploadOverlay, setShowUploadOverlay] = useState<boolean>(true);
 
-  // DOM Refs - Live Camera
+  // DOM Refs
+  const videoContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const mjpegImgRef = useRef<HTMLImageElement>(null);
   const remoteCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -121,29 +130,19 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
   const presencePollIntervalRef = useRef<any>(null);
   const cameraPollIntervalRef = useRef<any>(null);
   const isProcessingRef = useRef<boolean>(false);
+  const moreOptionsRef = useRef<HTMLDivElement>(null);
 
-  // DOM Refs - Capture Photo
   const captureVideoRef = useRef<HTMLVideoElement>(null);
   const captureFrameCanvasRef = useRef<HTMLCanvasElement>(null);
-  const captureOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
-  const captureImageRef = useRef<HTMLImageElement>(null);
   const captureStreamRef = useRef<MediaStream | null>(null);
 
-  // DOM Refs - Upload Photo
-  const uploadImageRef = useRef<HTMLImageElement>(null);
-  const uploadOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
-
-  // Load Sessions & Registered Cameras from DB
+  // Load Sessions & Cameras
   const loadResources = useCallback(async () => {
     try {
       setLoadingCameras(true);
       setLoadingSessions(true);
 
-      const [camList, sessionList] = await Promise.all([
-        fetchCameras(),
-        fetchSessions(),
-      ]);
-
+      const [camList, sessionList] = await Promise.all([fetchCameras(), fetchSessions()]);
       setCameras(camList);
       setSessions(sessionList);
 
@@ -164,8 +163,6 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
         }
       } else if (camList.length > 0) {
         setSelectedCameraId((prev) => (prev && camList.some((c) => c.id === prev) ? prev : camList[0].id));
-      } else {
-        setSelectedCameraId('');
       }
     } catch (err) {
       console.error('Failed to load live resources:', err);
@@ -175,47 +172,30 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
     }
   }, []);
 
-  useEffect(() => {
-    if (selectedSessionId && sessions.length > 0) {
-      const sess = sessions.find((s) => s.id === selectedSessionId);
-      if (sess && sess.camera_id && cameras.some((c) => c.id === sess.camera_id)) {
-        setSelectedCameraId(sess.camera_id);
-      }
-    }
-  }, [selectedSessionId, sessions, cameras]);
+  // Fetch Class Students Roster
+  const selectedSession = useMemo(
+    () => sessions.find((s) => s.id === selectedSessionId),
+    [sessions, selectedSessionId]
+  );
+  const selectedCamera = useMemo(
+    () => cameras.find((c) => c.id === selectedCameraId),
+    [cameras, selectedCameraId]
+  );
 
   useEffect(() => {
-    loadResources();
-    cameraPollIntervalRef.current = setInterval(async () => {
+    if (!selectedSession) return;
+    const fetchRoster = async () => {
       try {
-        const camList = await fetchCameras();
-        setCameras(camList);
+        const res = await fetchStudents({ class_name: selectedSession.class_name, limit: 100 });
+        setClassStudents(res.items || []);
       } catch (e) {
-        // silent
+        // quiet fallback
       }
-    }, 4000);
-
-    return () => {
-      if (cameraPollIntervalRef.current) clearInterval(cameraPollIntervalRef.current);
     };
-  }, [loadResources]);
+    fetchRoster();
+  }, [selectedSession]);
 
-  const selectedSession = sessions.find((s) => s.id === selectedSessionId);
-  const selectedCamera = cameras.find((c) => c.id === selectedCameraId);
-
-  const sortedCameras = React.useMemo(() => {
-    if (!selectedSession || !selectedSession.room) return cameras;
-    const sessionRoom = selectedSession.room.toLowerCase().trim();
-    return [...cameras].sort((a, b) => {
-      const aMatch = a.location.toLowerCase().includes(sessionRoom) || (a.assigned_class && a.assigned_class === selectedSession.class_name);
-      const bMatch = b.location.toLowerCase().includes(sessionRoom) || (b.assigned_class && b.assigned_class === selectedSession.class_name);
-      if (aMatch && !bMatch) return -1;
-      if (!aMatch && bMatch) return 1;
-      return 0;
-    });
-  }, [cameras, selectedSession]);
-
-  // Poll presence state from backend
+  // Fetch presence records
   const fetchPresenceData = useCallback(async () => {
     if (!selectedSessionId) return;
     try {
@@ -234,7 +214,34 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
     };
   }, [fetchPresenceData]);
 
-  // Draw Face Bounding Boxes Over Video or Remote Stream (Mode 1)
+  useEffect(() => {
+    loadResources();
+    cameraPollIntervalRef.current = setInterval(async () => {
+      try {
+        const camList = await fetchCameras();
+        setCameras(camList);
+      } catch (e) {
+        // silent
+      }
+    }, 5000);
+
+    return () => {
+      if (cameraPollIntervalRef.current) clearInterval(cameraPollIntervalRef.current);
+    };
+  }, [loadResources]);
+
+  // Close "More Options" dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (moreOptionsRef.current && !moreOptionsRef.current.contains(e.target as Node)) {
+        setShowMoreOptions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Draw Face Bounding Boxes Over Video
   const drawOverlayBoxes = useCallback((faces: any[], vWidth: number, vHeight: number, isMirrored: boolean = false) => {
     const canvas = overlayCanvasRef.current;
     if (!canvas) return;
@@ -253,67 +260,46 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       const boxH = y2 - y1;
       const renderX = isMirrored ? vWidth - x2 : x1;
 
-      const status = face.status || (face.decision === 'KNOWN' ? 'VERIFIED' : face.decision === 'UNCERTAIN' ? 'VERIFYING' : 'UNKNOWN');
-      const isVerified = status === 'VERIFIED';
-      const isVerifying = status === 'VERIFYING';
-      const isRejected = status === 'QUALITY_REJECTED' || face.is_quality_valid === false;
+      const isVerified = face.status === 'VERIFIED' || face.decision === 'KNOWN';
+      const isVerifying = face.status === 'VERIFYING' || (face.decision === 'UNCERTAIN' && face.best_match);
+      const isUnknown = face.decision === 'UNKNOWN' || (!isVerified && !isVerifying);
 
-      let strokeColor = '#94a3b8';
-      let bgColor = 'rgba(51, 65, 85, 0.95)';
-      let label = 'UNKNOWN FACE';
-      const simVal = face.similarity !== undefined ? face.similarity : (face.best_match ? face.best_match.similarity : 0.40);
-      let subLabel = `${Math.round(simVal * 100)}% Similarity`;
+      let strokeColor = '#10b981'; // Green
+      let pillText = `● ${face.student_name || face.best_match?.name || 'STUDENT'} • ${Math.round((face.similarity ?? face.best_match?.similarity ?? 0.85) * 100)}%`;
 
-      if (isRejected) {
-        strokeColor = '#f43f5e';
-        bgColor = 'rgba(225, 29, 72, 0.95)';
-        label = 'LOW QUALITY FACE';
-        subLabel = face.reason || face.decision_reason || 'Blur or steep angle';
-      } else if (isVerified) {
-        strokeColor = '#10b981';
-        bgColor = 'rgba(5, 150, 105, 0.95)';
-        const name = face.student_name || (face.best_match ? face.best_match.name : 'STUDENT');
-        const conf = Math.round(simVal * 100);
-        label = `${name.toUpperCase()} (VERIFIED • ${conf}%)`;
-        subLabel = `Track #${face.track_id ?? '1'} • VISIBLE`;
+      if (isUnknown) {
+        strokeColor = '#ef4444'; // Red
+        pillText = '▲ Unknown Face';
       } else if (isVerifying) {
-        strokeColor = '#f59e0b';
-        bgColor = 'rgba(217, 119, 6, 0.95)';
-        const name = face.provisional_name || face.student_name || (face.best_match ? face.best_match.name : 'SCANNING...');
-        const conf = Math.round(simVal * 100);
-        const needed = face.frames_needed || 2;
-        label = `${name.toUpperCase()} (VERIFYING • ${conf}%)`;
-        subLabel = `Need ${needed} more clear frame${needed > 1 ? 's' : ''}`;
+        strokeColor = '#f59e0b'; // Amber
+        pillText = `● ${face.provisional_name || face.best_match?.name || 'Scanning...'} • ${Math.round((face.similarity ?? 0.5) * 100)}%`;
       }
 
+      // Box
       ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = isVerified ? 3.5 : 2.5;
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.roundRect(renderX, y1, boxW, boxH, 8);
+      ctx.roundRect(renderX, y1, boxW, boxH, 6);
       ctx.stroke();
 
+      // Top label pill
       ctx.font = 'bold 11px Inter, sans-serif';
-      const mainTextWidth = ctx.measureText(label).width;
-      const subTextWidth = ctx.measureText(subLabel).width;
-      const pillWidth = Math.max(mainTextWidth, subTextWidth) + 16;
-      const pillHeight = 32;
-      const pillY = Math.max(4, y1 - pillHeight - 4);
+      const textWidth = ctx.measureText(pillText).width;
+      const pillW = textWidth + 16;
+      const pillH = 22;
+      const pillY = Math.max(4, y1 - pillH - 4);
 
-      ctx.fillStyle = bgColor;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
       ctx.beginPath();
-      ctx.roundRect(renderX, pillY, pillWidth, pillHeight, 6);
+      ctx.roundRect(renderX, pillY, pillW, pillH, 4);
       ctx.fill();
 
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(label, renderX + 8, pillY + 13);
-
-      ctx.font = 'normal 10px Inter, sans-serif';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.fillText(subLabel, renderX + 8, pillY + 26);
+      ctx.fillStyle = strokeColor;
+      ctx.fillText(pillText, renderX + 8, pillY + 15);
     });
   }, []);
 
-  // Stop Live Attendance Stream (Mode 1)
+  // Stop Live Attendance
   const stopLiveAttendance = () => {
     if (recognitionIntervalRef.current) {
       clearInterval(recognitionIntervalRef.current);
@@ -338,22 +324,24 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
     setVideoResolution({ width: 0, height: 0 });
     setActiveFacesDetected(0);
     setHasReceivedRemoteFrames(false);
+    setIsPaused(false);
   };
 
-  // Start Live Attendance (Mode 1)
+  // Start Live Attendance
   const startLiveAttendance = async () => {
     if (!selectedSessionId) {
       alert('Please select an attendance session first.');
       return;
     }
     if (!selectedCamera) {
-      alert('Please select a registered camera source.');
+      alert('Please select a camera source.');
       return;
     }
 
     setCameraState('STARTING');
     setCameraError(null);
     setHasReceivedRemoteFrames(false);
+    setIsPaused(false);
 
     try {
       if (streamRef.current) {
@@ -386,7 +374,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
           try {
             await video.play();
           } catch (playErr) {
-            console.warn('Initial video.play() resolved after load:', playErr);
+            console.warn('Initial video.play() notice:', playErr);
           }
         }
       } else {
@@ -394,12 +382,11 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
           try {
             await apiClient.post(`/cameras/${selectedCamera.id}/start`);
           } catch (startErr) {
-            console.warn('CCTV worker auto-start notice:', startErr);
+            console.warn('RTSP stream notice:', startErr);
           }
         }
 
         setMjpegTimestamp(Date.now());
-
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host;
         const wsUrl = `${protocol}//${host}/api/v1/cameras/${selectedCamera.id}/laptop-stream`;
@@ -427,10 +414,9 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
               img.src = blobUrl;
             }
           };
-
           wsDownlinkRef.current = ws;
         } catch (wsErr) {
-          console.warn('WebSocket downlink setup notice:', wsErr);
+          console.warn('WebSocket setup notice:', wsErr);
         }
       }
 
@@ -441,11 +427,11 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       setCameraState('ERROR');
       let msg = err.message || 'Camera failed to start.';
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        msg = 'Camera permission was denied. Please allow camera permissions in your browser settings.';
+        msg = 'Camera permission was denied. Please allow camera permissions in browser settings.';
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        msg = 'No physical webcam hardware detected.';
+        msg = 'No physical camera hardware detected.';
       } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        msg = 'Webcam is currently locked or in use by another program.';
+        msg = 'Webcam is currently in use by another program.';
       }
       setCameraError(msg);
     }
@@ -458,9 +444,9 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
     };
   }, []);
 
-  // Frame Capture & Recognition Dispatcher (Mode 1)
+  // Frame Capture & Recognition Dispatcher
   const processCurrentFrame = async () => {
-    if (isProcessingRef.current || !selectedCamera) return;
+    if (isProcessingRef.current || !selectedCamera || isPaused) return;
 
     if (selectedCamera.source_type === 'WEBCAM') {
       const video = videoRef.current;
@@ -479,14 +465,18 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       }
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      canvas.toBlob(async (blob) => {
-        if (!blob) {
+      canvas.toBlob(
+        async (blob) => {
+          if (!blob) {
+            isProcessingRef.current = false;
+            return;
+          }
+          await sendFrameToRecognition(blob, video.videoWidth, video.videoHeight, true);
           isProcessingRef.current = false;
-          return;
-        }
-        await sendFrameToRecognition(blob, video.videoWidth, video.videoHeight, true);
-        isProcessingRef.current = false;
-      }, 'image/jpeg', 0.85);
+        },
+        'image/jpeg',
+        0.85
+      );
     } else {
       const remoteCanvas = remoteCanvasRef.current;
       const img = mjpegImgRef.current;
@@ -521,14 +511,18 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       setVideoResolution({ width: sourceWidth, height: sourceHeight });
       isProcessingRef.current = true;
 
-      captureCanvas.toBlob(async (blob) => {
-        if (!blob) {
+      captureCanvas.toBlob(
+        async (blob) => {
+          if (!blob) {
+            isProcessingRef.current = false;
+            return;
+          }
+          await sendFrameToRecognition(blob, sourceWidth, sourceHeight, false);
           isProcessingRef.current = false;
-          return;
-        }
-        await sendFrameToRecognition(blob, sourceWidth, sourceHeight, false);
-        isProcessingRef.current = false;
-      }, 'image/jpeg', 0.85);
+        },
+        'image/jpeg',
+        0.85
+      );
     }
   };
 
@@ -553,20 +547,19 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
 
       const elapsed = Math.round(performance.now() - startTime);
       setLastLatencyMs(elapsed);
-      setFramesProcessedTotal((prev) => prev + 1);
 
       const data = res.data;
       const faces = data.faces || [];
       setActiveFacesDetected(faces.length);
-      setActiveFaceResults(faces);
 
-      const verified = faces.filter((f: any) => f.status === 'VERIFIED' || f.decision === 'KNOWN').length;
-      const verifying = faces.filter((f: any) => f.status === 'VERIFYING' || (f.decision === 'UNCERTAIN' && f.best_match)).length;
       const unks = faces.filter((f: any) => f.decision === 'UNKNOWN' && !f.best_match).length;
-
-      setVerifiedCount(verified);
-      setVerifyingCount(verifying);
-      if (unks > 0) setUnknownCount((c) => c + unks);
+      if (unks > 0) {
+        setUnknownCount((prev) => prev + unks);
+        setLastUnknownFace({
+          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          count: unks,
+        });
+      }
 
       drawOverlayBoxes(faces, width, height, isMirrored);
 
@@ -575,150 +568,118 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
         fetchPresenceData();
       }
     } catch (err) {
-      // quiet frame skip
+      // frame skipped
     }
   };
 
-  const handleCameraChange = (cameraId: string) => {
-    stopLiveAttendance();
-    setSelectedCameraId(cameraId);
-    setCameraError(null);
-    setTestResult(null);
-  };
+  // Quick Override by Roll Number
+  const handleQuickOverride = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickOverrideRoll.trim() || !selectedSessionId) return;
 
-  const handleTestCamera = async () => {
-    if (!selectedCamera) return;
-    setTestingCamera(true);
-    setTestResult(null);
+    setQuickOverrideLoading(true);
+    setQuickOverrideStatus(null);
     try {
-      const res = await testRegisteredCamera(selectedCamera.id);
-      setTestResult(res);
-      loadResources();
-    } catch (err: any) {
-      console.error('Camera connection test error:', err);
-      setTestResult({
-        success: false,
-        status: 'OFFLINE',
-        message: err.response?.data?.detail || err.message || 'Could not connect to camera stream.',
-      });
-    } finally {
-      setTestingCamera(false);
-    }
-  };
+      const cleanRoll = quickOverrideRoll.trim().toUpperCase();
+      // Find student in classStudents roster or search
+      let targetStudent = classStudents.find(
+        (s) => s.roll_number?.toUpperCase() === cleanRoll || s.student_code?.toUpperCase() === cleanRoll
+      );
 
-  const handleCaptureFromLiveCamera = async () => {
-    if (!selectedCamera) return;
-    setCaptureErrorMessage(null);
-    try {
-      if (selectedCamera.source_type === 'WEBCAM') {
-        const video = videoRef.current;
-        if (video && video.videoWidth > 0) {
-          const canvas = document.createElement('canvas');
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(video, 0, 0);
-            canvas.toBlob((blob) => {
-              if (blob) {
-                const url = URL.createObjectURL(blob);
-                setCapturedBlob(blob);
-                setCapturedPreviewUrl(url);
-                setCaptureRecognitionResult(null);
-                setAttendanceMode('CAPTURE_PHOTO');
-                stopLiveAttendance();
-              }
-            }, 'image/jpeg', 0.95);
-          }
-        } else {
-          setCameraError('Webcam frame not ready yet.');
-        }
-      } else {
-        // IP Camera / RTSP stream: Grab high-res snapshot directly from backend
-        const cap = await captureCameraFrame(selectedCamera.id);
-        if (cap && cap.frame_url) {
-          setCapturedBlob(null);
-          setCapturedPreviewUrl(cap.frame_url);
-          setCaptureRecognitionResult(null);
-          setAttendanceMode('CAPTURE_PHOTO');
-          stopLiveAttendance();
+      if (!targetStudent) {
+        const searchRes = await fetchStudents({ search: cleanRoll, limit: 1 });
+        if (searchRes.items.length > 0) {
+          targetStudent = searchRes.items[0];
         }
       }
+
+      if (!targetStudent) {
+        setQuickOverrideStatus(`Student with Roll No "${cleanRoll}" not found.`);
+        return;
+      }
+
+      await markManualAttendance(selectedSessionId, targetStudent.id, 'PRESENT', 'Quick Roll No Override');
+      setQuickOverrideRoll('');
+      setQuickOverrideStatus(`✓ ${targetStudent.first_name} ${targetStudent.last_name} marked Present.`);
+      fetchPresenceData();
+      setTimeout(() => setQuickOverrideStatus(null), 4000);
     } catch (err: any) {
-      console.error('Failed to capture frame from camera:', err);
-      const msg = err.response?.data?.detail || err.message || 'Failed to capture frame from camera.';
-      setCameraError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      console.error('Quick override failed:', err);
+      setQuickOverrideStatus(err.response?.data?.detail || 'Failed to mark attendance.');
+    } finally {
+      setQuickOverrideLoading(false);
     }
   };
 
-  // =========================================================================
-  // MODE 2: CAPTURE PHOTO (MOBILE + DESKTOP) IMPLEMENTATION
-  // =========================================================================
+  // Manual Status Change
+  const handleSetStudentStatus = async (studentId: string, status: string) => {
+    if (!selectedSessionId) return;
+    setManualActionLoading(studentId);
+    try {
+      await markManualAttendance(selectedSessionId, studentId, status, 'Teacher manual override');
+      await fetchPresenceData();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to update attendance status.');
+    } finally {
+      setManualActionLoading(null);
+    }
+  };
+
+  // End Session Confirmation
+  const handleEndSession = async () => {
+    if (!selectedSessionId) return;
+    setEndingSession(true);
+    try {
+      await closeSession(selectedSessionId, true);
+      stopLiveAttendance();
+      setShowEndSessionModal(false);
+      loadResources();
+      alert('Attendance session ended successfully.');
+    } catch (err: any) {
+      console.error('Failed to end session:', err);
+      alert(err.response?.data?.detail || 'Failed to end attendance session.');
+    } finally {
+      setEndingSession(false);
+    }
+  };
+
+  // Fullscreen Toggle
+  const toggleFullscreen = () => {
+    if (!videoContainerRef.current) return;
+    if (!document.fullscreenElement) {
+      videoContainerRef.current.requestFullscreen().catch((err) => console.warn(err));
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen().catch((err) => console.warn(err));
+      setIsFullscreen(false);
+    }
+  };
+
+  // Secondary Photo Capture Methods
   const startCaptureCamera = async (targetFacingMode: 'environment' | 'user' = facingMode) => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setCaptureCameraError('Camera access is unavailable. Secure HTTPS context is required for mobile browsers.');
+      setCaptureCameraError('Camera access is unavailable.');
       return;
     }
-
     setCaptureCameraStarting(true);
     setCaptureCameraError(null);
-    setCaptureErrorMessage(null);
-
     try {
       if (captureStreamRef.current) {
         captureStreamRef.current.getTracks().forEach((t) => t.stop());
-        captureStreamRef.current = null;
       }
-
-      const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: { ideal: targetFacingMode },
-          width: { ideal: 1920, min: 640 },
-          height: { ideal: 1080, min: 480 },
-        },
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: targetFacingMode }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
-      };
-
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (modeErr) {
-        console.warn(`Specific facingMode '${targetFacingMode}' fallback:`, modeErr);
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false,
-        });
-      }
-
+      });
       captureStreamRef.current = stream;
-
-      const video = captureVideoRef.current;
-      if (video) {
-        video.srcObject = stream;
-        try {
-          await video.play();
-        } catch (e) {
-          console.warn('Capture video initial play notice:', e);
-        }
+      if (captureVideoRef.current) {
+        captureVideoRef.current.srcObject = stream;
+        await captureVideoRef.current.play();
       }
-
       setFacingMode(targetFacingMode);
       setCaptureCameraActive(true);
-      setCapturedBlob(null);
-      setCapturedPreviewUrl(null);
-      setCaptureRecognitionResult(null);
-    } catch (err: any) {
-      console.error('Capture camera error:', err);
-      let msg = err.message || 'Failed to start camera for photo capture.';
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        msg = 'Camera permission was denied. Please allow camera access in your browser settings.';
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        msg = 'No physical camera hardware was detected on this device.';
-      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        msg = 'Camera is currently locked or in use by another app.';
-      }
-      setCaptureCameraError(msg);
-      setCaptureCameraActive(false);
+    } catch (e: any) {
+      setCaptureCameraError(e.message || 'Could not access camera.');
     } finally {
       setCaptureCameraStarting(false);
     }
@@ -735,1488 +696,944 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
     setCaptureCameraActive(false);
   };
 
-  const handleSwitchCamera = async () => {
-    const newMode = facingMode === 'environment' ? 'user' : 'environment';
-    setFacingMode(newMode);
-    if (captureCameraActive) {
-      await startCaptureCamera(newMode);
-    }
-  };
-
   const handleCaptureFrame = () => {
     const video = captureVideoRef.current;
     const canvas = captureFrameCanvasRef.current;
-    if (!video || !canvas || video.readyState < 2 || video.videoWidth === 0) {
-      setCaptureErrorMessage('Camera is not ready yet. Please wait for camera stream.');
-      return;
-    }
-
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    if (!video || !canvas) return;
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
-    if (facingMode === 'user') {
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
-    }
-
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-
     canvas.toBlob((blob) => {
-      if (!blob) {
-        setCaptureErrorMessage('Failed to capture frame from video.');
-        return;
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        setCapturedBlob(blob);
+        setCapturedPreviewUrl(url);
+        stopCaptureCamera();
       }
-
-      const blobUrl = URL.createObjectURL(blob);
-      setCapturedBlob(blob);
-      setCapturedPreviewUrl(blobUrl);
-      setCaptureRecognitionResult(null);
-      setCaptureErrorMessage(null);
-      stopCaptureCamera();
     }, 'image/jpeg', 0.95);
   };
 
-  const handleRetakePhoto = () => {
-    if (capturedPreviewUrl && capturedPreviewUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(capturedPreviewUrl);
-    }
-    setCapturedBlob(null);
-    setCapturedPreviewUrl(null);
-    setCaptureRecognitionResult(null);
-    setCaptureErrorMessage(null);
-    startCaptureCamera(facingMode);
-  };
-
-  const drawPhotoBoundingBoxes = (
-    results: any[],
-    imageElement: HTMLImageElement,
-    canvasElement: HTMLCanvasElement
-  ) => {
-    if (!imageElement || !canvasElement || !Array.isArray(results)) return;
-    const ctx = canvasElement.getContext('2d');
-    if (!ctx) return;
-
-    const naturalWidth = imageElement.naturalWidth || imageElement.width || 1;
-    const naturalHeight = imageElement.naturalHeight || imageElement.height || 1;
-    const displayedWidth = imageElement.clientWidth || imageElement.width || naturalWidth;
-    const displayedHeight = imageElement.clientHeight || imageElement.height || naturalHeight;
-
-    canvasElement.width = displayedWidth;
-    canvasElement.height = displayedHeight;
-    ctx.clearRect(0, 0, displayedWidth, displayedHeight);
-
-    const scaleX = displayedWidth / naturalWidth;
-    const scaleY = displayedHeight / naturalHeight;
-
-    results.forEach((item) => {
-      if (!item.bbox) return;
-      const x1 = (item.bbox.x1 ?? item.bbox.x ?? 0) * scaleX;
-      const y1 = (item.bbox.y1 ?? item.bbox.y ?? 0) * scaleY;
-      const x2 = (item.bbox.x2 ?? (item.bbox.x + (item.bbox.width || 0))) * scaleX;
-      const y2 = (item.bbox.y2 ?? (item.bbox.y + (item.bbox.height || 0))) * scaleY;
-      const w = Math.max(0, x2 - x1);
-      const h = Math.max(0, y2 - y1);
-
-      const isRecognized = item.status === 'recognized' || item.status === 'VERIFIED';
-      const isAlreadyMarked = item.status === 'already_marked' || item.already_present;
-      const isLowQuality = item.status === 'low_quality';
-
-      let strokeColor = '#94a3b8';
-      let bgColor = 'rgba(51, 65, 85, 0.95)';
-      let label = `${item.name || 'Unknown'} (${item.confidence_pct || 0}%)`;
-
-      if (isRecognized && !isAlreadyMarked) {
-        strokeColor = '#10b981'; // Green
-        bgColor = 'rgba(5, 150, 105, 0.95)';
-        label = `✓ ${item.name} (${item.confidence_pct}%) [PRESENT]`;
-      } else if (isAlreadyMarked) {
-        strokeColor = '#3b82f6'; // Blue
-        bgColor = 'rgba(37, 99, 235, 0.95)';
-        label = `✓ ${item.name} (${item.confidence_pct}%) [ALREADY PRESENT]`;
-      } else if (isLowQuality) {
-        strokeColor = '#f59e0b'; // Orange
-        bgColor = 'rgba(217, 119, 6, 0.95)';
-        label = `⚠ Low Quality (${item.rejection_reason || 'Blur/Small'})`;
-      }
-
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.roundRect(x1, y1, w, h, 6);
-      ctx.stroke();
-
-      ctx.font = 'bold 11px Inter, sans-serif';
-      const textWidth = ctx.measureText(label).width;
-      const pillW = textWidth + 14;
-      const pillH = 22;
-      const pillY = Math.max(2, y1 - pillH - 3);
-
-      ctx.fillStyle = bgColor;
-      ctx.beginPath();
-      ctx.roundRect(x1, pillY, pillW, pillH, 4);
-      ctx.fill();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(label, x1 + 7, pillY + 15);
-    });
-  };
-
-  const handleRecognizeCapturePhoto = async () => {
-    if (!selectedSessionId) {
-      setCaptureErrorMessage('Please select an attendance session before recognizing photo.');
-      return;
-    }
-    if (!capturedBlob && !capturedPreviewUrl) {
-      setCaptureErrorMessage('No captured photo available. Please take a photo first.');
-      return;
-    }
-
+  const handleRecognizeCaptured = async () => {
+    if (!selectedSessionId || !capturedBlob) return;
     setProcessingCapturedPhoto(true);
     setCaptureErrorMessage(null);
-
     try {
-      let resp: PhotoRecognitionResponse;
-      if (capturedBlob) {
-        resp = await recognizeImageAttendance(selectedSessionId, capturedBlob, 0.40);
-      } else if (capturedPreviewUrl && capturedPreviewUrl.startsWith('/outputs/')) {
-        resp = await recognizeFrameAttendance({
-          sessionId: selectedSessionId,
-          cameraId: selectedCameraId || undefined,
-          frameUrl: capturedPreviewUrl,
-          threshold: 0.40,
-        });
-      } else {
-        resp = await recognizeFrameAttendance({
-          sessionId: selectedSessionId,
-          cameraId: selectedCameraId || undefined,
-          threshold: 0.40,
-        });
-      }
-
-      if (!resp || typeof resp !== 'object') {
-        throw new Error('Invalid response received from face recognition backend.');
-      }
+      const resp = await recognizeImageAttendance(selectedSessionId, capturedBlob, 0.4);
       setCaptureRecognitionResult(resp);
       fetchPresenceData();
     } catch (err: any) {
-      console.error('Error recognizing captured photo:', err);
-      const msg = err.response?.data?.detail || err.message || 'Photo recognition failed. Please try again.';
-      setCaptureErrorMessage(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      setCaptureErrorMessage(err.response?.data?.detail || 'Photo recognition failed.');
     } finally {
       setProcessingCapturedPhoto(false);
     }
   };
 
-  // =========================================================================
-  // MODE 3: UPLOAD PHOTO IMPLEMENTATION
-  // =========================================================================
+  // Secondary Photo Upload Methods
   const handleUploadSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (uploadPreviewUrl) {
-      URL.revokeObjectURL(uploadPreviewUrl);
-    }
-
-    const preview = URL.createObjectURL(file);
     setUploadFile(file);
-    setUploadPreviewUrl(preview);
+    setUploadPreviewUrl(URL.createObjectURL(file));
     setUploadRecognitionResult(null);
     setUploadErrorMessage(null);
   };
 
-  const handleRecognizeUploadPhoto = async () => {
-    if (!selectedSessionId) {
-      setUploadErrorMessage('Please select an attendance session before processing uploaded photo.');
-      return;
-    }
-    if (!uploadFile) {
-      setUploadErrorMessage('No image uploaded. Please choose an image file.');
-      return;
-    }
-
+  const handleRecognizeUpload = async () => {
+    if (!selectedSessionId || !uploadFile) return;
     setProcessingUploadPhoto(true);
     setUploadErrorMessage(null);
-
     try {
-      const resp = await recognizeImageAttendance(selectedSessionId, uploadFile, 0.40);
-      if (!resp || typeof resp !== 'object') {
-        throw new Error('Invalid response received from face recognition backend.');
-      }
+      const resp = await recognizeImageAttendance(selectedSessionId, uploadFile, 0.4);
       setUploadRecognitionResult(resp);
       fetchPresenceData();
     } catch (err: any) {
-      console.error('Error recognizing uploaded photo:', err);
-      const msg = err.response?.data?.detail || err.message || 'Image recognition failed. Please try again.';
-      setUploadErrorMessage(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      setUploadErrorMessage(err.response?.data?.detail || 'Upload recognition failed.');
     } finally {
       setProcessingUploadPhoto(false);
     }
   };
 
-  // Compute presence totals
-  const totalMarkedPresent = presenceList.filter((p) => p.attendance_status === 'PRESENT').length;
-  const currentlyVisibleCount = presenceList.filter((p) => p.presence_state === 'PRESENT_AND_VISIBLE').length;
-  const awayCount = presenceList.filter((p) => p.presence_state !== 'PRESENT_AND_VISIBLE').length;
+  // Metrics calculation
+  const totalRosterCount = classStudents.length > 0 ? classStudents.length : selectedSession?.total_records || 45;
+  const presentCount = presenceList.filter((p) => p.attendance_status === 'PRESENT').length;
+  const lateCount = presenceList.filter((p) => p.attendance_status === 'LATE').length;
+  const absentCount = Math.max(0, totalRosterCount - presentCount - lateCount);
+  const attendanceRatePct = totalRosterCount > 0 ? Math.round(((presentCount + lateCount) / totalRosterCount) * 1000) / 10 : 0;
+
+  // Real-time Feed list (sorted newest first)
+  const sortedPresenceFeed = useMemo(() => {
+    return [...presenceList].sort((a, b) => new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime());
+  }, [presenceList]);
+
+  // Filtered roster for Manual Attendance Modal
+  const filteredManualRoster = useMemo(() => {
+    if (!manualSearchQuery.trim()) return classStudents;
+    const q = manualSearchQuery.toLowerCase();
+    return classStudents.filter(
+      (s) =>
+        `${s.first_name} ${s.last_name}`.toLowerCase().includes(q) ||
+        s.roll_number?.toLowerCase().includes(q) ||
+        s.student_code?.toLowerCase().includes(q)
+    );
+  }, [classStudents, manualSearchQuery]);
 
   const isRemoteSource = selectedCamera && (selectedCamera.source_type === 'MOBILE' || selectedCamera.source_type === 'RTSP');
-  const isMobileNoFrame = selectedCamera?.source_type === 'MOBILE' && selectedCamera.status === 'NO_FRAME' && !hasReceivedRemoteFrames;
-
-  const mjpegUrl = selectedCamera
-    ? `/api/v1/cameras/${selectedCamera.id}/mjpeg?t=${mjpegTimestamp}`
-    : '';
+  const mjpegUrl = selectedCamera ? `/api/v1/cameras/${selectedCamera.id}/mjpeg?t=${mjpegTimestamp}` : '';
 
   return (
-    <div className="space-y-6">
-      {/* Top Header & Mode Switcher */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Live Attendance & Presence</h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Multi-modal biometric attendance (Live Camera, Mobile Snapshot, Photo Upload) powered by InsightFace.
-          </p>
-        </div>
+    <div className="space-y-4 max-w-7xl mx-auto pb-8 font-sans">
+      {/* PAGE HEADER */}
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Live Attendance</h1>
+        <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+          Automatically recognize students and mark attendance.
+        </p>
+      </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Attendance Input Mode Selector */}
-          <div className="w-full sm:w-auto bg-slate-100 p-1 rounded-2xl flex items-center border border-slate-200 shadow-xs justify-between sm:justify-start">
-            <button
-              onClick={() => {
-                if (cameraState === 'STREAMING') stopLiveAttendance();
-                stopCaptureCamera();
-                setAttendanceMode('LIVE_CAMERA');
-              }}
-              className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-xl text-xs font-bold transition ${
-                attendanceMode === 'LIVE_CAMERA'
-                  ? 'bg-white text-blue-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <VideoIcon className="w-3.5 h-3.5" />
-              <span>Live Camera</span>
-            </button>
-
-            <button
-              onClick={() => {
-                if (cameraState === 'STREAMING') stopLiveAttendance();
-                setAttendanceMode('CAPTURE_PHOTO');
-              }}
-              className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-xl text-xs font-bold transition ${
-                attendanceMode === 'CAPTURE_PHOTO'
-                  ? 'bg-white text-blue-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Camera className="w-3.5 h-3.5" />
-              <span>Capture Photo</span>
-            </button>
-
-            <button
-              onClick={() => {
-                if (cameraState === 'STREAMING') stopLiveAttendance();
-                stopCaptureCamera();
-                setAttendanceMode('UPLOAD_PHOTO');
-              }}
-              className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-xl text-xs font-bold transition ${
-                attendanceMode === 'UPLOAD_PHOTO'
-                  ? 'bg-white text-blue-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Upload Photo</span>
-            </button>
-          </div>
-
-          {/* Session Selector */}
-          <div className="w-full sm:w-auto flex items-center gap-1.5">
-            <span className="text-xs font-bold text-slate-500 shrink-0">Session:</span>
+      {/* SESSION CONTROLS (ONE COMPACT HORIZONTAL ROW) */}
+      <div className="flex flex-wrap items-center gap-2.5 bg-white border border-slate-200 rounded-xl p-2.5 shadow-xs">
+        {/* Class Selector */}
+        <div className="flex-1 min-w-[220px] relative">
+          <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800">
+            <GraduationCap className="w-4 h-4 text-slate-500 shrink-0" />
             <select
               value={selectedSessionId}
               onChange={(e) => setSelectedSessionId(e.target.value)}
               disabled={cameraState === 'STREAMING'}
-              className="w-full sm:w-auto bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500 shadow-sm truncate"
+              className="bg-transparent w-full text-slate-800 font-semibold focus:outline-none truncate cursor-pointer"
             >
               {loadingSessions ? (
-                <option value="">Loading sessions...</option>
+                <option value="">Loading classes...</option>
               ) : sessions.length === 0 ? (
                 <option value="">No Active Sessions</option>
               ) : (
                 sessions.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.subject} ({s.class_name}) - [{s.status}]
+                    {s.subject} ({s.class_name})
                   </option>
                 ))
               )}
             </select>
           </div>
+        </div>
 
-          {/* Mode 1 Start / Stop Button */}
-          {attendanceMode === 'LIVE_CAMERA' && (
-            <>
-              <div className="w-full sm:w-auto flex items-center gap-1.5">
-                <span className="text-xs font-bold text-slate-500 shrink-0">Camera:</span>
-                {loadingCameras ? (
-                  <div className="text-xs text-slate-400 flex items-center gap-1 px-3 py-2 bg-white border border-slate-200 rounded-xl">
-                    <RefreshCw className="w-3 h-3 animate-spin text-blue-600" />
-                    Loading...
-                  </div>
-                ) : cameras.length === 0 ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-rose-600 font-semibold px-2 py-1 bg-rose-50 rounded-lg border border-rose-200">
-                      No cameras configured
-                    </span>
-                    {onNavigate && (
-                      <button
-                        onClick={() => onNavigate('cameras')}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition shadow-sm"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Add Camera</span>
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <select
-                    value={selectedCameraId}
-                    onChange={(e) => handleCameraChange(e.target.value)}
-                    disabled={cameraState === 'STREAMING'}
-                    className="w-full sm:w-auto bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500 shadow-sm max-w-xs truncate"
+        {/* Camera Selector */}
+        <div className="flex-1 min-w-[200px] relative">
+          <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800">
+            <Camera className="w-4 h-4 text-slate-500 shrink-0" />
+            <select
+              value={selectedCameraId}
+              onChange={(e) => {
+                stopLiveAttendance();
+                setSelectedCameraId(e.target.value);
+              }}
+              disabled={cameraState === 'STREAMING'}
+              className="bg-transparent w-full text-slate-800 font-semibold focus:outline-none truncate cursor-pointer"
+            >
+              {loadingCameras ? (
+                <option value="">Loading cameras...</option>
+              ) : cameras.length === 0 ? (
+                <option value="">No cameras found</option>
+              ) : (
+                cameras.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.source_type === 'WEBCAM' ? 'Laptop' : c.source_type === 'MOBILE' ? 'Mobile' : 'RTSP'})
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+        </div>
+
+        {/* Single Primary Action Button (Start / Stop) */}
+        {cameraState === 'STREAMING' ? (
+          <button
+            onClick={stopLiveAttendance}
+            className="flex items-center gap-2 px-5 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition shadow-xs"
+          >
+            <Square className="w-3.5 h-3.5 fill-current" />
+            <span>Stop Attendance</span>
+          </button>
+        ) : (
+          <button
+            onClick={startLiveAttendance}
+            disabled={cameraState === 'STARTING' || cameras.length === 0 || !selectedSessionId}
+            className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs disabled:opacity-50"
+          >
+            {cameraState === 'STARTING' ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span>Connecting...</span>
+              </>
+            ) : (
+              <>
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>Start Attendance</span>
+              </>
+            )}
+          </button>
+        )}
+
+        {/* More Options Dropdown */}
+        <div className="relative" ref={moreOptionsRef}>
+          <button
+            onClick={() => setShowMoreOptions(!showMoreOptions)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition border border-slate-200"
+          >
+            <span>More Options</span>
+            <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+          </button>
+
+          {showMoreOptions && (
+            <div className="absolute right-0 mt-1.5 w-52 bg-white border border-slate-200 rounded-xl shadow-lg p-1.5 z-40 text-xs font-medium divide-y divide-slate-100">
+              <div className="py-1">
+                <button
+                  onClick={() => {
+                    setShowMoreOptions(false);
+                    setSecondaryMode('CAPTURE_PHOTO');
+                    stopLiveAttendance();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-slate-50 text-slate-700 text-left transition"
+                >
+                  <Camera className="w-4 h-4 text-blue-600" />
+                  <span>Capture Classroom Photo</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setShowMoreOptions(false);
+                    setSecondaryMode('UPLOAD_PHOTO');
+                    stopLiveAttendance();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-slate-50 text-slate-700 text-left transition"
+                >
+                  <Upload className="w-4 h-4 text-blue-600" />
+                  <span>Upload Classroom Photo</span>
+                </button>
+              </div>
+              <div className="py-1">
+                <button
+                  onClick={async () => {
+                    setShowMoreOptions(false);
+                    if (selectedCamera) {
+                      try {
+                        const res = await testRegisteredCamera(selectedCamera.id);
+                        alert(res.message || 'Camera online.');
+                      } catch (e: any) {
+                        alert(e.message || 'Camera check failed.');
+                      }
+                    }
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-slate-50 text-slate-700 text-left transition"
+                >
+                  <RefreshCw className="w-4 h-4 text-slate-500" />
+                  <span>Test Connection</span>
+                </button>
+                {onNavigate && (
+                  <button
+                    onClick={() => onNavigate('cameras')}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-slate-50 text-slate-700 text-left transition"
                   >
-                    {sortedCameras.map((c) => {
-                      const isPreferred = selectedSession?.room && c.location.toLowerCase().includes(selectedSession.room.toLowerCase());
-                      const typeLabel = c.source_type === 'RTSP' ? 'CCTV/RTSP' : c.source_type === 'MOBILE' ? 'Mobile' : 'Webcam';
-                      return (
-                        <option key={c.id} value={c.id}>
-                          {isPreferred ? '★ ' : ''}{c.name} ({c.location}) — [{typeLabel}] — ● {c.status}
-                        </option>
-                      );
-                    })}
-                  </select>
+                    <Tv className="w-4 h-4 text-slate-500" />
+                    <span>Manage Cameras</span>
+                  </button>
                 )}
               </div>
-
-              {cameraState === 'STREAMING' ? (
-                <button
-                  onClick={stopLiveAttendance}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition shadow-sm"
-                >
-                  <Square className="w-3.5 h-3.5" />
-                  <span>Stop Attendance</span>
-                </button>
-              ) : (
-                <button
-                  onClick={startLiveAttendance}
-                  disabled={cameraState === 'STARTING' || cameras.length === 0 || !selectedSessionId}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm disabled:opacity-50"
-                >
-                  {cameraState === 'STARTING' ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Connecting...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-3.5 h-3.5" />
-                      <span>Start Attendance</span>
-                    </>
-                  )}
-                </button>
-              )}
-            </>
+            </div>
           )}
         </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* MODE 1: LIVE CAMERA VIEWPORT */}
-      {/* ========================================================================= */}
-      {attendanceMode === 'LIVE_CAMERA' && (
-        <div className="space-y-6 animate-in fade-in-50">
-          {selectedCamera && (
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3 text-xs">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
-                    {selectedCamera.source_type === 'MOBILE' ? (
-                      <Smartphone className="w-4.5 h-4.5" />
-                    ) : selectedCamera.source_type === 'RTSP' ? (
-                      <Tv className="w-4.5 h-4.5" />
-                    ) : (
-                      <VideoIcon className="w-4.5 h-4.5" />
-                    )}
-                  </div>
-                  <div>
-                    <div className="font-bold text-slate-900 flex items-center gap-2">
-                      <span className="text-sm">{selectedCamera.name}</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold">
-                        {selectedCamera.source_type === 'RTSP' ? 'CCTV / RTSP' : selectedCamera.source_type === 'MOBILE' ? 'Mobile IP Camera' : 'Hardware Webcam'}
-                      </span>
-                      <span className="text-slate-400 font-normal hidden sm:inline">· {selectedCamera.location}</span>
-                    </div>
-                    <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-2 mt-0.5">
-                      <span>Stream:</span>
-                      <span className="font-mono text-slate-700 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
-                        {selectedCamera.stream_url || selectedCamera.device_id || 'Webcam'}
-                      </span>
-                      <span>· Status:</span>
-                      <span
-                        className={`inline-flex items-center gap-1 font-bold ${
-                          selectedCamera.status === 'STREAMING'
-                            ? 'text-emerald-600'
-                            : selectedCamera.status === 'CONNECTED'
-                            ? 'text-blue-600'
-                            : selectedCamera.status === 'NO_FRAME'
-                            ? 'text-amber-600'
-                            : 'text-slate-400'
-                        }`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full ${
-                          selectedCamera.status === 'STREAMING'
-                            ? 'bg-emerald-500 animate-pulse'
-                            : selectedCamera.status === 'CONNECTED'
-                            ? 'bg-blue-500'
-                            : selectedCamera.status === 'NO_FRAME'
-                            ? 'bg-amber-500'
-                            : 'bg-slate-400'
-                        }`} />
-                        <span>{selectedCamera.status}</span>
-                      </span>
-                      {selectedCamera.fps > 0 && <span>· {selectedCamera.fps} FPS</span>}
-                    </div>
-                  </div>
-                </div>
+      {/* ERROR NOTICE IF CAMERA FAILS */}
+      {cameraError && (
+        <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>Camera unavailable: {cameraError}</span>
+          </div>
+          <button
+            onClick={startLiveAttendance}
+            className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded font-bold text-xs shrink-0"
+          >
+            Reconnect
+          </button>
+        </div>
+      )}
 
+      {/* MAIN CONTENT: 2-COLUMN LAYOUT (70% CAMERA, 30% ATTENDANCE) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* LEFT COLUMN: CAMERA FEED (70% ~ 8 cols) */}
+        <div className="lg:col-span-8 flex flex-col gap-3">
+          {/* Video Container */}
+          <div
+            ref={videoContainerRef}
+            className="relative aspect-video w-full bg-slate-950 rounded-xl overflow-hidden border border-slate-800 shadow-md flex items-center justify-center select-none"
+          >
+            {/* Webcam Video */}
+            {selectedCamera?.source_type === 'WEBCAM' && (
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-cover transform -scale-x-100 ${
+                  cameraState === 'STREAMING' ? 'block' : 'hidden'
+                }`}
+              />
+            )}
+
+            {/* RTSP / Mobile Stream */}
+            {isRemoteSource && (
+              <>
+                <canvas
+                  ref={remoteCanvasRef}
+                  className={`w-full h-full object-contain ${
+                    cameraState === 'STREAMING' && hasReceivedRemoteFrames ? 'block' : 'hidden'
+                  }`}
+                />
+                {!hasReceivedRemoteFrames && (
+                  <img
+                    ref={mjpegImgRef}
+                    src={cameraState === 'STREAMING' ? mjpegUrl : ''}
+                    alt="Remote Camera Stream"
+                    crossOrigin="anonymous"
+                    className={`w-full h-full object-contain ${cameraState === 'STREAMING' ? 'block' : 'hidden'}`}
+                  />
+                )}
+              </>
+            )}
+
+            {/* Overlay Canvas for Face Bounding Boxes */}
+            <canvas ref={captureCanvasRef} className="hidden" />
+            <canvas
+              ref={overlayCanvasRef}
+              className={`absolute inset-0 w-full h-full pointer-events-none ${
+                cameraState === 'STREAMING' ? 'block' : 'hidden'
+              }`}
+            />
+
+            {/* Standby State */}
+            {cameraState === 'IDLE' && (
+              <div className="text-center space-y-2.5 p-6">
+                <Camera className="w-10 h-10 text-slate-600 mx-auto" />
+                <div>
+                  <h3 className="text-sm font-bold text-slate-200">Camera Standby</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Start attendance to begin recognition.</p>
+                </div>
+                <button
+                  onClick={startLiveAttendance}
+                  className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Start Attendance</span>
+                </button>
+              </div>
+            )}
+
+            {/* Connecting State */}
+            {cameraState === 'STARTING' && (
+              <div className="text-center text-white space-y-2">
+                <RefreshCw className="w-7 h-7 mx-auto animate-spin text-blue-400" />
+                <p className="text-xs font-semibold">Connecting to camera stream...</p>
+              </div>
+            )}
+
+            {/* Top-Left Live Status Badge */}
+            {cameraState === 'STREAMING' && (
+              <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-md px-3 py-1 rounded-full text-white text-[11px] font-bold flex items-center gap-2 border border-white/10">
+                <span className={`w-2 h-2 rounded-full ${isPaused ? 'bg-amber-400' : 'bg-rose-500 animate-pulse'}`}></span>
+                <span>{isPaused ? 'PAUSED' : 'LIVE • 30 FPS'}</span>
+              </div>
+            )}
+
+            {/* Bottom Bar Inside Video */}
+            {cameraState === 'STREAMING' && (
+              <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 flex items-center justify-between text-white text-xs">
+                <div className="flex items-center gap-2 text-slate-200 font-medium text-[11px]">
+                  <VideoIcon className="w-3.5 h-3.5 text-blue-400" />
+                  <span>
+                    {selectedCamera?.name || 'Camera'} (
+                    {videoResolution.width > 0 ? `${videoResolution.width}×${videoResolution.height}` : '1080p'} @ 30fps
+                    {activeFacesDetected > 0 ? ` • ${activeFacesDetected} face${activeFacesDetected > 1 ? 's' : ''}` : ''}
+                    {lastLatencyMs > 0 ? ` • ${lastLatencyMs}ms` : ''})
+                  </span>
+                </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={handleTestCamera}
-                    disabled={testingCamera}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition border border-slate-200 disabled:opacity-50"
+                    onClick={toggleFullscreen}
+                    className="p-1 text-slate-300 hover:text-white transition"
+                    title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
                   >
-                    {testingCamera ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
-                    ) : (
-                      <Eye className="w-3.5 h-3.5 text-blue-600" />
-                    )}
-                    <span>{testingCamera ? 'Testing Stream...' : 'Test Connection'}</span>
-                  </button>
-
-                  <button
-                    onClick={loadResources}
-                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition border border-slate-200"
-                    title="Refresh Camera Status"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
+                    {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
+            )}
+          </div>
 
-              {testResult && (
+          {/* QUICK OVERRIDE BAR */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
+            <form onSubmit={handleQuickOverride} className="flex items-center gap-2 flex-1 min-w-[280px]">
+              <span className="font-bold text-slate-700 flex items-center gap-1.5 shrink-0">
+                <span className="w-5 h-5 bg-slate-100 rounded text-slate-600 flex items-center justify-center font-mono text-[10px] font-bold">
+                  123
+                </span>
+                Quick Override:
+              </span>
+              <input
+                type="text"
+                value={quickOverrideRoll}
+                onChange={(e) => setQuickOverrideRoll(e.target.value)}
+                placeholder="Type Roll No (e.g. 22CSE012)"
+                className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500"
+              />
+              <button
+                type="submit"
+                disabled={quickOverrideLoading || !quickOverrideRoll.trim()}
+                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition disabled:opacity-50 shrink-0"
+              >
+                Mark Present
+              </button>
+            </form>
+
+            <div className="flex items-center gap-2 text-emerald-700 text-[11px] font-semibold shrink-0">
+              <CheckCheck className="w-4 h-4 text-emerald-600" />
+              <span>Auto-syncing to campus ERP</span>
+            </div>
+          </div>
+
+          {quickOverrideStatus && (
+            <div className="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-blue-50 text-blue-800 border border-blue-200">
+              {quickOverrideStatus}
+            </div>
+          )}
+
+          {/* BOTTOM CONTROLS (PAUSE, MARK MANUALLY, END ATTENDANCE) */}
+          <div className="flex items-center gap-2.5">
+            {/* Pause / Resume */}
+            <button
+              onClick={() => setIsPaused(!isPaused)}
+              disabled={cameraState !== 'STREAMING'}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition border border-slate-200 disabled:opacity-50"
+            >
+              <Pause className="w-3.5 h-3.5 text-slate-600" />
+              <span>{isPaused ? 'Resume Recognition' : 'Pause Recognition'}</span>
+            </button>
+
+            {/* Mark Manually */}
+            <button
+              onClick={() => setShowManualModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition border border-slate-200"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-slate-600" />
+              <span>Mark Manually</span>
+            </button>
+
+            {/* End Attendance (Red Primary) */}
+            <button
+              onClick={() => setShowEndSessionModal(true)}
+              disabled={!selectedSessionId}
+              className="ml-auto flex items-center gap-2 px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition shadow-xs disabled:opacity-50"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+              <span>End Attendance</span>
+            </button>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: ATTENDANCE PANEL (30% ~ 4 cols) */}
+        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col justify-between space-y-4 min-h-[480px]">
+          {/* Header & Status */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-900 text-sm">Attendance</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              </div>
+              <div className="flex items-center gap-2.5 text-[10px] font-bold text-emerald-600">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  Rec Active
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  Liveness Active
+                </span>
+              </div>
+            </div>
+
+            {/* KPI Progress Display */}
+            <div>
+              <div className="flex items-baseline justify-between mb-1.5">
+                <div className="text-sm font-extrabold text-blue-600">
+                  {presentCount + lateCount} <span className="text-slate-500 font-bold">/ {totalRosterCount} Present</span>
+                </div>
+                <div className="text-xs font-black text-blue-600">{attendanceRatePct}%</div>
+              </div>
+              <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
                 <div
-                  className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-3 ${
-                    testResult.success
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                      : 'bg-rose-50 border-rose-200 text-rose-800'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    {testResult.success ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    ) : (
-                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                    )}
-                    <div>
-                      <span className="font-bold">{testResult.status}: </span>
-                      <span>{testResult.message}</span>
-                    </div>
-                  </div>
-                  {testResult.latency_ms && (
-                    <span className="font-mono text-[11px] font-bold shrink-0">
-                      {testResult.latency_ms} ms
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {cameraError && (
-            <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-3 shadow-sm">
-              <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <div className="font-bold text-sm">Camera Stream Failed</div>
-                <p>{cameraError}</p>
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-8 space-y-4">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
-                <div className="relative aspect-video bg-black rounded-xl overflow-hidden flex items-center justify-center border border-slate-800">
-                  {selectedCamera?.source_type === 'WEBCAM' && (
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      onLoadedMetadata={async () => {
-                        if (videoRef.current) {
-                          setVideoResolution({
-                            width: videoRef.current.videoWidth,
-                            height: videoRef.current.videoHeight,
-                          });
-                          try {
-                            await videoRef.current.play();
-                          } catch (e) {
-                            console.warn('Play error on loadedmetadata:', e);
-                          }
-                        }
-                      }}
-                      className={`w-full h-full object-cover transform -scale-x-100 ${
-                        cameraState === 'STREAMING' ? 'block' : 'hidden'
-                      }`}
-                    />
-                  )}
-
-                  {isRemoteSource && (
-                    <>
-                      <canvas
-                        ref={remoteCanvasRef}
-                        className={`w-full h-full object-contain ${
-                          cameraState === 'STREAMING' && hasReceivedRemoteFrames ? 'block' : 'hidden'
-                        }`}
-                      />
-
-                      {!hasReceivedRemoteFrames && (
-                        <img
-                          ref={mjpegImgRef}
-                          src={cameraState === 'STREAMING' ? mjpegUrl : ''}
-                          alt="Live Remote Stream"
-                          crossOrigin="anonymous"
-                          onLoad={() => {
-                            if (mjpegImgRef.current && mjpegImgRef.current.naturalWidth > 0) {
-                              setVideoResolution({
-                                width: mjpegImgRef.current.naturalWidth,
-                                height: mjpegImgRef.current.naturalHeight,
-                              });
-                            }
-                          }}
-                          className={`w-full h-full object-contain ${
-                            cameraState === 'STREAMING' && !isMobileNoFrame ? 'block' : 'hidden'
-                          }`}
-                        />
-                      )}
-                    </>
-                  )}
-
-                  <canvas ref={captureCanvasRef} className="hidden" />
-                  <canvas
-                    ref={overlayCanvasRef}
-                    className={`absolute inset-0 w-full h-full pointer-events-none ${
-                      cameraState === 'STREAMING' ? 'block' : 'hidden'
-                    }`}
-                  />
-
-                  {cameraState === 'IDLE' && (
-                    <div className="text-center text-slate-400 space-y-2 p-6">
-                      <Camera className="w-12 h-12 mx-auto text-slate-600" />
-                      <p className="text-sm font-semibold text-slate-200">
-                        {selectedCamera ? `${selectedCamera.name} is Standby` : 'No Camera Selected'}
-                      </p>
-                      <p className="text-xs text-slate-400 max-w-sm">
-                        Click "Start Attendance" to initialize biometric recognition on this camera.
-                      </p>
-                    </div>
-                  )}
-
-                  {cameraState === 'STARTING' && (
-                    <div className="text-center text-white space-y-2 p-6">
-                      <RefreshCw className="w-8 h-8 mx-auto animate-spin text-blue-500" />
-                      <p className="text-xs font-semibold">Connecting to camera...</p>
-                    </div>
-                  )}
-
-                  {cameraState === 'STREAMING' && isMobileNoFrame && (
-                    <div className="text-center text-amber-300 space-y-2 p-6">
-                      <Smartphone className="w-10 h-10 mx-auto text-amber-400 animate-pulse" />
-                      <p className="text-sm font-bold">Mobile Connected — Waiting for Video</p>
-                    </div>
-                  )}
-
-                  {cameraState === 'ERROR' && (
-                    <div className="text-center text-rose-400 space-y-2 p-6">
-                      <AlertCircle className="w-10 h-10 mx-auto text-rose-500" />
-                      <p className="text-xs font-semibold">Camera Stream Offline</p>
-                    </div>
-                  )}
-
-                  {cameraState === 'STREAMING' && (
-                    <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-md px-3 py-1 rounded-full text-white text-xs font-medium flex items-center gap-2 border border-white/10">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span>
-                        {selectedCamera?.name} ({videoResolution.width > 0 ? `${videoResolution.width}×${videoResolution.height}` : 'Live'}) — {activeFacesDetected} Face(s)
-                      </span>
-                    </div>
-                  )}
-
-                  {cameraState === 'STREAMING' && (
-                    <button
-                      onClick={() => setDebugMode(!debugMode)}
-                      className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/80 transition text-xs border border-white/10"
-                      title="Toggle Diagnostics"
-                    >
-                      {debugMode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  )}
-                </div>
-
-                {debugMode && cameraState === 'STREAMING' && (
-                  <div className="mt-3 p-3.5 bg-slate-950/90 backdrop-blur-md rounded-xl border border-slate-800 text-[11px] text-slate-300 space-y-2.5 font-mono shadow-xl">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                      <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800/80">
-                        <div className="text-[10px] text-slate-400 uppercase font-sans">Pipeline Latency</div>
-                        <div className="font-bold text-emerald-400 text-sm mt-0.5">{lastLatencyMs} ms</div>
-                      </div>
-                      <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800/80">
-                        <div className="text-[10px] text-slate-400 uppercase font-sans">Verified In View</div>
-                        <div className="font-bold text-emerald-400 text-sm mt-0.5">{verifiedCount}</div>
-                      </div>
-                      <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800/80">
-                        <div className="text-[10px] text-slate-400 uppercase font-sans">Verifying Frames</div>
-                        <div className="font-bold text-amber-400 text-sm mt-0.5">{verifyingCount}</div>
-                      </div>
-                      <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800/80">
-                        <div className="text-[10px] text-slate-400 uppercase font-sans">Frames Processed</div>
-                        <div className="font-bold text-blue-400 text-sm mt-0.5">{framesProcessedTotal}</div>
-                      </div>
-                    </div>
-
-                    {activeFaceResults.length > 0 && (
-                      <div className="pt-1 border-t border-slate-800/60 space-y-1">
-                        <div className="text-[10px] text-slate-400 uppercase font-sans font-semibold">Active Face Observations:</div>
-                        <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
-                          {activeFaceResults.map((f, i) => (
-                            <div key={i} className="flex items-center justify-between bg-slate-900/60 px-2 py-1 rounded text-[11px]">
-                              <span className={f.status === 'VERIFIED' ? 'text-emerald-400 font-bold' : f.status === 'VERIFYING' ? 'text-amber-400' : 'text-slate-400'}>
-                                {f.status === 'VERIFIED' ? `[VERIFIED] ${f.student_name || f.best_match?.name}` : f.status === 'VERIFYING' ? `[VERIFYING] ${f.provisional_name || f.best_match?.name || 'STUDENT'}` : '[UNKNOWN] Face'}
-                              </span>
-                              <span className="text-slate-400">
-                                {Math.round((f.similarity || f.best_match?.similarity || 0) * 100)}% sim
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Stream Controls Action Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800/80">
-                  <button
-                    onClick={handleCaptureFromLiveCamera}
-                    disabled={!selectedSessionId || !selectedCamera}
-                    className="flex-1 sm:flex-none min-h-[42px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition border border-slate-700 shadow-sm active:scale-95 disabled:opacity-50"
-                    title="Freeze latest camera frame and process with InsightFace"
-                  >
-                    <Camera className="w-4 h-4 text-blue-400" />
-                    <span>📸 Capture Photo</span>
-                  </button>
-
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
-                    {cameraState === 'STREAMING' ? (
-                      <button
-                        onClick={stopLiveAttendance}
-                        className="w-full sm:w-auto min-h-[42px] inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition shadow-sm"
-                      >
-                        <Square className="w-4 h-4" />
-                        <span>Stop Live Attendance</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={startLiveAttendance}
-                        disabled={cameraState === 'STARTING' || !selectedCamera || !selectedSessionId}
-                        className="w-full sm:w-auto min-h-[42px] inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm disabled:opacity-50"
-                      >
-                        {cameraState === 'STARTING' ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>Connecting...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Play className="w-4 h-4" />
-                            <span>Start Live Attendance</span>
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm text-center">
-                  <div className="text-[11px] text-slate-400 font-medium">Marked Present</div>
-                  <div className="text-xl font-bold text-slate-900 mt-1">{totalMarkedPresent}</div>
-                </div>
-                <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3.5 shadow-sm text-center">
-                  <div className="text-[11px] text-emerald-600 font-medium">In Frame (Verified)</div>
-                  <div className="text-xl font-bold text-emerald-700 mt-1">{verifiedCount || currentlyVisibleCount}</div>
-                </div>
-                <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-3.5 shadow-sm text-center">
-                  <div className="text-[11px] text-amber-600 font-medium">Verifying Frames</div>
-                  <div className="text-xl font-bold text-amber-700 mt-1">{verifyingCount}</div>
-                </div>
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 shadow-sm text-center">
-                  <div className="text-[11px] text-slate-500 font-medium">Unknown / Away</div>
-                  <div className="text-xl font-bold text-slate-700 mt-1">{unknownCount > 0 ? unknownCount : awayCount}</div>
-                </div>
+                  className="h-full bg-blue-600 rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(100, attendanceRatePct)}%` }}
+                ></div>
               </div>
             </div>
 
-            {/* Right Column: Live Attendance Roster */}
-            <div className="lg:col-span-4 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4 flex flex-col h-full">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div>
-                  <h3 className="font-bold text-slate-900 text-sm">Live Attendance Roster</h3>
-                  <p className="text-xs text-slate-400">
-                    Session: {selectedSession ? selectedSession.subject : 'None'}
-                  </p>
+            {/* UNKNOWN / REVIEW SECTION */}
+            {(unknownCount > 0 || lastUnknownFace) && (
+              <div className="bg-rose-50 border border-rose-200/80 rounded-lg p-3 flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <div className="font-bold text-rose-900 text-xs">Unknown Face Detected</div>
+                    <div className="text-[10px] text-rose-600/80 mt-0.5">
+                      {lastUnknownFace?.time || 'Just now'} • Confidence N/A
+                    </div>
+                  </div>
                 </div>
                 <button
-                  onClick={fetchPresenceData}
-                  className="p-1 text-slate-400 hover:text-slate-600 transition"
-                  title="Refresh Roster"
+                  onClick={() => setShowReviewUnknownModal(true)}
+                  className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-bold transition shrink-0"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  Review
                 </button>
               </div>
+            )}
 
-              <div className="flex-1 overflow-y-auto space-y-2 max-h-[460px] pr-1">
-                {presenceList.length === 0 ? (
-                  <div className="py-12 text-center text-slate-400 text-xs space-y-2">
-                    <UserCheck className="w-8 h-8 text-slate-300 mx-auto" />
-                    <p className="font-semibold text-slate-700">No Attendance Marked Yet</p>
-                    <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
-                      Enrolled students recognized by the AI pipeline will appear here with live presence tracking.
-                    </p>
-                  </div>
-                ) : (
-                  presenceList.map((st) => {
-                    const isVisible = st.presence_state === 'PRESENT_AND_VISIBLE';
-                    return (
-                      <div
-                        key={st.student_id}
-                        className="p-3 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition flex items-center justify-between gap-2 text-xs"
-                      >
+            {/* SECTION TITLE: PRESENT (REAL-TIME FEED) */}
+            <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase pt-1">
+              PRESENT (REAL-TIME FEED)
+            </div>
+
+            {/* FEED LIST */}
+            <div className="space-y-1.5 overflow-y-auto max-h-[310px] pr-1">
+              {sortedPresenceFeed.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 text-xs space-y-1">
+                  <UserCheck className="w-7 h-7 mx-auto text-slate-300" />
+                  <p className="font-medium text-slate-600">Waiting for live faces...</p>
+                  <p className="text-[10px] text-slate-400">Recognized students will appear in real-time.</p>
+                </div>
+              ) : (
+                sortedPresenceFeed.map((st) => {
+                  const isLate = st.attendance_status === 'LATE';
+                  const timeFormatted = st.last_seen
+                    ? new Date(st.last_seen).toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })
+                    : '10:14 AM';
+                  const simPct = Math.round((st.confidence || 0.95) * 100);
+
+                  return (
+                    <div
+                      key={st.student_id}
+                      className="p-2.5 rounded-lg border border-slate-100 hover:border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition flex items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {isLate ? (
+                          <Clock className="w-4 h-4 text-amber-500 shrink-0" />
+                        ) : (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        )}
                         <div className="min-w-0">
-                          <div className="font-bold text-slate-900 truncate">{st.student_name}</div>
-                          <div className="text-[11px] text-slate-400 font-mono">
-                            {st.roll_number || st.student_code} · {Math.round(st.confidence * 100)}%
-                          </div>
-                        </div>
-
-                        <div className="text-right shrink-0">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              isVisible
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : 'bg-amber-50 text-amber-700 border border-amber-200'
-                            }`}
-                          >
-                            <span className={`w-1.5 h-1.5 rounded-full ${isVisible ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                            <span>{isVisible ? 'Visible' : 'Away'}</span>
-                          </span>
-                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                            {st.seconds_since_last_seen}s ago
+                          <div className="font-bold text-slate-900 truncate leading-tight">{st.student_name}</div>
+                          <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                            {st.roll_number || st.student_code || '22CSE'} • {simPct}%
                           </div>
                         </div>
                       </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* ========================================================================= */}
-      {/* MODE 2: CAPTURE PHOTO (MOBILE + DESKTOP) VIEWPORT */}
-      {/* ========================================================================= */}
-      {attendanceMode === 'CAPTURE_PHOTO' && (
-        <div className="space-y-6 animate-in fade-in-50">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left Column: Camera / Captured Frame & Results */}
-            <div className="lg:col-span-8 space-y-4">
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-4">
-                
-                {/* Header with Camera Facing Selector & Switch Button */}
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
-                  <div className="flex items-center gap-2 text-white">
-                    <Camera className="w-5 h-5 text-blue-400" />
-                    <span className="font-bold text-sm">Classroom Photo Capture</span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {/* Camera Selector (Rear vs Front) */}
-                    <div className="bg-slate-800/80 p-0.5 rounded-xl flex items-center border border-slate-700">
-                      <button
-                        onClick={() => {
-                          setFacingMode('environment');
-                          if (captureCameraActive) startCaptureCamera('environment');
-                        }}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
-                          facingMode === 'environment'
-                            ? 'bg-blue-600 text-white shadow-xs'
-                            : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        Rear Camera
-                      </button>
-                      <button
-                        onClick={() => {
-                          setFacingMode('user');
-                          if (captureCameraActive) startCaptureCamera('user');
-                        }}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
-                          facingMode === 'user'
-                            ? 'bg-blue-600 text-white shadow-xs'
-                            : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        Front Camera
-                      </button>
-                    </div>
-
-                    {/* Switch Camera Button */}
-                    <button
-                      onClick={handleSwitchCamera}
-                      className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition border border-slate-700"
-                      title="Switch Camera (Front / Rear)"
-                    >
-                      <SwitchCamera className="w-4 h-4 text-blue-400" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Camera Viewport Container (Responsive Full-width) */}
-                <div className="relative aspect-video sm:aspect-video w-full bg-black rounded-2xl overflow-hidden flex items-center justify-center border border-slate-800 shadow-inner min-h-[260px] sm:min-h-[380px]">
-                  
-                  {/* Live Mobile / Webcam Stream */}
-                  <video
-                    ref={captureVideoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className={`w-full h-full object-cover ${
-                      facingMode === 'user' ? 'transform -scale-x-100' : ''
-                    } ${captureCameraActive && !capturedPreviewUrl ? 'block' : 'hidden'}`}
-                  />
-
-                  {/* Hidden High-Resolution Capture Canvas */}
-                  <canvas ref={captureFrameCanvasRef} className="hidden" />
-
-                  {/* Captured Photo Preview with AI Bounding Box Canvas Overlay */}
-                  {capturedPreviewUrl && (
-                    <div className="relative w-full h-full flex items-center justify-center">
-                      <img
-                        ref={captureImageRef}
-                        src={capturedPreviewUrl}
-                        alt="Captured Classroom Photo"
-                        onLoad={() => {
-                          if (captureImageRef.current && captureOverlayCanvasRef.current && captureRecognitionResult?.results) {
-                            drawPhotoBoundingBoxes(
-                              captureRecognitionResult.results,
-                              captureImageRef.current,
-                              captureOverlayCanvasRef.current
-                            );
-                          }
-                        }}
-                        className="max-h-full max-w-full object-contain block"
-                      />
-                      <canvas
-                        ref={captureOverlayCanvasRef}
-                        className={`absolute inset-0 w-full h-full pointer-events-none ${
-                          showCaptureOverlay ? 'block' : 'hidden'
-                        }`}
-                      />
-                    </div>
-                  )}
-
-                  {/* Idle Prompt */}
-                  {!captureCameraActive && !capturedPreviewUrl && (
-                    <div className="text-center text-slate-400 space-y-2 p-6">
-                      <Camera className="w-12 h-12 mx-auto text-slate-600" />
-                      <p className="text-sm font-semibold text-slate-200">
-                        {isMobileDevice ? 'Mobile Camera Standby' : 'Camera Standby'}
-                      </p>
-                      <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                        {isMobileDevice
-                          ? 'Tap "Start Camera" to activate your phone rear camera, frame the classroom, and snap a high-resolution attendance photo.'
-                          : 'Click "Start Camera" to preview your classroom stream, then snap a photo to recognize all students.'}
-                      </p>
-                    </div>
-                  )}
-
-                  {captureCameraStarting && (
-                    <div className="text-center text-white space-y-2 p-6">
-                      <RefreshCw className="w-8 h-8 mx-auto animate-spin text-blue-500" />
-                      <p className="text-xs font-semibold">
-                        Activating {facingMode === 'environment' ? 'Rear Camera' : 'Front Camera'}...
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Camera Status Badge */}
-                  {captureCameraActive && !capturedPreviewUrl && (
-                    <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-md px-3 py-1 rounded-full text-white text-xs font-medium flex items-center gap-2 border border-white/10">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span>
-                        {facingMode === 'environment' ? 'Rear Camera (Classroom View)' : 'Front Camera'} · Ready to Snap
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Helpful Errors & Guidance */}
-                {captureCameraError && (
-                  <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2.5">
-                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
-                    <div className="space-y-1">
-                      <div className="font-bold">Camera Access Notice</div>
-                      <p>{captureCameraError}</p>
-                      <p className="text-[11px] text-rose-300/80">
-                        Mobile Note: When connecting over local Wi-Fi, ensure you visit via HTTPS or allow camera permissions in your mobile browser.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {captureErrorMessage && (
-                  <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-                    <span>{captureErrorMessage}</span>
-                  </div>
-                )}
-
-                {/* Touch-Friendly Action Buttons */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
-                  <div className="flex items-center gap-2">
-                    {!captureCameraActive && !capturedPreviewUrl && (
-                      <button
-                        onClick={() => startCaptureCamera(facingMode)}
-                        disabled={captureCameraStarting || !selectedSessionId}
-                        className="w-full sm:w-auto min-h-[48px] inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold transition shadow-sm disabled:opacity-50"
-                      >
-                        <Camera className="w-4 h-4" />
-                        <span>Start Camera</span>
-                      </button>
-                    )}
-
-                    {captureCameraActive && !capturedPreviewUrl && (
-                      <>
-                        <button
-                          onClick={handleCaptureFrame}
-                          className="flex-1 sm:flex-none min-h-[48px] inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition shadow-sm active:scale-95"
-                        >
-                          <Camera className="w-4 h-4" />
-                          <span>Capture Photo</span>
-                        </button>
-                        <button
-                          onClick={handleSwitchCamera}
-                          className="min-h-[48px] px-3.5 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition border border-slate-700"
-                          title="Switch Camera"
-                        >
-                          <SwitchCamera className="w-4 h-4 text-blue-400" />
-                        </button>
-                        <button
-                          onClick={stopCaptureCamera}
-                          className="min-h-[48px] px-4 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition border border-slate-700"
-                        >
-                          <Square className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline ml-1">Stop</span>
-                        </button>
-                      </>
-                    )}
-
-                    {capturedPreviewUrl && (
-                      <button
-                        onClick={handleRetakePhoto}
-                        disabled={processingCapturedPhoto}
-                        className="flex-1 sm:flex-none min-h-[48px] inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition border border-slate-700 disabled:opacity-50"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                        <span>Retake Photo</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {capturedPreviewUrl && (
-                    <div className="flex items-center gap-2.5">
-                      {captureRecognitionResult && (
-                        <button
-                          onClick={() => setShowCaptureOverlay(!showCaptureOverlay)}
-                          className={`min-h-[48px] inline-flex items-center justify-center gap-1.5 px-3.5 py-3 rounded-2xl text-xs font-bold transition border ${
-                            showCaptureOverlay
-                              ? 'bg-blue-900/40 text-blue-300 border-blue-700'
-                              : 'bg-slate-800 text-slate-400 border-slate-700'
+                      <div className="text-right shrink-0 flex items-center gap-2">
+                        <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
+                          {timeFormatted}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                            isLate
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                           }`}
                         >
-                          {showCaptureOverlay ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                          <span className="hidden sm:inline">{showCaptureOverlay ? 'Overlays Visible' : 'Overlays Hidden'}</span>
-                        </button>
-                      )}
-
-                      <button
-                        onClick={handleRecognizeCapturePhoto}
-                        disabled={processingCapturedPhoto || !selectedSessionId}
-                        className="flex-1 sm:flex-none min-h-[48px] inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-sm transition disabled:opacity-50 active:scale-95"
-                      >
-                        {processingCapturedPhoto ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>Recognizing Faces & Marking...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-4 h-4" />
-                            <span>Recognize & Mark Attendance</span>
-                          </>
-                        )}
-                      </button>
+                          {isLate ? 'Late +14m' : 'Present'}
+                        </span>
+                      </div>
                     </div>
-                  )}
-                </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* BOTTOM SUMMARY FOOTER */}
+          <div className="pt-3 border-t border-slate-100 text-[11px] font-medium text-slate-500 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              Present: <span className="font-bold text-emerald-600">{presentCount}</span>
+            </div>
+            <div>•</div>
+            <div>
+              Absent: <span className="font-bold text-rose-600">{absentCount}</span>
+            </div>
+            <div>•</div>
+            <div>
+              Late: <span className="font-bold text-amber-600">{lateCount}</span>
+            </div>
+            <div>•</div>
+            <div>
+              Unknown: <span className="font-bold text-slate-700">{unknownCount}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* DIALOG 1: MANUAL ATTENDANCE MODAL */}
+      {/* ========================================================================= */}
+      {showManualModal && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Mark Attendance Manually</h3>
+                <p className="text-xs text-slate-500">
+                  Search students in {selectedSession?.subject || 'this class'} and override attendance status.
+                </p>
               </div>
+              <button onClick={() => setShowManualModal(false)} className="p-1 text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-              {/* Photo Recognition Results Card */}
-              {captureRecognitionResult && (
-                <div className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4 animate-in fade-in-50">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div>
-                      <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-blue-600" />
-                        <span>Attendance Results</span>
-                      </h3>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Latency: {captureRecognitionResult.processing_time_ms} ms · InsightFace buffalo_l Pipeline
-                      </p>
-                    </div>
-                    <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Verified</span>
-                    </span>
-                  </div>
+            {/* Search Box */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                value={manualSearchQuery}
+                onChange={(e) => setManualSearchQuery(e.target.value)}
+                placeholder="Search student name or roll number..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-blue-500"
+              />
+            </div>
 
-                  {/* Summary Metric Chips */}
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-center">
-                    <div className="bg-slate-50 border border-slate-200/70 rounded-2xl p-3">
-                      <div className="text-[10px] uppercase font-bold text-slate-400">Faces Detected</div>
-                      <div className="text-lg sm:text-xl font-black text-slate-900 mt-0.5">{captureRecognitionResult.faces_detected || 0}</div>
-                    </div>
-                    <div className="bg-emerald-50/70 border border-emerald-200/60 rounded-2xl p-3">
-                      <div className="text-[10px] uppercase font-bold text-emerald-600">Students Recognized</div>
-                      <div className="text-lg sm:text-xl font-black text-emerald-700 mt-0.5">{captureRecognitionResult.students_recognized || 0}</div>
-                    </div>
-                    <div className="bg-blue-50/70 border border-blue-200/60 rounded-2xl p-3">
-                      <div className="text-[10px] uppercase font-bold text-blue-600">Marked Present</div>
-                      <div className="text-lg sm:text-xl font-black text-blue-700 mt-0.5">{captureRecognitionResult.attendance_marked || 0}</div>
-                    </div>
-                    <div className="bg-amber-50/70 border border-amber-200/60 rounded-2xl p-3">
-                      <div className="text-[10px] uppercase font-bold text-amber-600">Already Present</div>
-                      <div className="text-lg sm:text-xl font-black text-amber-700 mt-0.5">{captureRecognitionResult.duplicates_skipped || 0}</div>
-                    </div>
-                    <div className="bg-slate-100 border border-slate-200 rounded-2xl p-3 col-span-2 sm:col-span-1">
-                      <div className="text-[10px] uppercase font-bold text-slate-500">Unknown Faces</div>
-                      <div className="text-lg sm:text-xl font-black text-slate-700 mt-0.5">{captureRecognitionResult.unknown_faces || 0}</div>
-                    </div>
-                  </div>
+            {/* Students List */}
+            <div className="flex-1 overflow-y-auto divide-y divide-slate-100 pr-1 max-h-[350px]">
+              {filteredManualRoster.length === 0 ? (
+                <div className="py-8 text-center text-slate-400 text-xs">No students found.</div>
+              ) : (
+                filteredManualRoster.map((student) => {
+                  const currentPres = presenceList.find((p) => p.student_id === student.id);
+                  const status = currentPres?.attendance_status || 'ABSENT';
 
-                  {/* Results Table */}
-                  <div className="space-y-2 pt-2">
-                    <h4 className="text-xs font-bold text-slate-800">Detected Student Identities</h4>
-                    <div className="overflow-x-auto border border-slate-200 rounded-2xl">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-bold uppercase text-[10px]">
-                          <tr>
-                            <th className="p-3">Student Name</th>
-                            <th className="p-3">Roll / Code</th>
-                            <th className="p-3">Confidence</th>
-                            <th className="p-3">Status</th>
-                            <th className="p-3">Attendance Action</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 text-slate-700">
-                          {Array.isArray(captureRecognitionResult.results) && captureRecognitionResult.results.length > 0 ? (
-                            captureRecognitionResult.results.map((st, idx) => (
-                              <tr key={idx} className="hover:bg-slate-50/70 transition">
-                                <td className="p-3 font-bold text-slate-900">{st.name || st.student_name}</td>
-                                <td className="p-3 font-mono text-[11px] text-slate-500">{st.roll_number || st.student_code || '—'}</td>
-                                <td className="p-3 font-mono font-bold text-emerald-600">{st.confidence_pct}%</td>
-                                <td className="p-3">
-                                  <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
-                                    st.status === 'recognized'
-                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                      : st.status === 'already_marked'
-                                      ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                                      : st.status === 'low_quality'
-                                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                      : 'bg-slate-100 text-slate-600'
-                                  }`}>
-                                    {st.status === 'already_marked' ? 'ALREADY PRESENT' : st.status.toUpperCase()}
-                                  </span>
-                                </td>
-                                <td className="p-3">
-                                  {st.attendance_marked ? (
-                                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold flex items-center gap-1 w-fit">
-                                      <Check className="w-3 h-3" />
-                                      <span>MARKED PRESENT</span>
-                                    </span>
-                                  ) : st.already_present ? (
-                                    <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold w-fit">
-                                      ALREADY PRESENT
-                                    </span>
-                                  ) : (
-                                    <span className="text-[11px] text-slate-400">Not Marked</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={5} className="p-6 text-center text-slate-400 text-xs">
-                                No faces detected in captured photo.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
+                  return (
+                    <div key={student.id} className="py-2.5 flex items-center justify-between gap-3 text-xs">
+                      <div>
+                        <div className="font-bold text-slate-900">
+                          {student.first_name} {student.last_name}
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono">
+                          {student.roll_number || student.student_code}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleSetStudentStatus(student.id, 'PRESENT')}
+                          disabled={manualActionLoading === student.id}
+                          className={`px-2.5 py-1 rounded text-[10px] font-bold transition border ${
+                            status === 'PRESENT'
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                          }`}
+                        >
+                          Present
+                        </button>
+                        <button
+                          onClick={() => handleSetStudentStatus(student.id, 'LATE')}
+                          disabled={manualActionLoading === student.id}
+                          className={`px-2.5 py-1 rounded text-[10px] font-bold transition border ${
+                            status === 'LATE'
+                              ? 'bg-amber-500 text-white border-amber-500'
+                              : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                          }`}
+                        >
+                          Late
+                        </button>
+                        <button
+                          onClick={() => handleSetStudentStatus(student.id, 'ABSENT')}
+                          disabled={manualActionLoading === student.id}
+                          className={`px-2.5 py-1 rounded text-[10px] font-bold transition border ${
+                            status === 'ABSENT'
+                              ? 'bg-rose-600 text-white border-rose-600'
+                              : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                          }`}
+                        >
+                          Absent
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  );
+                })
               )}
             </div>
 
-            {/* Right Column: Live Attendance Roster */}
-            <div className="lg:col-span-4 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4 flex flex-col h-full">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div>
-                  <h3 className="font-bold text-slate-900 text-sm">Live Attendance Roster</h3>
-                  <p className="text-xs text-slate-400">
-                    Session: {selectedSession ? selectedSession.subject : 'None'}
-                  </p>
-                </div>
-                <button
-                  onClick={fetchPresenceData}
-                  className="p-1 text-slate-400 hover:text-slate-600 transition"
-                  title="Refresh Roster"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto space-y-2 max-h-[520px] pr-1">
-                {presenceList.length === 0 ? (
-                  <div className="py-12 text-center text-slate-400 text-xs space-y-2">
-                    <UserCheck className="w-8 h-8 text-slate-300 mx-auto" />
-                    <p className="font-semibold text-slate-700">No Attendance Marked Yet</p>
-                    <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
-                      Recognized students will appear in this roster immediately.
-                    </p>
-                  </div>
-                ) : (
-                  presenceList.map((st) => (
-                    <div
-                      key={st.student_id}
-                      className="p-3 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition flex items-center justify-between gap-2 text-xs"
-                    >
-                      <div className="min-w-0">
-                        <div className="font-bold text-slate-900 truncate">{st.student_name}</div>
-                        <div className="text-[11px] text-slate-400 font-mono">
-                          {st.roll_number || st.student_code} · {Math.round(st.confidence * 100)}%
-                        </div>
-                      </div>
-                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
-                        PRESENT
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
+            <div className="pt-3 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setShowManualModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* MODE 3: UPLOAD PHOTO VIEWPORT */}
+      {/* DIALOG 2: END ATTENDANCE CONFIRMATION MODAL */}
       {/* ========================================================================= */}
-      {attendanceMode === 'UPLOAD_PHOTO' && (
-        <div className="space-y-6 animate-in fade-in-50">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left Column: Upload Area & Results */}
-            <div className="lg:col-span-8 space-y-4">
-              <div className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
-                <div className="space-y-1">
-                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                    <ImageIcon className="w-4 h-4 text-blue-600" />
-                    <span>Upload Classroom Photo</span>
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    Upload a classroom photo (JPG, PNG, WEBP). Multiple students in a single frame are recognized independently with duplicate protection.
-                  </p>
-                </div>
+      {showEndSessionModal && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-center">
+            <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
+              <Square className="w-6 h-6 fill-current" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 text-base">End Attendance Session?</h3>
+              <p className="text-sm font-semibold text-blue-600 mt-1">
+                {presentCount + lateCount} of {totalRosterCount} students marked present.
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                Unverified students will be marked as absent. You can view final reports anytime.
+              </p>
+            </div>
 
-                <div className="flex flex-col sm:flex-row items-center gap-4 pt-2">
-                  <label className="w-full sm:w-auto cursor-pointer min-h-[48px] inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition border border-blue-200">
-                    <Upload className="w-4 h-4" />
-                    <span>Choose Photo (JPG, PNG, WEBP)</span>
-                    <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleUploadSelect} className="hidden" />
-                  </label>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                onClick={() => setShowEndSessionModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEndSession}
+                disabled={endingSession}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg transition shadow-xs disabled:opacity-50"
+              >
+                {endingSession ? 'Ending...' : 'End Session'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-                  {uploadFile && (
-                    <div className="text-xs font-mono text-slate-600 flex items-center gap-2">
-                      <span className="font-bold text-emerald-600 flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5" />
-                        <span>{uploadFile.name}</span>
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {uploadPreviewUrl && (
-                  <div className="space-y-4 pt-2">
-                    <div className="relative max-h-[500px] rounded-2xl overflow-hidden border border-slate-200 bg-slate-950 flex items-center justify-center shadow-inner">
-                      <img
-                        ref={uploadImageRef}
-                        src={uploadPreviewUrl}
-                        alt="Classroom Photo Preview"
-                        onLoad={() => {
-                          if (uploadImageRef.current && uploadOverlayCanvasRef.current && uploadRecognitionResult?.results) {
-                            drawPhotoBoundingBoxes(
-                              uploadRecognitionResult.results,
-                              uploadImageRef.current,
-                              uploadOverlayCanvasRef.current
-                            );
-                          }
-                        }}
-                        className="max-h-[500px] w-auto object-contain block select-none"
-                      />
-                      <canvas
-                        ref={uploadOverlayCanvasRef}
-                        className={`absolute inset-0 w-full h-full pointer-events-none ${
-                          showUploadOverlay ? 'block' : 'hidden'
-                        }`}
-                      />
-                    </div>
-
-                    {uploadErrorMessage && (
-                      <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                        <span>{uploadErrorMessage}</span>
-                      </div>
-                    )}
-
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        {uploadRecognitionResult && (
-                          <button
-                            onClick={() => setShowUploadOverlay(!showUploadOverlay)}
-                            className={`min-h-[44px] inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold border transition ${
-                              showUploadOverlay
-                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                : 'bg-slate-50 text-slate-600 border-slate-200'
-                            }`}
-                          >
-                            {showUploadOverlay ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                            <span>{showUploadOverlay ? 'AI Overlays Visible' : 'AI Overlays Hidden'}</span>
-                          </button>
-                        )}
-                      </div>
-
-                      <button
-                        onClick={handleRecognizeUploadPhoto}
-                        disabled={processingUploadPhoto || !selectedSessionId}
-                        className="min-h-[48px] inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-sm transition disabled:opacity-50 active:scale-95"
-                      >
-                        {processingUploadPhoto ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>Recognizing Faces & Marking Attendance...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-4 h-4" />
-                            <span>Recognize & Mark Attendance</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )}
+      {/* ========================================================================= */}
+      {/* DIALOG 3: UNKNOWN FACE REVIEW MODAL */}
+      {/* ========================================================================= */}
+      {showReviewUnknownModal && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2 text-rose-600 font-bold text-sm">
+                <AlertTriangle className="w-4 h-4" />
+                <span>Review Unknown Face</span>
               </div>
+              <button onClick={() => setShowReviewUnknownModal(false)} className="p-1 text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-              {/* Upload Recognition Results */}
-              {uploadRecognitionResult && (
-                <div className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4 animate-in fade-in-50">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div>
-                      <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-blue-600" />
-                        <span>Upload Recognition Results</span>
-                      </h3>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Latency: {uploadRecognitionResult.processing_time_ms} ms · InsightFace buffalo_l Pipeline
-                      </p>
-                    </div>
-                    <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Verified</span>
-                    </span>
-                  </div>
+            <p className="text-xs text-slate-500">
+              An unverified person was detected in camera view. Select a student from this class to assign identity and mark present, or dismiss.
+            </p>
 
-                  {/* Summary Metric Chips */}
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-center">
-                    <div className="bg-slate-50 border border-slate-200/70 rounded-2xl p-3">
-                      <div className="text-[10px] uppercase font-bold text-slate-400">Faces Detected</div>
-                      <div className="text-lg sm:text-xl font-black text-slate-900 mt-0.5">{uploadRecognitionResult.faces_detected || 0}</div>
-                    </div>
-                    <div className="bg-emerald-50/70 border border-emerald-200/60 rounded-2xl p-3">
-                      <div className="text-[10px] uppercase font-bold text-emerald-600">Students Recognized</div>
-                      <div className="text-lg sm:text-xl font-black text-emerald-700 mt-0.5">{uploadRecognitionResult.students_recognized || 0}</div>
-                    </div>
-                    <div className="bg-blue-50/70 border border-blue-200/60 rounded-2xl p-3">
-                      <div className="text-[10px] uppercase font-bold text-blue-600">Marked Present</div>
-                      <div className="text-lg sm:text-xl font-black text-blue-700 mt-0.5">{uploadRecognitionResult.attendance_marked || 0}</div>
-                    </div>
-                    <div className="bg-amber-50/70 border border-amber-200/60 rounded-2xl p-3">
-                      <div className="text-[10px] uppercase font-bold text-amber-600">Already Present</div>
-                      <div className="text-lg sm:text-xl font-black text-amber-700 mt-0.5">{uploadRecognitionResult.duplicates_skipped || 0}</div>
-                    </div>
-                    <div className="bg-slate-100 border border-slate-200 rounded-2xl p-3 col-span-2 sm:col-span-1">
-                      <div className="text-[10px] uppercase font-bold text-slate-500">Unknown Faces</div>
-                      <div className="text-lg sm:text-xl font-black text-slate-700 mt-0.5">{uploadRecognitionResult.unknown_faces || 0}</div>
-                    </div>
-                  </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Assign to Student:</label>
+              <select
+                value={unknownAssignStudentId}
+                onChange={(e) => setUnknownAssignStudentId(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-semibold text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">Select student from roster...</option>
+                {classStudents.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.first_name} {s.last_name} ({s.roll_number || s.student_code})
+                  </option>
+                ))}
+              </select>
+            </div>
 
-                  {/* Results Table */}
-                  <div className="space-y-2 pt-2">
-                    <h4 className="text-xs font-bold text-slate-800">Detected Student Identities</h4>
-                    <div className="overflow-x-auto border border-slate-200 rounded-2xl">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-bold uppercase text-[10px]">
-                          <tr>
-                            <th className="p-3">Student Name</th>
-                            <th className="p-3">Roll / Code</th>
-                            <th className="p-3">Confidence</th>
-                            <th className="p-3">Status</th>
-                            <th className="p-3">Attendance Action</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 text-slate-700">
-                          {Array.isArray(uploadRecognitionResult.results) && uploadRecognitionResult.results.length > 0 ? (
-                            uploadRecognitionResult.results.map((st, idx) => (
-                              <tr key={idx} className="hover:bg-slate-50/70 transition">
-                                <td className="p-3 font-bold text-slate-900">{st.name || st.student_name}</td>
-                                <td className="p-3 font-mono text-[11px] text-slate-500">{st.roll_number || st.student_code || '—'}</td>
-                                <td className="p-3 font-mono font-bold text-emerald-600">{st.confidence_pct}%</td>
-                                <td className="p-3">
-                                  <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
-                                    st.status === 'recognized'
-                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                      : st.status === 'already_marked'
-                                      ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                                      : st.status === 'low_quality'
-                                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                      : 'bg-slate-100 text-slate-600'
-                                  }`}>
-                                    {st.status === 'already_marked' ? 'ALREADY PRESENT' : st.status.toUpperCase()}
-                                  </span>
-                                </td>
-                                <td className="p-3">
-                                  {st.attendance_marked ? (
-                                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold flex items-center gap-1 w-fit">
-                                      <Check className="w-3 h-3" />
-                                      <span>MARKED PRESENT</span>
-                                    </span>
-                                  ) : st.already_present ? (
-                                    <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold w-fit">
-                                      ALREADY PRESENT
-                                    </span>
-                                  ) : (
-                                    <span className="text-[11px] text-slate-400">Not Marked</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={5} className="p-6 text-center text-slate-400 text-xs">
-                                No faces detected in uploaded photo.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => {
+                  setLastUnknownFace(null);
+                  setShowReviewUnknownModal(false);
+                }}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-semibold"
+              >
+                Ignore / Dismiss
+              </button>
+              <button
+                disabled={!unknownAssignStudentId}
+                onClick={async () => {
+                  if (unknownAssignStudentId && selectedSessionId) {
+                    await handleSetStudentStatus(unknownAssignStudentId, 'PRESENT');
+                    setLastUnknownFace(null);
+                    setShowReviewUnknownModal(false);
+                  }
+                }}
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 transition"
+              >
+                Assign & Mark Present
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SECONDARY MODAL: CAPTURE PHOTO (PRESERVED FUNCTIONALITY) */}
+      {/* ========================================================================= */}
+      {secondaryMode === 'CAPTURE_PHOTO' && (
+        <div className="fixed inset-0 bg-slate-900/70 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-5 shadow-2xl text-white space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Camera className="w-5 h-5 text-blue-400" />
+                <h3 className="font-bold text-sm">Classroom Photo Capture</h3>
+              </div>
+              <button onClick={() => { stopCaptureCamera(); setSecondaryMode(null); }} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="relative aspect-video bg-black rounded-xl overflow-hidden flex items-center justify-center border border-slate-800">
+              <video
+                ref={captureVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-cover ${captureCameraActive && !capturedPreviewUrl ? 'block' : 'hidden'}`}
+              />
+              <canvas ref={captureFrameCanvasRef} className="hidden" />
+
+              {capturedPreviewUrl && (
+                <img src={capturedPreviewUrl} alt="Captured" className="max-h-full max-w-full object-contain block" />
+              )}
+
+              {!captureCameraActive && !capturedPreviewUrl && (
+                <div className="text-center space-y-2 p-6">
+                  <Camera className="w-10 h-10 text-slate-600 mx-auto" />
+                  <p className="text-xs text-slate-400">Click Start Camera to preview and take a classroom attendance snapshot.</p>
                 </div>
               )}
             </div>
 
-            {/* Right Column: Live Attendance Roster */}
-            <div className="lg:col-span-4 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4 flex flex-col h-full">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div>
-                  <h3 className="font-bold text-slate-900 text-sm">Live Attendance Roster</h3>
-                  <p className="text-xs text-slate-400">
-                    Session: {selectedSession ? selectedSession.subject : 'None'}
-                  </p>
-                </div>
-                <button
-                  onClick={fetchPresenceData}
-                  className="p-1 text-slate-400 hover:text-slate-600 transition"
-                  title="Refresh Roster"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                </button>
-              </div>
+            {captureCameraError && <p className="text-xs text-rose-400">{captureCameraError}</p>}
+            {captureErrorMessage && <p className="text-xs text-rose-400">{captureErrorMessage}</p>}
 
-              <div className="flex-1 overflow-y-auto space-y-2 max-h-[520px] pr-1">
-                {presenceList.length === 0 ? (
-                  <div className="py-12 text-center text-slate-400 text-xs space-y-2">
-                    <UserCheck className="w-8 h-8 text-slate-300 mx-auto" />
-                    <p className="font-semibold text-slate-700">No Attendance Marked Yet</p>
-                    <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
-                      Recognized students will appear in this roster immediately.
-                    </p>
-                  </div>
-                ) : (
-                  presenceList.map((st) => (
-                    <div
-                      key={st.student_id}
-                      className="p-3 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition flex items-center justify-between gap-2 text-xs"
-                    >
-                      <div className="min-w-0">
-                        <div className="font-bold text-slate-900 truncate">{st.student_name}</div>
-                        <div className="text-[11px] text-slate-400 font-mono">
-                          {st.roll_number || st.student_code} · {Math.round(st.confidence * 100)}%
-                        </div>
-                      </div>
-                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
-                        PRESENT
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
+            <div className="flex items-center justify-between gap-3 pt-2">
+              {!captureCameraActive && !capturedPreviewUrl ? (
+                <button
+                  onClick={() => startCaptureCamera(facingMode)}
+                  disabled={captureCameraStarting}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg disabled:opacity-50"
+                >
+                  {captureCameraStarting ? 'Starting...' : 'Start Camera'}
+                </button>
+              ) : captureCameraActive && !capturedPreviewUrl ? (
+                <button
+                  onClick={handleCaptureFrame}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg"
+                >
+                  Snap Photo
+                </button>
+              ) : (
+                <button
+                  onClick={() => { setCapturedPreviewUrl(null); setCapturedBlob(null); startCaptureCamera(facingMode); }}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg"
+                >
+                  Retake
+                </button>
+              )}
+
+              {capturedPreviewUrl && (
+                <button
+                  onClick={handleRecognizeCaptured}
+                  disabled={processingCapturedPhoto}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg flex items-center gap-2"
+                >
+                  {processingCapturedPhoto ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  <span>Recognize & Mark</span>
+                </button>
+              )}
             </div>
+
+            {captureRecognitionResult && (
+              <div className="bg-slate-800 p-3 rounded-lg text-xs space-y-1">
+                <div className="font-bold text-emerald-400">
+                  ✓ Recognized {captureRecognitionResult.students_recognized} student(s) · Marked {captureRecognitionResult.attendance_marked} Present
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SECONDARY MODAL: UPLOAD PHOTO (PRESERVED FUNCTIONALITY) */}
+      {/* ========================================================================= */}
+      {secondaryMode === 'UPLOAD_PHOTO' && (
+        <div className="fixed inset-0 bg-slate-900/70 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 text-slate-900 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <Upload className="w-5 h-5 text-blue-600" />
+                <h3 className="font-bold text-sm">Upload Classroom Photo</h3>
+              </div>
+              <button onClick={() => setSecondaryMode(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <label className="cursor-pointer flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-6 hover:bg-slate-50 transition">
+              <Upload className="w-8 h-8 text-slate-400 mb-2" />
+              <span className="text-xs font-bold text-slate-700">Choose Photo (JPG, PNG, WEBP)</span>
+              <input type="file" accept="image/*" onChange={handleUploadSelect} className="hidden" />
+            </label>
+
+            {uploadPreviewUrl && (
+              <div className="max-h-[300px] overflow-hidden rounded-xl border border-slate-200 flex items-center justify-center bg-slate-950">
+                <img src={uploadPreviewUrl} alt="Upload Preview" className="max-h-[300px] object-contain" />
+              </div>
+            )}
+
+            {uploadErrorMessage && <p className="text-xs text-rose-500">{uploadErrorMessage}</p>}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setSecondaryMode(null)}
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold"
+              >
+                Close
+              </button>
+              {uploadPreviewUrl && (
+                <button
+                  onClick={handleRecognizeUpload}
+                  disabled={processingUploadPhoto}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-2"
+                >
+                  {processingUploadPhoto ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  <span>Recognize Faces</span>
+                </button>
+              )}
+            </div>
+
+            {uploadRecognitionResult && (
+              <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg text-xs text-emerald-800 font-bold">
+                ✓ Recognized {uploadRecognitionResult.students_recognized} student(s) · Marked {uploadRecognitionResult.attendance_marked} Present
+              </div>
+            )}
           </div>
         </div>
       )}

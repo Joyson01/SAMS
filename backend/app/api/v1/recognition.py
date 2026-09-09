@@ -50,6 +50,8 @@ async def process_recognition_image(
             image_bytes=image_bytes,
             top_k=top_k,
             run_quality_check=run_quality_check,
+            session_id=session_id,
+            camera_id=camera_id,
         )
 
         if session_id:
@@ -74,6 +76,19 @@ async def process_recognition_image(
         return rec_res
     except ValueError as val_err:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(val_err))
+
+
+@router.post(
+    "/stream/reset",
+    summary="Reset Stream Tracking & Identity Cache",
+    description="Clears tracking state and identity cache for a given session and/or camera.",
+)
+async def reset_stream_state(
+    session_id: Optional[str] = Query(None, description="Session identifier"),
+    camera_id: Optional[str] = Query(None, description="Camera identifier"),
+):
+    cleared = RecognitionService.reset_stream_state(session_id=session_id, camera_id=camera_id)
+    return {"status": "success", "reset": cleared}
 
 
 @router.post(

@@ -22,8 +22,6 @@ class VectorMatcher:
 
     def __init__(
         self,
-        known_threshold: float = 0.58,
-        uncertain_threshold: float = 0.40,
         known_threshold: float = 0.50,
         uncertain_threshold: float = 0.35,
         margin_threshold: float = 0.05,

@@ -9,7 +9,6 @@ class FaceQualityAnalyzer:
 
     def __init__(
         self,
-        min_face_size: int = 60,
         min_face_size: int = 40,
         min_sharpness: float = 50.0,
         min_brightness: float = 40.0,

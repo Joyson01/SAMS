@@ -100,7 +100,10 @@ async def close_session(
     auto_mark_absent: bool = Query(True, description="Whether to automatically populate ABSENT records for unverified class students"),
     db: AsyncSession = Depends(get_db),
 ) -> SessionResponse:
-    return await AttendanceService.close_session(db, session_id, auto_mark_absent=auto_mark_absent)
+    res = await AttendanceService.close_session(db, session_id, auto_mark_absent=auto_mark_absent)
+    from backend.app.services.recognition_service import RecognitionService
+    RecognitionService.reset_stream_state(session_id=session_id)
+    return res
 
 
 @router.post(

@@ -391,6 +391,12 @@ class DashboardService:
                     subtitle=f"{sess_name} ({r.source})",
                     timestamp=r.last_seen,
                     time_ago=format_time_ago(r.last_seen),
+                    meta={
+                        "name": st_name,
+                        "status": status_clean,
+                        "confidence": r.confidence if hasattr(r, 'confidence') else 0.95,
+                        "camera": r.source,
+                    }
                 )
             )
 

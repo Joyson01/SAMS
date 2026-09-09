@@ -1,4 +1,6 @@
 import asyncio
+from dataclasses import dataclass, field
+import time
 from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
@@ -9,6 +11,9 @@ from sqlalchemy.orm import selectinload
 from ai_engine.base import DecisionState, RecognitionResult
 from ai_engine.pipeline.face_pipeline import FaceRecognitionPipeline
 from ai_engine.recognition.vector_matcher import EnrolledTemplate
+from ai_engine.tracking.byte_tracker import ByteFaceTracker
+from ai_engine.tracking.identity_cache import TrackIdentityCache
+from ai_engine.verification.temporal_verifier import TemporalVerifier
 from backend.app.core.logging import logger
 from backend.app.models.entities import FaceProfile, Student
 from backend.app.schemas.recognition import (
@@ -22,6 +27,70 @@ from backend.app.schemas.recognition import (
 _pipeline_instance: Optional[FaceRecognitionPipeline] = None
 _pipeline_lock = asyncio.Lock()
 _active_ai_config = AIRecognitionConfig()
+
+
+@dataclass
+class RecognitionStreamState:
+    """Encapsulates tracking, temporal verification, and identity caching state for a stream."""
+    session_id: Optional[str]
+    camera_id: Optional[str]
+    tracker: ByteFaceTracker
+    verifier: TemporalVerifier
+    identity_cache: TrackIdentityCache
+    frame_counter: int = 0
+    last_accessed: float = field(default_factory=time.time)
+
+
+_stream_states: Dict[Tuple[str, str], RecognitionStreamState] = {}
+
+
+def _get_or_create_stream_state(session_id: Optional[str], camera_id: Optional[str]) -> RecognitionStreamState:
+    """Retrieves or creates an isolated RecognitionStreamState for the given (session_id, camera_id)."""
+    now = time.time()
+
+    # Periodic cleanup of idle stream states (> 10 minutes inactive)
+    idle_keys = [
+        k for k, state in _stream_states.items()
+        if (now - state.last_accessed) > 600.0
+    ]
+    for k in idle_keys:
+        logger.info(f"Evicting idle recognition stream state for key {k}")
+        _stream_states.pop(k, None)
+
+    key = (session_id or "default", camera_id or "default")
+    if key not in _stream_states:
+        config = RecognitionService.get_config()
+        tracker = ByteFaceTracker(
+            min_hits=1,
+            max_lost_frames=15,
+            iou_threshold=0.30,
+            high_score_thresh=config.detection_confidence_threshold,
+            low_score_thresh=0.20,
+        )
+        verifier = TemporalVerifier(
+            window_size=config.window_size,
+            min_required_frames=config.min_required_frames,
+            min_consistency_ratio=0.75,
+            min_average_confidence=config.known_threshold,
+            min_liveness_threshold=0.70,
+        )
+        identity_cache = TrackIdentityCache(
+            revalidation_interval_frames=30,
+            max_lost_frames_for_cache=3,
+            cache_ttl_seconds=30.0,
+        )
+        _stream_states[key] = RecognitionStreamState(
+            session_id=session_id,
+            camera_id=camera_id,
+            tracker=tracker,
+            verifier=verifier,
+            identity_cache=identity_cache,
+        )
+        logger.info(f"Created new RecognitionStreamState for stream key {key}")
+
+    state = _stream_states[key]
+    state.last_accessed = now
+    return state
 
 
 def get_pipeline() -> FaceRecognitionPipeline:
@@ -78,8 +147,32 @@ class RecognitionService:
             det_thresh=config.detection_confidence_threshold,
         )
 
+        for state in _stream_states.values():
+            state.verifier.window_size = config.window_size
+            state.verifier.min_required_frames = config.min_required_frames
+            state.verifier.min_average_confidence = config.known_threshold
+            state.tracker.high_score_thresh = config.detection_confidence_threshold
+
         logger.info(f"Updated AI Recognition configuration: known_thresh={config.known_threshold}, liveness_mode={config.liveness_mode}")
         return _active_ai_config
+
+    @classmethod
+    def reset_stream_state(cls, session_id: Optional[str] = None, camera_id: Optional[str] = None) -> bool:
+        """Explicitly resets/clears stream tracking and identity cache state for a session or camera."""
+        key = (session_id or "default", camera_id or "default")
+        if key in _stream_states:
+            del _stream_states[key]
+            logger.info(f"Reset recognition stream state for key {key}")
+            return True
+        return False
+
+    @classmethod
+    def clear_all_stream_states(cls) -> int:
+        """Clears all active stream states."""
+        count = len(_stream_states)
+        _stream_states.clear()
+        logger.info(f"Cleared {count} recognition stream states")
+        return count
 
     @classmethod
     async def sync_gallery_from_db(cls, db: AsyncSession) -> int:
@@ -128,6 +221,8 @@ class RecognitionService:
         image_bytes: bytes,
         top_k: int = 3,
         run_quality_check: bool = True,
+        session_id: Optional[str] = None,
+        camera_id: Optional[str] = None,
     ) -> RecognitionResponse:
         """Runs face recognition on an uploaded image."""
         pipeline = get_pipeline()
@@ -142,11 +237,26 @@ class RecognitionService:
         if image is None:
             raise ValueError("Could not decode image. Please provide a valid JPEG or PNG file.")
 
-        results, latencies = pipeline.process_frame(
-            image=image,
-            run_quality_check=run_quality_check,
-            top_k=top_k,
-        )
+        is_stream = (session_id is not None) or (camera_id is not None)
+
+        async with _pipeline_lock:
+            if is_stream:
+                stream_state = _get_or_create_stream_state(session_id, camera_id)
+                results, latencies = await asyncio.to_thread(
+                    pipeline.process_tracked_frame,
+                    image=image,
+                    stream_state=stream_state,
+                    run_quality_check=run_quality_check,
+                    run_liveness_check=(_active_ai_config.liveness_mode != "OFF"),
+                    top_k=top_k,
+                )
+            else:
+                results, latencies = await asyncio.to_thread(
+                    pipeline.process_frame,
+                    image=image,
+                    run_quality_check=run_quality_check,
+                    top_k=top_k,
+                )
 
         face_dtos: List[DetectedFaceResultDTO] = []
         for r in results:
@@ -179,11 +289,14 @@ class RecognitionService:
             elif r.decision == DecisionState.KNOWN:
                 status_str = "VERIFIED"
             elif r.decision == DecisionState.UNCERTAIN:
-                status_str = "VERIFYING" if r.best_match else "UNKNOWN"
+                status_str = "VERIFYING" if (r.provisional_name or r.best_match) else "UNKNOWN"
             else:
                 status_str = "UNKNOWN"
 
-            provisional_name = r.best_match.name if r.best_match else None
+            final_status = r.status if r.status is not None else status_str
+            final_prov_name = r.provisional_name if r.provisional_name is not None else (r.best_match.name if r.best_match else None)
+            final_frames_needed = r.frames_needed if r.frames_needed is not None else (0 if final_status == "VERIFIED" else 1)
+            final_conf_history = r.confidence_history if r.confidence_history else ([round(r.best_match.similarity, 3)] if r.best_match else [])
 
             face_dtos.append(
                 DetectedFaceResultDTO(
@@ -201,11 +314,11 @@ class RecognitionService:
                     pitch=r.pose.pitch if r.pose else 0.0,
                     roll=r.pose.roll if r.pose else 0.0,
                     decision_reason=r.decision_reason,
-                    track_id=None,
-                    status=status_str,
-                    provisional_name=provisional_name,
-                    frames_needed=0 if status_str == "VERIFIED" else 1,
-                    confidence_history=[round(r.best_match.similarity, 3)] if r.best_match else [],
+                    track_id=r.track_id,
+                    status=final_status,
+                    provisional_name=final_prov_name,
+                    frames_needed=final_frames_needed,
+                    confidence_history=final_conf_history,
                     liveness_score=r.liveness_score,
                     is_live=r.is_live,
                 )

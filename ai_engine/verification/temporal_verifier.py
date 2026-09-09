@@ -50,7 +50,6 @@ class TemporalVerifier:
         window_size: int = 7,
         min_required_frames: int = 4,
         min_consistency_ratio: float = 0.75,
-        min_average_confidence: float = 0.58,
         min_average_confidence: float = 0.50,
         min_liveness_threshold: float = 0.70,
         track_expiry_seconds: float = 15.0,

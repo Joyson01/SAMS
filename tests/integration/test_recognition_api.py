@@ -60,3 +60,34 @@ async def test_recognition_api_sync_gallery(client):
     assert data["status"] == "success"
     assert "synced_templates_count" in data
 
+
+@pytest.mark.asyncio
+async def test_recognition_api_tracked_stream_and_reset(client):
+    test_img_path = WORKSPACE_ROOT / "tests" / "fixtures" / "sample_student.jpg"
+    if not test_img_path.exists():
+        pytest.skip("Test image not found")
+
+    with open(test_img_path, "rb") as f:
+        img_bytes = f.read()
+
+    # Call with session_id and camera_id to engage ByteFaceTracker and TrackIdentityCache
+    files = {"file": ("sample_student.jpg", img_bytes, "image/jpeg")}
+    url = "/api/v1/recognition/process?top_k=3&session_id=stream_test_sess&camera_id=cam_01"
+    resp = await client.post(url, files=files)
+    assert resp.status_code == 200
+    res_data = resp.json()
+    assert res_data["total_faces_detected"] >= 1
+    assert "latency_breakdown_ms" in res_data
+    assert "tracking_ms" in res_data["latency_breakdown_ms"]
+    assert "arcface_calls" in res_data["latency_breakdown_ms"]
+
+    face = res_data["faces"][0]
+    assert face["track_id"] is not None
+    assert face["status"] in ["VERIFIED", "VERIFYING", "UNKNOWN", "QUALITY_REJECTED"]
+
+    # Test stream reset endpoint
+    reset_resp = await client.post("/api/v1/recognition/stream/reset?session_id=stream_test_sess&camera_id=cam_01")
+    assert reset_resp.status_code == 200
+    assert reset_resp.json()["status"] == "success"
+    assert reset_resp.json()["reset"] is True
+

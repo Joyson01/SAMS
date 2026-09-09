@@ -111,12 +111,14 @@ class VideoRecognitionPipeline:
         t_track_end = time.perf_counter()
         latencies["tracking_ms"] = round((t_track_end - t_track_start) * 1000.0, 2)
 
-        results: List[TrackedRecognitionResult] = []
+        results: List[Optional[TrackedRecognitionResult]] = [None] * len(tracked_faces)
         embedding_time = 0.0
         matching_time = 0.0
         liveness_time = 0.0
 
-        for trk in tracked_faces:
+        valid_tracks_info: List[Tuple[int, TrackedFace, QualityMetrics, PoseEstimate, Any, np.ndarray]] = []
+
+        for idx, trk in enumerate(tracked_faces):
             # Check if track is occluded or missing landmarks
             if trk.is_occluded or trk.landmarks is None:
                 # Face is occluded / predicted by Kalman filter
@@ -127,28 +129,26 @@ class VideoRecognitionPipeline:
                     is_occluded=True,
                     liveness_score=1.0,
                 )
-                results.append(
-                    TrackedRecognitionResult(
-                        track_id=trk.track_id,
-                        bbox=trk.bbox,
-                        state="OCCLUDED",
-                        decision=v_res.decision,
-                        is_confirmed=v_res.is_confirmed,
-                        confirmed_student_id=v_res.confirmed_student_id,
-                        confirmed_code=v_res.confirmed_code,
-                        confirmed_roll=v_res.confirmed_roll,
-                        confirmed_name=v_res.confirmed_name,
-                        average_similarity=v_res.average_similarity,
-                        current_similarity=0.0,
-                        is_live=True,
-                        liveness_score=1.0,
-                        votes_count=v_res.votes_count,
-                        total_valid_frames=v_res.total_valid_frames,
-                        is_occluded=True,
-                        quality=None,
-                        pose=None,
-                        decision_reason=f"Track occluded/interpolated; {v_res.reason}",
-                    )
+                results[idx] = TrackedRecognitionResult(
+                    track_id=trk.track_id,
+                    bbox=trk.bbox,
+                    state="OCCLUDED",
+                    decision=v_res.decision,
+                    is_confirmed=v_res.is_confirmed,
+                    confirmed_student_id=v_res.confirmed_student_id,
+                    confirmed_code=v_res.confirmed_code,
+                    confirmed_roll=v_res.confirmed_roll,
+                    confirmed_name=v_res.confirmed_name,
+                    average_similarity=v_res.average_similarity,
+                    current_similarity=0.0,
+                    is_live=True,
+                    liveness_score=1.0,
+                    votes_count=v_res.votes_count,
+                    total_valid_frames=v_res.total_valid_frames,
+                    is_occluded=True,
+                    quality=None,
+                    pose=None,
+                    decision_reason=f"Track occluded/interpolated; {v_res.reason}",
                 )
                 continue
 
@@ -164,28 +164,26 @@ class VideoRecognitionPipeline:
                     is_occluded=False,
                     liveness_score=1.0,
                 )
-                results.append(
-                    TrackedRecognitionResult(
-                        track_id=trk.track_id,
-                        bbox=trk.bbox,
-                        state=trk.state,
-                        decision=v_res.decision,
-                        is_confirmed=v_res.is_confirmed,
-                        confirmed_student_id=v_res.confirmed_student_id,
-                        confirmed_code=v_res.confirmed_code,
-                        confirmed_roll=v_res.confirmed_roll,
-                        confirmed_name=v_res.confirmed_name,
-                        average_similarity=v_res.average_similarity,
-                        current_similarity=0.0,
-                        is_live=False,
-                        liveness_score=0.0,
-                        votes_count=v_res.votes_count,
-                        total_valid_frames=v_res.total_valid_frames,
-                        is_occluded=False,
-                        quality=quality,
-                        pose=pose,
-                        decision_reason=f"Quality rejected: {quality.rejection_reason}",
-                    )
+                results[idx] = TrackedRecognitionResult(
+                    track_id=trk.track_id,
+                    bbox=trk.bbox,
+                    state=trk.state,
+                    decision=v_res.decision,
+                    is_confirmed=v_res.is_confirmed,
+                    confirmed_student_id=v_res.confirmed_student_id,
+                    confirmed_code=v_res.confirmed_code,
+                    confirmed_roll=v_res.confirmed_roll,
+                    confirmed_name=v_res.confirmed_name,
+                    average_similarity=v_res.average_similarity,
+                    current_similarity=0.0,
+                    is_live=False,
+                    liveness_score=0.0,
+                    votes_count=v_res.votes_count,
+                    total_valid_frames=v_res.total_valid_frames,
+                    is_occluded=False,
+                    quality=quality,
+                    pose=pose,
+                    decision_reason=f"Quality rejected: {quality.rejection_reason}",
                 )
                 continue
 
@@ -194,30 +192,36 @@ class VideoRecognitionPipeline:
             liv_res = self.liveness_detector.predict(image, trk.bbox, trk.landmarks)
             liveness_time += (time.perf_counter() - t_liv_start) * 1000.0
 
-            # 5. Face Alignment & Embedding
-            t_emb_start = time.perf_counter()
+            # 5. Face Alignment
             aligned_crop = self.aligner.align(image, trk.landmarks)
-            embedding = self.embedder.extract_from_crop(aligned_crop)
-            embedding_time += (time.perf_counter() - t_emb_start) * 1000.0
+            valid_tracks_info.append((idx, trk, quality, pose, liv_res, aligned_crop))
 
-            # 6. Vector Similarity Search
-            t_match_start = time.perf_counter()
-            _, best_match, _, _ = self.matcher.match(embedding, top_k=2)
-            matching_time += (time.perf_counter() - t_match_start) * 1000.0
+        # Batch ArcFace Embedding for all valid tracked faces
+        if valid_tracks_info:
+            aligned_crops = [info[5] for info in valid_tracks_info]
+            t_emb_start = time.perf_counter()
+            embeddings = self.embedder.extract_batch(aligned_crops)
+            embedding_time = (time.perf_counter() - t_emb_start) * 1000.0
 
-            # 7. Temporal Multi-Frame Verification
-            v_res = self.verifier.add_observation(
-                track_id=trk.track_id,
-                match=best_match,
-                is_valid_quality=True,
-                is_occluded=False,
-                liveness_score=liv_res.liveness_score,
-            )
+            for i, (idx, trk, quality, pose, liv_res, _) in enumerate(valid_tracks_info):
+                embedding = embeddings[i]
+                # 6. Vector Similarity Search
+                t_match_start = time.perf_counter()
+                _, best_match, _, _ = self.matcher.match(embedding, top_k=2)
+                matching_time += (time.perf_counter() - t_match_start) * 1000.0
 
-            current_sim = best_match.similarity if best_match else 0.0
+                # 7. Temporal Multi-Frame Verification
+                v_res = self.verifier.add_observation(
+                    track_id=trk.track_id,
+                    match=best_match,
+                    is_valid_quality=True,
+                    is_occluded=False,
+                    liveness_score=liv_res.liveness_score,
+                )
 
-            results.append(
-                TrackedRecognitionResult(
+                current_sim = best_match.similarity if best_match else 0.0
+
+                results[idx] = TrackedRecognitionResult(
                     track_id=trk.track_id,
                     bbox=trk.bbox,
                     state=trk.state,
@@ -244,7 +248,6 @@ class VideoRecognitionPipeline:
                     pose=pose,
                     decision_reason=v_res.reason,
                 )
-            )
 
         latencies["liveness_ms"] = round(liveness_time, 2)
         latencies["embedding_ms"] = round(embedding_time, 2)

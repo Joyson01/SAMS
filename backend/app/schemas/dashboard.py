@@ -75,6 +75,7 @@ class DashboardActivityItem(BaseModel):
     subtitle: str
     timestamp: datetime
     time_ago: str
+    meta: Optional[Dict[str, Any]] = None
 
 
 class DashboardExceptionItem(BaseModel):

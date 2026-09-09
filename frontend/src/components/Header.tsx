@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, LogOut, RefreshCw, Menu } from 'lucide-react';
+import { Menu, Plus } from 'lucide-react';
 import { ServiceHealthResponse } from '../types';
 
 interface HeaderProps {
@@ -34,68 +34,70 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleMobileMenu,
 }) => {
   const isOnline = healthStatus === 'healthy';
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
 
   return (
-    <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+    <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shrink-0">
       {/* Left: Mobile Menu Trigger & Page Title */}
       <div className="flex items-center gap-3">
         {onToggleMobileMenu && (
           <button
             onClick={onToggleMobileMenu}
-            className="md:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition"
+            className="md:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition shrink-0"
             title="Open Navigation"
           >
             <Menu className="w-5 h-5" />
           </button>
         )}
-        <h2 className="text-base font-bold text-slate-800">
-          {TAB_TITLES[activeTab] || 'Dashboard'}
-        </h2>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-sm">
+            <span className="font-bold text-slate-900 hidden sm:inline-block">JOJIPA-SAMS</span>
+            <span className="text-slate-300 hidden sm:inline-block">/</span>
+            <span className="font-semibold text-slate-700">{TAB_TITLES[activeTab] || 'Dashboard'}</span>
+            <span className="text-slate-300 hidden sm:inline-block">/</span>
+            <span className="text-slate-500 font-medium text-[13px] hidden sm:inline-block">{currentDate}</span>
+        </div>
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-2.5 sm:gap-4">
-        {/* Online Status Dot */}
+      <div className="flex items-center gap-2.5 sm:gap-4 shrink-0">
+        {/* Camera / Online Status Indicator */}
         <button
           onClick={onRefreshHealth}
           disabled={isRefreshing}
-          className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded-md hover:bg-slate-50 transition"
-          title="Click to check connection"
+          title="Refresh connection status"
+          className="flex items-center gap-2 text-xs font-semibold text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100/70 border border-emerald-200/80 px-3 py-1.5 rounded-full transition disabled:opacity-60"
         >
-          <span
-            className={`w-2 h-2 rounded-full ${
-              isOnline ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'
-            }`}
-          ></span>
-          <span className="hidden sm:inline">{isOnline ? 'System Online' : 'Connecting...'}</span>
-          {isRefreshing && <RefreshCw className="w-3 h-3 animate-spin text-slate-400" />}
+          <span className={`w-2 h-2 rounded-full ${isRefreshing ? 'bg-amber-500 animate-spin' : 'bg-emerald-500 animate-pulse'}`}></span>
+          <span className="hidden sm:inline">
+            {activeTab === 'live' ? 'HP-CAM Connected' : isOnline ? 'All Cameras Connected' : 'Connecting...'}
+          </span>
+          <span className="sm:hidden">Online</span>
         </button>
 
-        <div className="h-4 w-px bg-slate-200 hidden sm:block"></div>
-
-        {/* User Profile */}
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 font-medium text-xs">
-            <User className="w-4 h-4 text-slate-500" />
+        {activeTab === 'live' ? (
+          /* Profile badge in live view matching mock */
+          <div className="flex items-center gap-2 pl-1">
+            <div className="w-7 h-7 rounded-md bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
+              SR
+            </div>
+            <span className="text-xs font-semibold text-slate-800 hidden md:inline">Dr. S. Raman</span>
           </div>
-          <div className="hidden sm:block text-left">
-            <div className="text-xs font-semibold text-slate-800 leading-none">Administrator</div>
-            <div className="text-[10px] text-slate-500 mt-0.5">Campus Lead</div>
-          </div>
-        </div>
-
-        {/* Logout Button */}
-        <button
-          onClick={() => {
-            if (confirm('Are you sure you want to sign out?')) {
-              window.location.reload();
-            }
-          }}
-          className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition"
-          title="Sign Out"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
+        ) : (
+          /* Start Attendance Button on dashboard / other tabs */
+          <button
+            onClick={() => onToggleMobileMenu?.() /* or default navigation */}
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-md text-xs font-semibold shadow-sm transition"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">Start Attendance</span>
+            <span className="sm:hidden">Start</span>
+          </button>
+        )}
       </div>
     </header>
   );

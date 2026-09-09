@@ -93,4 +93,9 @@ class RecognitionResult:
     is_live: bool = True
     liveness_score: float = 1.0
     decision_reason: str = ""
+    track_id: Optional[int] = None
+    status: Optional[str] = None
+    provisional_name: Optional[str] = None
+    frames_needed: int = 0
+    confidence_history: List[float] = field(default_factory=list)
 
