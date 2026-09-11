@@ -22,11 +22,27 @@ def get_db_path() -> Path:
     return DB_PATH
 
 
+import threading
+
+_thread_local = threading.local()
+
+
 def _get_connection() -> sqlite3.Connection:
-    """Returns a direct SQLite connection to the primary database."""
+    """Returns a thread-local cached SQLite connection with WAL mode for better concurrency."""
+    conn = getattr(_thread_local, 'connection', None)
+    if conn is not None:
+        try:
+            conn.execute("SELECT 1")
+            return conn
+        except Exception:
+            conn = None
+
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(DB_PATH), timeout=10.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    _thread_local.connection = conn
     return conn
 
 
@@ -50,7 +66,6 @@ def get_all_students() -> Dict[str, str]:
             mapping[s_id] = full_name
             if s_code:
                 mapping[s_code] = full_name
-        conn.close()
     except Exception as e:
         logger.warning(f"Error querying student list from SQLite: {e}")
 
@@ -70,7 +85,6 @@ def get_student_details(identifier: str) -> Optional[Dict[str, Any]]:
             (identifier, identifier),
         )
         row = cursor.fetchone()
-        conn.close()
         if row:
             return {
                 "id": str(row["id"]),
@@ -102,7 +116,6 @@ def is_marked_present(student_id: str, session_id: str) -> bool:
             (session_id, resolved_st_id),
         )
         row = cursor.fetchone()
-        conn.close()
         
         if not row:
             return False
@@ -121,7 +134,7 @@ def mark_attendance(
     source: str = "MEDIA_IMAGE",
     remarks: str = "Marked via InsightFace Recognition",
 ) -> Dict[str, Any]:
-    """Marks attendance record for a student in a session with duplicate protection."""
+    """Marks attendance record for a student in a session with atomic UPSERT duplicate protection."""
     if not DB_PATH.is_file() or not session_id:
         return {"success": False, "error": "Database not initialized or invalid session"}
 
@@ -130,44 +143,14 @@ def mark_attendance(
         conn = _get_connection()
         cursor = conn.cursor()
 
-        # Resolve student ID
+        # Resolve student ID (still needed for student_code lookups)
         cursor.execute("SELECT id, first_name, last_name, student_code, roll_number FROM students WHERE id = ? OR student_code = ?", (student_id, student_id))
         st_row = cursor.fetchone()
         if not st_row:
-            conn.close()
             return {"success": False, "error": f"Student '{student_id}' not found"}
 
         resolved_st_id = str(st_row["id"])
         st_name = f"{st_row['first_name']} {st_row['last_name']}".strip()
-
-        # Check existing attendance record
-        cursor.execute(
-            "SELECT id, status FROM attendance_records WHERE session_id = ? AND student_id = ?",
-            (session_id, resolved_st_id),
-        )
-        existing = cursor.fetchone()
-        if existing:
-            existing_status = existing["status"]
-            # Upgrade status to PRESENT if previously REVIEW_REQUIRED
-            if existing_status == "REVIEW_REQUIRED" and status == "PRESENT":
-                cursor.execute(
-                    "UPDATE attendance_records SET status = ?, last_seen = ?, confidence = ?, updated_at = ? WHERE id = ?",
-                    (status, now_iso, float(confidence), now_iso, existing["id"]),
-                )
-            else:
-                cursor.execute(
-                    "UPDATE attendance_records SET last_seen = ?, confidence = MAX(confidence, ?), updated_at = ? WHERE id = ?",
-                    (now_iso, float(confidence), now_iso, existing["id"]),
-                )
-            conn.commit()
-            conn.close()
-            return {
-                "success": True,
-                "alreadyPresent": True,
-                "attendanceMarked": False,
-                "studentId": resolved_st_id,
-                "studentName": st_name,
-            }
 
         rec_id = str(uuid.uuid4())
         meta_json = json.dumps({
@@ -176,11 +159,22 @@ def mark_attendance(
             "engine": "insightface_buffalo_l",
             "timestamp": now_iso,
         })
+
+        # Atomic UPSERT: INSERT new record or UPDATE existing one
+        # Uses the unique constraint on (session_id, student_id)
         cursor.execute(
             """
             INSERT INTO attendance_records
             (id, session_id, student_id, status, source, first_seen, last_seen, confidence, liveness_score, verification_metadata, remarks, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id, student_id) DO UPDATE SET
+                last_seen = excluded.last_seen,
+                confidence = MAX(attendance_records.confidence, excluded.confidence),
+                updated_at = excluded.updated_at,
+                status = CASE
+                    WHEN attendance_records.status = 'REVIEW_REQUIRED' AND excluded.status = 'PRESENT' THEN 'PRESENT'
+                    ELSE attendance_records.status
+                END
             """,
             (
                 rec_id,
@@ -198,15 +192,22 @@ def mark_attendance(
                 now_iso,
             ),
         )
+
+        was_insert = cursor.rowcount == 1 and cursor.lastrowid is not None
+        # Check if this was a true insert or an update by seeing if our rec_id exists
+        cursor.execute("SELECT id FROM attendance_records WHERE session_id = ? AND student_id = ?", (session_id, resolved_st_id))
+        row = cursor.fetchone()
+        is_new = (row and str(row["id"]) == rec_id)
+
         conn.commit()
-        conn.close()
         return {
             "success": True,
-            "alreadyPresent": False,
-            "attendanceMarked": True,
+            "alreadyPresent": not is_new,
+            "attendanceMarked": is_new,
             "studentId": resolved_st_id,
             "studentName": st_name,
         }
     except Exception as e:
         logger.error(f"Error marking attendance: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
+

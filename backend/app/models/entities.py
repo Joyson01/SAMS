@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -241,6 +242,10 @@ class AttendanceSession(Base):
     camera_ids: Mapped[List[str]] = mapped_column(JSON_TYPE, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
+
+    __table_args__ = (
+        Index('ix_session_class_date_status', 'class_name', 'scheduled_date', 'status'),
+    )
 
     # Relationships
     creator = relationship("User", back_populates="sessions")

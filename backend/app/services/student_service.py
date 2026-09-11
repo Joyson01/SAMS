@@ -71,9 +71,36 @@ class StudentService:
         result = await db.execute(query)
         students = result.scalars().all()
 
+        # Batch-aggregate attendance metrics for students on this page in ONE query (eliminates N+1)
+        attendance_stats: Dict[str, Tuple[float, int, int]] = {}
+        if students:
+            from backend.app.models.entities import AttendanceRecord
+            from sqlalchemy import case
+            st_ids = [s.id for s in students]
+            stats_q = (
+                select(
+                    AttendanceRecord.student_id,
+                    func.count(AttendanceRecord.id).label("total"),
+                    func.sum(case((AttendanceRecord.status.in_(["PRESENT", "MANUAL_PRESENT", "LATE"]), 1), else_=0)).label("present_plus_late"),
+                    func.sum(case((AttendanceRecord.status.in_(["PRESENT", "MANUAL_PRESENT"]), 1), else_=0)).label("present_only"),
+                )
+                .where(AttendanceRecord.student_id.in_(st_ids))
+                .group_by(AttendanceRecord.student_id)
+            )
+            stats_res = await db.execute(stats_q)
+            for sid, tot_cnt, p_l, p_only in stats_res.all():
+                tot_val = tot_cnt or 0
+                rate = round(float(p_l or 0) / tot_val * 100.0, 1) if tot_val > 0 else 0.0
+                attendance_stats[str(sid)] = (rate, tot_val, int(p_only or 0))
+
         items = []
         for s in students:
             sample_cnt = len(s.face_profiles) if s.face_profiles else 0
+            stat = attendance_stats.get(str(s.id))
+            rate_val = stat[0] if stat else None
+            tot_val = stat[1] if stat else None
+            pres_val = stat[2] if stat else None
+
             student_resp = StudentResponse(
                 id=s.id,
                 student_code=s.student_code,
@@ -88,6 +115,9 @@ class StudentService:
                 enrollment_status=s.enrollment_status,
                 avatar_url=s.avatar_url,
                 sample_count=sample_cnt,
+                attendance_rate_pct=rate_val,
+                total_sessions=tot_val,
+                present_sessions=pres_val,
                 created_at=s.created_at,
                 updated_at=s.updated_at,
             )
@@ -357,6 +387,13 @@ class StudentService:
         db.add(audit)
         await db.commit()
 
+        # Invalidate/re-sync in-memory gallery cache so deleted student is immediately purged from matcher
+        try:
+            from backend.app.services.recognition_service import RecognitionService
+            await RecognitionService.sync_gallery_from_db(db)
+        except Exception as sync_err:
+            logger.warning(f"Could not auto-sync gallery after deleting student {student_id}: {sync_err}")
+
         logger.info(f"Deleted student {student_id} ({old_values['name']})")
         return True
 
@@ -429,4 +466,12 @@ class StudentService:
         await db.commit()
         await db.refresh(profile)
         logger.info(f"Added face profile for student {student.student_code} ({profile.pose_type})")
+
+        # Invalidate & re-sync in-memory gallery cache so newly enrolled student is immediately recognized
+        try:
+            from backend.app.services.recognition_service import RecognitionService
+            await RecognitionService.sync_gallery_from_db(db)
+        except Exception as sync_err:
+            logger.warning(f"Could not auto-sync gallery after face enrollment: {sync_err}")
+
         return profile

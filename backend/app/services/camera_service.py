@@ -34,6 +34,10 @@ _frame_lock = threading.Lock()
 _camera_subscribers: Dict[str, set] = {}
 _subscriber_lock = threading.Lock()
 
+# Throttling configuration for DB heartbeats
+_last_db_heartbeat: Dict[str, float] = {}
+_HEARTBEAT_DB_INTERVAL_SEC = 2.0
+
 
 class CameraNotFoundError(SAMSException):
     def __init__(self, camera_id: str):
@@ -180,15 +184,37 @@ class CameraService:
         now_ts = time.perf_counter()
 
         if frame is not None:
-            with _frame_lock:
-                _latest_frame_cache[camera_id] = (frame.copy(), now_ts)
+            ret, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+            if ret:
+                with _frame_lock:
+                    _latest_frame_cache[camera_id] = (jpeg.tobytes(), now_ts)
 
-        camera = await db.get(Camera, camera_id)
-        if camera:
-            camera.last_frame_at = now
-            camera.last_heartbeat = now
-            camera.status = "STREAMING"
-            await db.commit()
+        last_db_ts = _last_db_heartbeat.get(camera_id, 0.0)
+        if now_ts - last_db_ts >= _HEARTBEAT_DB_INTERVAL_SEC:
+            camera = await db.get(Camera, camera_id)
+            if camera:
+                camera.last_frame_at = now
+                camera.last_heartbeat = now
+                camera.status = "STREAMING"
+                await db.commit()
+                _last_db_heartbeat[camera_id] = now_ts
+
+    @classmethod
+    def get_cached_jpeg(cls, camera_id: str) -> Optional[bytes]:
+        """Retrieves latest frame as JPEG bytes directly from memory without re-encoding."""
+        with _frame_lock:
+            cached = _latest_frame_cache.get(camera_id)
+            if cached is not None:
+                return cached[0]
+
+        worker = _active_camera_workers.get(camera_id)
+        if worker and worker.is_connected:
+            frame, _ = worker.get_latest_frame()
+            if frame is not None:
+                ret, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                if ret:
+                    return jpeg.tobytes()
+        return None
 
     @classmethod
     def get_cached_frame(cls, camera_id: str) -> Optional[np.ndarray]:
@@ -200,11 +226,12 @@ class CameraService:
             if frame is not None:
                 return frame
 
-        # Check in-memory frame cache (for mobile, webcam, or video feeds)
+        # Check in-memory frame cache (stored as compressed JPEG to save ~98% memory)
         with _frame_lock:
             cached = _latest_frame_cache.get(camera_id)
             if cached is not None:
-                return cached[0].copy()
+                nparr = np.frombuffer(cached[0], np.uint8)
+                return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         return None
 
     @classmethod

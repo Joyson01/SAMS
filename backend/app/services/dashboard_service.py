@@ -70,20 +70,25 @@ class DashboardService:
         # ==========================================
         # 1. STUDENTS METRICS
         # ==========================================
-        students_q = select(Student).where(Student.status == "ACTIVE")
-        students_res = await db.execute(students_q)
-        all_students = students_res.scalars().all()
-        total_students = len(all_students)
+        # Aggregated in SQL directly to avoid loading thousands of Student ORM objects into memory
+        metrics_q = select(
+            func.count(Student.id),
+            func.sum(case((Student.enrollment_status == "ENROLLED", 1), else_=0)),
+            func.sum(case((Student.enrollment_status.in_(["NOT_ENROLLED", "PARTIAL"]), 1), else_=0)),
+        ).where(Student.status == "ACTIVE")
+        m_res = await db.execute(metrics_q)
+        tot_cnt, enr_cnt, pend_cnt = m_res.one()
+        total_students = tot_cnt or 0
+        enrolled_students = enr_cnt or 0
+        pending_enrollment = pend_cnt or 0
 
-        enrolled_students = sum(1 for s in all_students if s.enrollment_status == "ENROLLED")
-        pending_enrollment = sum(
-            1 for s in all_students if s.enrollment_status in ["NOT_ENROLLED", "PARTIAL"]
-        )
-
-        # Class roster counts lookup: class_name -> count
+        # Class roster counts aggregated via SQL GROUP BY
         class_roster_counts: Dict[str, int] = {}
-        for s in all_students:
-            class_roster_counts[s.class_name] = class_roster_counts.get(s.class_name, 0) + 1
+        roster_q = select(Student.class_name, func.count(Student.id)).where(Student.status == "ACTIVE").group_by(Student.class_name)
+        roster_res = await db.execute(roster_q)
+        for c_name, count_val in roster_res.all():
+            if c_name:
+                class_roster_counts[c_name] = count_val
 
         # ==========================================
         # 2. TODAY'S SESSIONS & ATTENDANCE

@@ -133,11 +133,28 @@ class ByteFaceTracker:
                 self._last_landmarks[self.trackers[actual_trk_idx].id] = low_dets[det_idx].landmarks
                 unmatched_trks_1.remove(actual_trk_idx)
 
-        # 5. Create new trackers for unmatched high-score detections
+        # 5. Create new trackers for unmatched high-score detections, provided they do not overlap an existing tracker
         for det_idx in unmatched_dets_1:
-            trk = KalmanBoxTracker(high_boxes[det_idx])
-            self.trackers.append(trk)
-            self._last_landmarks[trk.id] = high_dets[det_idx].landmarks
+            det_box = high_boxes[det_idx]
+            has_overlap = False
+            for trk in self.trackers:
+                tb = trk.get_state()[:4]
+                iou_val = calculate_iou_matrix(det_box[None, :], tb[None, :])[0, 0]
+                if iou_val >= 0.30:
+                    has_overlap = True
+                    # If this tracker was unmatched and overlaps, update it instead of spawning a duplicate
+                    if trk.time_since_update > 0:
+                        trk.update(det_box)
+                        self._last_landmarks[trk.id] = high_dets[det_idx].landmarks
+                    break
+
+            if not has_overlap:
+                trk = KalmanBoxTracker(det_box)
+                self.trackers.append(trk)
+                self._last_landmarks[trk.id] = high_dets[det_idx].landmarks
+
+        # 5b. Inter-tracker duplicate suppression (suppress redundant tracks tracking the same face)
+        self._suppress_duplicate_trackers(iou_thresh=0.35)
 
         # 6. Build and filter output TrackedFace list
         tracked_faces: List[TrackedFace] = []
@@ -154,12 +171,13 @@ class ByteFaceTracker:
             else:
                 state_str = "TENTATIVE"
 
-            # Check if tracker should be preserved or dropped
+            # Check if tracker should be preserved in memory for re-association
             if trk.time_since_update <= self.max_lost_frames:
                 surviving_trackers.append(trk)
 
-                # Return active tracks
-                if trk.hits >= self.min_hits or self.frame_count <= self.min_hits:
+                # Return active tracks ONLY if actively detected in the current frame (time_since_update == 0)
+                # Lost/occluded tracks are held internally in surviving_trackers but not emitted to avoid ghost boxes
+                if not is_occluded and (trk.hits >= self.min_hits or self.frame_count <= self.min_hits):
                     bbox = BoundingBox(
                         x1=float(x1),
                         y1=float(y1),
@@ -186,6 +204,32 @@ class ByteFaceTracker:
 
         self.trackers = surviving_trackers
         return tracked_faces
+
+    def _suppress_duplicate_trackers(self, iou_thresh: float = 0.35) -> None:
+        """Suppresses redundant overlapping trackers in self.trackers that track the same physical face."""
+        if len(self.trackers) <= 1:
+            return
+
+        boxes = np.array([t.get_state()[:4] for t in self.trackers], dtype=np.float32)
+        iou_mat = calculate_iou_matrix(boxes, boxes)
+
+        # Priority order: actively updated first (time_since_update == 0), then highest hits, then lower ID
+        order = sorted(
+            range(len(self.trackers)),
+            key=lambda i: (self.trackers[i].time_since_update, -self.trackers[i].hits, self.trackers[i].id),
+        )
+
+        keep_indices = set(range(len(self.trackers)))
+        for i in order:
+            if i not in keep_indices:
+                continue
+            for j in list(keep_indices):
+                if i != j and iou_mat[i, j] >= iou_thresh:
+                    keep_indices.discard(j)
+                    self._last_landmarks.pop(self.trackers[j].id, None)
+
+        self.trackers = [self.trackers[idx] for idx in range(len(self.trackers)) if idx in keep_indices]
+
 
     def _associate_detections_to_trackers(
         self,

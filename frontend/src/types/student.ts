@@ -12,6 +12,9 @@ export interface Student {
   enrollment_status: 'NOT_ENROLLED' | 'PARTIAL' | 'ENROLLED';
   avatar_url?: string | null;
   sample_count: number;
+  attendance_rate_pct?: number | null;
+  total_sessions?: number | null;
+  present_sessions?: number | null;
   created_at: string;
   updated_at: string;
 }

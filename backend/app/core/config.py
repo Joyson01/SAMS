@@ -54,6 +54,20 @@ class Settings(BaseSettings):
     ENROLLMENT_IMAGE_DIR: str = "./data/enrollment_images"
     KNOWN_THRESHOLD: float = 0.65
     REVIEW_THRESHOLD: float = 0.55
+    FACE_MATCH_THRESHOLD: float = 0.65
+    MIN_FACE_SIZE: int = 40
+
+    # Real-Time Video & Streaming Pipeline Performance Knobs
+    RECOGNITION_FPS: float = 5.0
+    RECOGNITION_WIDTH: int = 640
+    RECOGNITION_HEIGHT: int = 360
+    JPEG_QUALITY: int = 80
+    MAX_CAMERAS: int = 16
+    MAX_WORKERS: int = 4
+    FRAME_QUEUE_SIZE: int = 2
+    CACHE_TTL_SECONDS: float = 30.0
+    ONNX_THREADS: int = 4
+    AI_PROVIDER: str = "CPUExecutionProvider"
 
     model_config = SettingsConfigDict(
         env_file=".env",

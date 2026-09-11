@@ -256,6 +256,11 @@ async def get_camera_frame(
     camera_id: str,
     db: AsyncSession = Depends(get_db),
 ):
+    # Try zero-copy compressed JPEG cache first
+    cached_jpeg = CameraService.get_cached_jpeg(camera_id)
+    if cached_jpeg is not None:
+        return Response(content=cached_jpeg, media_type="image/jpeg")
+
     cam_model = await db.get(Camera, camera_id)
     frame = await asyncio.to_thread(CameraService.capture_camera_frame, camera_id, camera_obj=cam_model)
     if frame is None:
@@ -322,29 +327,26 @@ async def get_camera_mjpeg_stream(
     db: AsyncSession = Depends(get_db),
 ):
     async def mjpeg_generator():
-        # Yield initial blank frame to immediately establish HTTP multipart streaming connection
-        cached = CameraService.get_cached_frame(camera_id)
-        if cached is not None:
-            ret, jpeg = cv2.imencode(".jpg", cached, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-        else:
+        # Yield initial frame to immediately establish HTTP multipart streaming connection
+        cached_bytes = CameraService.get_cached_jpeg(camera_id)
+        if cached_bytes is None:
             blank = np.zeros((360, 480, 3), dtype=np.uint8)
             ret, jpeg = cv2.imencode(".jpg", blank, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+            cached_bytes = jpeg.tobytes() if ret else None
 
-        if ret:
+        if cached_bytes:
             yield (
                 b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + cached_bytes + b"\r\n"
             )
 
         while True:
-            frame = CameraService.get_cached_frame(camera_id)
-            if frame is not None:
-                ret, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-                if ret:
-                    yield (
-                        b"--frame\r\n"
-                        b"Content-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n"
-                    )
+            jpeg_bytes = CameraService.get_cached_jpeg(camera_id)
+            if jpeg_bytes is not None:
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + jpeg_bytes + b"\r\n"
+                )
             await asyncio.sleep(0.066)  # ~15 FPS
 
     return StreamingResponse(
@@ -363,6 +365,7 @@ async def mobile_camera_websocket_uplink(
     """Real-time binary frame ingestion transport over WebSocket from phone browser."""
     await websocket.accept()
     from backend.app.database.session import AsyncSessionLocal
+    from backend.app.services.recognition_service import RecognitionService, _get_or_create_stream_state
     import json
 
     # Validate pairing and set camera streaming
@@ -378,6 +381,79 @@ async def mobile_camera_websocket_uplink(
             camera.status = "STREAMING"
             await db.commit()
 
+    # Create tracked stream state for this connection (enables identity cache + temporal verification)
+    stream_state = _get_or_create_stream_state(session_id, camera_id)
+
+    # Long-lived DB session for heartbeat & ingestion (B6+C3 fix)
+    db_session = AsyncSessionLocal()
+    frame_queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+    is_running = True
+    worker_task: Optional[asyncio.Task] = None
+
+    async def _recognition_worker():
+        while is_running:
+            try:
+                img = await frame_queue.get()
+            except asyncio.CancelledError:
+                break
+
+            try:
+                pipeline = get_pipeline()
+                if pipeline.matcher.total_templates == 0:
+                    async with AsyncSessionLocal() as sync_db:
+                        await RecognitionService.sync_gallery_from_db(sync_db)
+
+                # Use process_tracked_frame with identity cache — ~10x fewer ArcFace calls
+                results, _ = await asyncio.to_thread(
+                    pipeline.process_tracked_frame,
+                    image=img,
+                    stream_state=stream_state,
+                    run_quality_check=True,
+                    run_liveness_check=False,
+                    top_k=3,
+                )
+
+                pending_matches = [
+                    r for r in results if r.decision.value == "KNOWN" and r.best_match
+                ]
+                if pending_matches:
+                    try:
+                        async with AsyncSessionLocal() as mark_db:
+                            for r in pending_matches:
+                                try:
+                                    await AttendanceService.mark_attendance(
+                                        db=mark_db,
+                                        session_id=session_id,
+                                        payload=AttendanceMarkPayload(
+                                            student_id=r.best_match.student_id,
+                                            camera_id=camera_id,
+                                            confidence=r.best_match.similarity,
+                                            liveness_score=r.liveness_score,
+                                            track_id=r.track_id,
+                                            remarks=f"Mobile camera ({r.best_match.confidence_pct:.1f}%)",
+                                        ),
+                                    )
+                                except Exception:
+                                    pass
+                            await mark_db.commit()
+                    except Exception as e:
+                        logger.error(f"Mobile attendance batch marking error: {e}")
+
+                await websocket.send_text(
+                    json.dumps({
+                        "type": "telemetry",
+                        "faces_detected": len(results),
+                        "recognized": [r.best_match.name for r in results if r.best_match and r.decision.value == "KNOWN"],
+                    })
+                )
+            except Exception as e:
+                logger.debug(f"Mobile recognition worker iteration exception: {e}")
+            finally:
+                frame_queue.task_done()
+
+    if session_id:
+        worker_task = asyncio.create_task(_recognition_worker())
+
     try:
         while True:
             # Receive binary frame payload (JPEG buffer)
@@ -385,46 +461,40 @@ async def mobile_camera_websocket_uplink(
             nparr = np.frombuffer(frame_bytes, np.uint8)
             image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-            if image is not None:
-                async with AsyncSessionLocal() as db:
-                    await CameraService.record_frame_received(db, camera_id, frame=image)
-                    # Broadcast frame to connected desktop viewers in real time
-                    await CameraService.broadcast_frame(camera_id, frame_bytes)
+            if image is None:
+                continue
 
-                    # If session is active, run recognition pipeline
-                    if session_id:
-                        pipeline = get_pipeline()
-                        if pipeline.matcher.total_templates == 0:
-                            await RecognitionService.sync_gallery_from_db(db)
+            await CameraService.record_frame_received(db_session, camera_id, frame=image)
+            # Broadcast frame to connected desktop viewers in real time
+            await CameraService.broadcast_frame(camera_id, frame_bytes)
 
-                        results, _ = pipeline.process_frame(image)
-                        for r in results:
-                            if r.decision.value == "KNOWN" and r.best_match:
-                                try:
-                                    await AttendanceService.mark_attendance(
-                                        db=db,
-                                        session_id=session_id,
-                                        payload=AttendanceMarkPayload(
-                                            student_id=r.best_match.student_id,
-                                            camera_id=camera_id,
-                                            confidence=r.best_match.similarity,
-                                            liveness_score=r.liveness_score,
-                                            remarks=f"Mobile camera ({r.best_match.confidence_pct:.1f}%)",
-                                        ),
-                                    )
-                                except Exception:
-                                    pass
+            # If session is active, push to bounded recognition queue (drop stale frame if busy)
+            if session_id:
+                try:
+                    frame_queue.get_nowait()
+                    frame_queue.task_done()
+                except asyncio.QueueEmpty:
+                    pass
+                await frame_queue.put(image)
 
-                        await websocket.send_text(
-                            json.dumps({
-                                "type": "telemetry",
-                                "faces_detected": len(results),
-                                "recognized": [r.best_match.name for r in results if r.best_match and r.decision.value == "KNOWN"],
-                            })
-                        )
     except (WebSocketDisconnect, Exception):
         pass
     finally:
+        is_running = False
+        if worker_task:
+            worker_task.cancel()
+            try:
+                await worker_task
+            except asyncio.CancelledError:
+                pass
+
+        # Cleanup stream state and DB session
+        RecognitionService.reset_stream_state(session_id=session_id, camera_id=camera_id)
+        try:
+            await db_session.commit()
+        except Exception:
+            await db_session.rollback()
+        await db_session.close()
         async with AsyncSessionLocal() as db:
             await CameraService.set_camera_offline(db, camera_id, status_label="DISCONNECTED")
 
@@ -491,7 +561,17 @@ async def process_mobile_frame(
     if pipeline.matcher.total_templates == 0:
         await RecognitionService.sync_gallery_from_db(db)
 
-    results, _ = pipeline.process_frame(image)
+    # Use tracked pipeline for identity cache benefits even on HTTP endpoint
+    from backend.app.services.recognition_service import _get_or_create_stream_state
+    stream_state = _get_or_create_stream_state(session_id, camera_id)
+    results, _ = await asyncio.to_thread(
+        pipeline.process_tracked_frame,
+        image=image,
+        stream_state=stream_state,
+        run_quality_check=True,
+        run_liveness_check=False,
+        top_k=3,
+    )
 
     attendance_events = []
     for r in results:

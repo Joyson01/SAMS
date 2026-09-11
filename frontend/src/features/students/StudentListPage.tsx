@@ -148,18 +148,40 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       setTotal(listRes.total);
       setTotalPages(listRes.total_pages);
 
-      // Fetch attendance history for each student asynchronously
+      // Populate attendance map directly from batch-aggregated backend metrics (eliminates N+1 API calls!)
       const historyMap: Record<string, StudentAttendanceHistoryResponse> = {};
-      await Promise.all(
-        listRes.items.map(async (st) => {
-          try {
-            const hist = await fetchStudentAttendanceHistory(st.id);
-            historyMap[st.id] = hist;
-          } catch {
-            // quiet fallback
-          }
-        })
-      );
+      const missingAttendanceStudentIds: string[] = [];
+
+      listRes.items.forEach((st) => {
+        if (st.attendance_rate_pct !== undefined && st.attendance_rate_pct !== null) {
+          historyMap[st.id] = {
+            student_id: st.id,
+            total_sessions: st.total_sessions || 0,
+            present_sessions: st.present_sessions || 0,
+            late_sessions: 0,
+            absent_sessions: 0,
+            excused_sessions: 0,
+            attendance_rate_pct: st.attendance_rate_pct,
+            records: [],
+          };
+        } else {
+          missingAttendanceStudentIds.push(st.id);
+        }
+      });
+
+      // Only fetch individually if the backend did not provide batch aggregated stats
+      if (missingAttendanceStudentIds.length > 0) {
+        await Promise.all(
+          missingAttendanceStudentIds.map(async (id) => {
+            try {
+              const hist = await fetchStudentAttendanceHistory(id);
+              historyMap[id] = hist;
+            } catch {
+              // quiet fallback
+            }
+          })
+        );
+      }
       setAttendanceMap(historyMap);
     } catch (err) {
       console.error('Failed to load students:', err);

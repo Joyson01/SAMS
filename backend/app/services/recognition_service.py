@@ -20,12 +20,14 @@ from backend.app.schemas.recognition import (
     AIRecognitionConfig,
     CandidateDTO,
     DetectedFaceResultDTO,
+    DetectionDiagnosticDTO,
     RecognitionResponse,
     ThresholdsConfig,
 )
 
 _pipeline_instance: Optional[FaceRecognitionPipeline] = None
-_pipeline_lock = asyncio.Lock()
+_gallery_lock = asyncio.Lock()  # Protects gallery rebuild during sync_gallery_from_db
+_stream_locks: Dict[Tuple[str, str], asyncio.Lock] = {}  # Per-stream locks for tracked pipelines
 _active_ai_config = AIRecognitionConfig()
 
 
@@ -208,7 +210,7 @@ class RecognitionService:
                 )
                 templates.append(template)
 
-        async with _pipeline_lock:
+        async with _gallery_lock:
             pipeline.load_gallery(templates)
 
         logger.info(f"Synchronized gallery index: {len(templates)} templates across {pipeline.matcher.total_students} students.")
@@ -239,8 +241,12 @@ class RecognitionService:
 
         is_stream = (session_id is not None) or (camera_id is not None)
 
-        async with _pipeline_lock:
-            if is_stream:
+        if is_stream:
+            # Per-stream lock to protect mutable stream_state (tracker, verifier, identity_cache)
+            stream_key = (session_id or "default", camera_id or "default")
+            if stream_key not in _stream_locks:
+                _stream_locks[stream_key] = asyncio.Lock()
+            async with _stream_locks[stream_key]:
                 stream_state = _get_or_create_stream_state(session_id, camera_id)
                 results, latencies = await asyncio.to_thread(
                     pipeline.process_tracked_frame,
@@ -250,13 +256,14 @@ class RecognitionService:
                     run_liveness_check=(_active_ai_config.liveness_mode != "OFF"),
                     top_k=top_k,
                 )
-            else:
-                results, latencies = await asyncio.to_thread(
-                    pipeline.process_frame,
-                    image=image,
-                    run_quality_check=run_quality_check,
-                    top_k=top_k,
-                )
+        else:
+            # Single image processing is stateless — no lock needed
+            results, latencies = await asyncio.to_thread(
+                pipeline.process_frame,
+                image=image,
+                run_quality_check=run_quality_check,
+                top_k=top_k,
+            )
 
         face_dtos: List[DetectedFaceResultDTO] = []
         for r in results:
@@ -331,12 +338,20 @@ class RecognitionService:
             "liveness_mode": _active_ai_config.liveness_mode,
         }
 
+        debug_telemetry = DetectionDiagnosticDTO(
+            raw_count=int(getattr(pipeline.detector, "last_raw_count", len(results))),
+            nms_count=int(getattr(pipeline.detector, "last_nms_count", len(results))),
+            tracks_count=len(stream_state.tracker.trackers) if is_stream else len(results),
+            recognized_count=sum(1 for r in results if r.decision == DecisionState.KNOWN and r.best_match),
+        )
+
         return RecognitionResponse(
             total_faces_detected=len(results),
             faces=face_dtos,
             latency_breakdown_ms=latencies,
             thresholds_applied=thresholds,
             index_student_count=pipeline.matcher.total_students,
+            debug_telemetry=debug_telemetry,
         )
 
     @classmethod

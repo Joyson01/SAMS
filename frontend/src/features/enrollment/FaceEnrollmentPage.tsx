@@ -219,7 +219,11 @@ export const FaceEnrollmentPage: React.FC<FaceEnrollmentPageProps> = ({
     const canvas = captureCanvasRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    setFrameDimensions({ w: video.videoWidth, h: video.videoHeight });
+    setFrameDimensions((prev) =>
+      prev.w === video.videoWidth && prev.h === video.videoHeight
+        ? prev
+        : { w: video.videoWidth, h: video.videoHeight }
+    );
 
     const ctx = canvas.getContext('2d');
     if (!ctx) {
@@ -244,34 +248,44 @@ export const FaceEnrollmentPage: React.FC<FaceEnrollmentPageProps> = ({
         });
 
         const elapsed = Math.round(performance.now() - tStart);
-        setDetectorLatencyMs(elapsed);
+        if (debugMode) {
+          setDetectorLatencyMs(elapsed);
+        }
         fpsCounterRef.current += 1;
 
         const data = res.data;
         const faces: DetectedFaceData[] = data.faces || [];
-        setDetectedFaces(faces);
+        if (debugMode) {
+          setDetectedFaces(faces);
+        }
 
         drawBoundingBoxes(faces, video.videoWidth, video.videoHeight);
 
+        let nextGuidance = '';
+        let nextType: 'neutral' | 'success' | 'warning' = 'neutral';
+
         if (faces.length === 0) {
-          setLiveGuidance('Face not detected — position face clearly in frame');
-          setGuidanceType('warning');
+          nextGuidance = 'Face not detected — position face clearly in frame';
+          nextType = 'warning';
         } else if (faces.length > 1) {
-          setLiveGuidance(`Multiple faces (${faces.length}) detected — ensure only 1 student is in view`);
-          setGuidanceType('warning');
+          nextGuidance = `Multiple faces (${faces.length}) detected — ensure only 1 student is in view`;
+          nextType = 'warning';
         } else {
           const f = faces[0];
           if (!f.is_valid) {
-            setLiveGuidance(f.rejection_reason || 'Hold steady for clear sample');
-            setGuidanceType('warning');
+            nextGuidance = f.rejection_reason || 'Hold steady for clear sample';
+            nextType = 'warning';
           } else if (!f.pose.is_frontal && sampleCount === 0) {
-            setLiveGuidance(`Face angle steep (${f.pose.pose_type}) — turn towards camera`);
-            setGuidanceType('warning');
+            nextGuidance = `Face angle steep (${f.pose.pose_type}) — turn towards camera`;
+            nextType = 'warning';
           } else {
-            setLiveGuidance('Good sample detected — click capture');
-            setGuidanceType('success');
+            nextGuidance = 'Good sample detected — click capture';
+            nextType = 'success';
           }
         }
+
+        setLiveGuidance((prev) => (prev === nextGuidance ? prev : nextGuidance));
+        setGuidanceType((prev) => (prev === nextType ? prev : nextType));
       } catch (err) {
         // quiet background frame error
       } finally {

@@ -93,6 +93,8 @@ class FaceRecognitionService:
     _embeddings: Dict[str, np.ndarray] = {}
     _student_names: Dict[str, str] = {}
     _last_embeddings_load_time: float = 0.0
+    _gallery_matrix_cache: Optional[np.ndarray] = None
+    _gallery_ids_cache: Optional[List[str]] = None
 
     def __new__(cls) -> "FaceRecognitionService":
         if cls._instance is None:
@@ -101,19 +103,11 @@ class FaceRecognitionService:
         return cls._instance
 
     def _initialize_engine(self) -> None:
-        """Initializes FaceAnalysis buffalo_l model with CPUExecutionProvider."""
-        root_dir = _get_insightface_root()
-        logger.info(f"[FaceRecognitionService] Initializing InsightFace buffalo_l at {root_dir}...")
-        self._app = FaceAnalysis(
-            name="buffalo_l",
-            root=root_dir,
-            providers=["CPUExecutionProvider"],
-        )
-        self._app.prepare(
-            ctx_id=-1,
-            det_size=(640, 640),
-        )
-        logger.info("[FaceRecognitionService] InsightFace buffalo_l prepared and ready.")
+        """Initializes FaceRecognitionService by reusing the canonical FaceRecognitionPipeline (eliminates duplicate model loading)."""
+        logger.info("[FaceRecognitionService] Initializing as compatibility wrapper over FaceRecognitionPipeline...")
+        from backend.app.services.recognition_service import get_pipeline
+        pipeline = get_pipeline()
+        self._app = pipeline.detector._app
         self.load_embeddings(force_reload=True)
 
     @property
@@ -191,6 +185,8 @@ class FaceRecognitionService:
 
         self._embeddings = loaded
         self._last_embeddings_load_time = time.time()
+        self._gallery_matrix_cache = None
+        self._gallery_ids_cache = None
         return self._embeddings
 
     def compare_embedding(
@@ -219,11 +215,23 @@ class FaceRecognitionService:
         best_id: Optional[str] = None
         best_sim: float = 0.0
 
-        for st_id, enrolled_emb in stored_embeddings.items():
-            sim = float(np.dot(query_emb_normalized, enrolled_emb))
-            if sim > best_sim:
-                best_sim = sim
-                best_id = st_id
+        use_cache = (stored_embeddings is self._embeddings)
+        
+        if use_cache:
+            if self._gallery_matrix_cache is None or self._gallery_ids_cache is None:
+                self._gallery_ids_cache = list(self._embeddings.keys())
+                self._gallery_matrix_cache = np.vstack(list(self._embeddings.values()))
+            
+            gallery_ids = self._gallery_ids_cache
+            gallery_matrix = self._gallery_matrix_cache
+        else:
+            gallery_ids = list(stored_embeddings.keys())
+            gallery_matrix = np.vstack(list(stored_embeddings.values()))
+
+        similarities = np.dot(gallery_matrix, query_emb_normalized)
+        best_idx = int(np.argmax(similarities))
+        best_sim = float(similarities[best_idx])
+        best_id = gallery_ids[best_idx]
 
         if best_sim >= threshold and best_id is not None:
             return best_id, round(best_sim, 4)
@@ -237,10 +245,11 @@ class FaceRecognitionService:
         min_face_size: int = 60,
         min_detection_confidence: float = 0.50,
         eligible_student_ids: Optional[List[str]] = None,
+        return_embedding: bool = False,
     ) -> List[Dict[str, Any]]:
         """
-        Detects faces in a single OpenCV BGR frame and matches against enrolled students.
-        Returns list of detected face dictionaries.
+        Detects faces in a single OpenCV BGR frame using canonical pipeline and matches against enrolled students.
+        Returns list of detected face dictionaries without heavy raw embedding vectors by default.
         """
         if frame is None or frame.size == 0:
             return []
@@ -254,17 +263,18 @@ class FaceRecognitionService:
                 if s_id in eligible_student_ids
             }
 
-        faces = self.app.get(frame)
+        from backend.app.services.recognition_service import get_pipeline
+        pipeline = get_pipeline()
+        detected_faces = pipeline.detector.detect(frame)
 
         results: List[Dict[str, Any]] = []
 
-        for idx, face in enumerate(faces):
-            bbox = face.bbox.astype(int)
-            x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+        for idx, face in enumerate(detected_faces):
+            x1, y1, x2, y2 = face.bbox.to_int_xyxy()
             w = max(0, x2 - x1)
             h = max(0, y2 - y1)
 
-            det_score = float(round(float(getattr(face, "det_score", 1.0)), 4))
+            det_score = float(round(float(face.det_score), 4))
 
             # Quality validation
             is_quality_valid = True
@@ -276,23 +286,31 @@ class FaceRecognitionService:
                 is_quality_valid = False
                 quality_reason = f"Low detection confidence ({det_score:.2f} < {min_detection_confidence:.2f})"
 
-            # Two-stage matching: first try roster, then fallback to global
-            best_student_id, similarity = self.compare_embedding(
-                query_embedding=face.embedding,
-                stored_embeddings=roster_embeddings,
-                threshold=threshold,
-            )
-            
+            best_student_id = None
+            similarity = 0.0
             is_walk_in = False
-            if best_student_id is None and eligible_student_ids is not None:
-                # Fallback to global
+            face_emb = None
+
+            if is_quality_valid and face.landmarks is not None:
+                aligned_crop = pipeline.aligner.align(frame, face.landmarks)
+                face_emb = pipeline.embedder.extract_from_crop(aligned_crop)
+
+                # Two-stage matching: first try roster, then fallback to global
                 best_student_id, similarity = self.compare_embedding(
-                    query_embedding=face.embedding,
-                    stored_embeddings=global_embeddings,
+                    query_embedding=face_emb,
+                    stored_embeddings=roster_embeddings,
                     threshold=threshold,
                 )
-                if best_student_id is not None:
-                    is_walk_in = True
+                
+                if best_student_id is None and eligible_student_ids is not None:
+                    # Fallback to global
+                    best_student_id, similarity = self.compare_embedding(
+                        query_embedding=face_emb,
+                        stored_embeddings=global_embeddings,
+                        threshold=threshold,
+                    )
+                    if best_student_id is not None:
+                        is_walk_in = True
 
             if not is_quality_valid:
                 status_str = "LOW_QUALITY"
@@ -301,7 +319,7 @@ class FaceRecognitionService:
             else:
                 status_str = "UNKNOWN"
 
-            results.append({
+            face_dict = {
                 "face_idx": idx + 1,
                 "face_id": f"face_{idx + 1}",
                 "student_id": best_student_id,
@@ -316,8 +334,11 @@ class FaceRecognitionService:
                 "bbox": [float(x1), float(y1), float(x2), float(y2)],
                 "bounding_box": {"x": x1, "y": y1, "width": w, "height": h, "x1": x1, "y1": y1, "x2": x2, "y2": y2},
                 "detection_score": det_score,
-                "embedding": face.embedding,
-            })
+            }
+            if return_embedding and face_emb is not None:
+                face_dict["embedding"] = face_emb
+
+            results.append(face_dict)
 
         return results
 

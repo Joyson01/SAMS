@@ -50,7 +50,8 @@ class ArcFaceEmbeddingModel:
         providers = ["CPUExecutionProvider"] if self.ctx_id < 0 else ["CUDAExecutionProvider", "CPUExecutionProvider"]
         opts = ort.SessionOptions()
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        opts.intra_op_num_threads = 4
+        onnx_threads = int(os.environ.get("ONNX_THREADS", "4"))
+        opts.intra_op_num_threads = max(1, onnx_threads)
 
         self.session = ort.InferenceSession(self.model_path, sess_options=opts, providers=providers)
         self.input_name = self.session.get_inputs()[0].name

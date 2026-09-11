@@ -40,6 +40,22 @@ class BoundingBox:
     def to_int_xyxy(self) -> Tuple[int, int, int, int]:
         return (int(round(self.x1)), int(round(self.y1)), int(round(self.x2)), int(round(self.y2)))
 
+    def iou(self, other: "BoundingBox") -> float:
+        """Calculates Intersection over Union (IoU) with another bounding box."""
+        inter_x1 = max(self.x1, other.x1)
+        inter_y1 = max(self.y1, other.y1)
+        inter_x2 = min(self.x2, other.x2)
+        inter_y2 = min(self.y2, other.y2)
+
+        inter_w = max(0.0, inter_x2 - inter_x1)
+        inter_h = max(0.0, inter_y2 - inter_y1)
+        inter_area = inter_w * inter_h
+
+        union_area = self.area + other.area - inter_area
+        if union_area <= 0.0:
+            return 0.0
+        return float(inter_area / union_area)
+
 
 @dataclass
 class DetectedFace:

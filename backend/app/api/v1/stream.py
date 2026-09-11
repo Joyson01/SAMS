@@ -58,6 +58,130 @@ async def websocket_live_stream(
     fps_last_time = time.perf_counter()
     current_fps = 0.0
 
+    frame_queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+    is_running = True
+
+    async def _processing_worker():
+        nonlocal fps_count, current_fps, fps_last_time
+        while is_running:
+            try:
+                image = await frame_queue.get()
+            except asyncio.CancelledError:
+                break
+
+            try:
+                # Run Video Recognition & Multi-Frame Temporal Verification in worker thread
+                results, latencies = await asyncio.to_thread(pipeline.process_frame, image)
+
+                face_telemetry = []
+                newly_marked_events = []
+                pending_marks = []
+
+                for r in results:
+                    is_marked = False
+
+                    # If face is CONFIRMED KNOWN and not marked in this run -> Queue automated attendance
+                    if (
+                        r.is_confirmed
+                        and r.decision == DecisionState.KNOWN
+                        and r.confirmed_student_id
+                        and session_id != "preview"
+                    ):
+                        student_id = r.confirmed_student_id
+                        if student_id not in marked_students_cache:
+                            pending_marks.append((student_id, r))
+                        else:
+                            is_marked = True
+
+                    # Determine explicit visual status
+                    if r.quality and not r.quality.is_valid:
+                        status_str = "QUALITY_REJECTED"
+                    elif r.is_confirmed and r.decision == DecisionState.KNOWN and r.confirmed_name:
+                        status_str = "VERIFIED"
+                    elif r.provisional_name:
+                        status_str = "VERIFYING"
+                    else:
+                        status_str = "UNKNOWN"
+
+                    face_telemetry.append(
+                        {
+                            "track_id": r.track_id,
+                            "bbox": r.bbox.to_list(),
+                            "state": r.state,
+                            "status": status_str,
+                            "decision": r.decision.value,
+                            "is_confirmed": r.is_confirmed,
+                            "student_id": r.confirmed_student_id or r.provisional_student_id,
+                            "student_name": r.confirmed_name or r.provisional_name,
+                            "student_code": r.confirmed_code or r.provisional_code,
+                            "roll_number": r.confirmed_roll or r.provisional_roll,
+                            "provisional_name": r.provisional_name,
+                            "frames_needed": r.frames_needed,
+                            "confidence_history": r.confidence_history,
+                            "similarity": round(r.average_similarity if r.is_confirmed else r.current_similarity, 3),
+                            "is_live": r.is_live,
+                            "liveness_score": round(r.liveness_score, 2),
+                            "is_occluded": r.is_occluded,
+                            "votes_count": r.votes_count,
+                            "total_valid_frames": r.total_valid_frames,
+                            "attendance_marked": is_marked or (r.confirmed_student_id in marked_students_cache),
+                            "reason": r.decision_reason,
+                        }
+                    )
+
+                # Batch write any pending attendance records in a single DB session
+                if pending_marks:
+                    try:
+                        async with AsyncSessionLocal() as db:
+                            for st_id, r_obj in pending_marks:
+                                mark_res = await AttendanceService.mark_attendance(
+                                    db=db,
+                                    session_id=session_id,
+                                    payload=AttendanceMarkPayload(
+                                        student_id=st_id,
+                                        confidence=r_obj.average_similarity,
+                                        track_id=r_obj.track_id,
+                                        liveness_score=r_obj.liveness_score,
+                                        remarks="Automated Live Stream Attendance",
+                                    ),
+                                )
+                                marked_students_cache.add(st_id)
+                                newly_marked_events.append(
+                                    {
+                                        "student_id": st_id,
+                                        "student_name": r_obj.confirmed_name,
+                                        "student_code": r_obj.confirmed_code,
+                                        "roll_number": r_obj.confirmed_roll,
+                                        "status": mark_res.status,
+                                        "confidence": r_obj.average_similarity,
+                                        "time": mark_res.first_seen.isoformat(),
+                                    }
+                                )
+                            await db.commit()
+                    except Exception as e:
+                        logger.error(f"Error in batch attendance marking for session {session_id}: {e}")
+
+                # Send telemetry JSON to client
+                telemetry = {
+                    "type": "telemetry",
+                    "fps": current_fps,
+                    "latencies_ms": latencies,
+                    "faces_count": len(results),
+                    "faces_verified": sum(1 for r in results if r.is_confirmed and r.decision == DecisionState.KNOWN),
+                    "faces_verifying": sum(1 for r in results if not r.is_confirmed and r.provisional_name),
+                    "faces_unknown": sum(1 for r in results if r.decision == DecisionState.UNKNOWN),
+                    "faces": face_telemetry,
+                    "newly_marked": newly_marked_events,
+                }
+                await websocket.send_json(telemetry)
+
+            except Exception as proc_err:
+                logger.error(f"Error in live frame processing worker: {proc_err}")
+            finally:
+                frame_queue.task_done()
+
+    worker_task = asyncio.create_task(_processing_worker())
+
     try:
         while True:
             # Receive frame data (binary JPEG bytes or JSON message)
@@ -104,107 +228,26 @@ async def websocket_live_stream(
                 fps_count = 0
                 fps_last_time = now_time
 
-            # Run Video Recognition & Multi-Frame Temporal Verification
-            results, latencies = pipeline.process_frame(image)
-
-            face_telemetry = []
-            newly_marked_events = []
-
-            for r in results:
-                is_marked = False
-
-                # If face is CONFIRMED KNOWN and not marked in this run -> Auto-mark attendance!
-                if (
-                    r.is_confirmed
-                    and r.decision == DecisionState.KNOWN
-                    and r.confirmed_student_id
-                    and session_id != "preview"
-                ):
-                    student_id = r.confirmed_student_id
-                    if student_id not in marked_students_cache:
-                        try:
-                            async with AsyncSessionLocal() as db:
-                                mark_res = await AttendanceService.mark_attendance(
-                                    db=db,
-                                    session_id=session_id,
-                                    payload=AttendanceMarkPayload(
-                                        student_id=student_id,
-                                        confidence=r.average_similarity,
-                                        track_id=r.track_id,
-                                        liveness_score=r.liveness_score,
-                                        remarks="Automated Live Stream Attendance",
-                                    ),
-                                )
-                                marked_students_cache.add(student_id)
-                                is_marked = True
-                                newly_marked_events.append(
-                                    {
-                                        "student_id": student_id,
-                                        "student_name": r.confirmed_name,
-                                        "student_code": r.confirmed_code,
-                                        "roll_number": r.confirmed_roll,
-                                        "status": mark_res.status,
-                                        "confidence": r.average_similarity,
-                                        "time": mark_res.first_seen.isoformat(),
-                                    }
-                                )
-                        except Exception as e:
-                            logger.error(f"Error marking attendance for student {student_id}: {e}")
-                    else:
-                        is_marked = True
-
-                # Determine explicit visual status
-                if r.quality and not r.quality.is_valid:
-                    status_str = "QUALITY_REJECTED"
-                elif r.is_confirmed and r.decision == DecisionState.KNOWN and r.confirmed_name:
-                    status_str = "VERIFIED"
-                elif r.provisional_name:
-                    status_str = "VERIFYING"
-                else:
-                    status_str = "UNKNOWN"
-
-                face_telemetry.append(
-                    {
-                        "track_id": r.track_id,
-                        "bbox": r.bbox.to_list(),
-                        "state": r.state,
-                        "status": status_str,
-                        "decision": r.decision.value,
-                        "is_confirmed": r.is_confirmed,
-                        "student_id": r.confirmed_student_id or r.provisional_student_id,
-                        "student_name": r.confirmed_name or r.provisional_name,
-                        "student_code": r.confirmed_code or r.provisional_code,
-                        "roll_number": r.confirmed_roll or r.provisional_roll,
-                        "provisional_name": r.provisional_name,
-                        "frames_needed": r.frames_needed,
-                        "confidence_history": r.confidence_history,
-                        "similarity": round(r.average_similarity if r.is_confirmed else r.current_similarity, 3),
-                        "is_live": r.is_live,
-                        "liveness_score": round(r.liveness_score, 2),
-                        "is_occluded": r.is_occluded,
-                        "votes_count": r.votes_count,
-                        "total_valid_frames": r.total_valid_frames,
-                        "attendance_marked": is_marked,
-                        "reason": r.decision_reason,
-                    }
-                )
-
-            # Send telemetry JSON to client
-            telemetry = {
-                "type": "telemetry",
-                "fps": current_fps,
-                "latencies_ms": latencies,
-                "faces_count": len(results),
-                "faces_verified": sum(1 for r in results if r.is_confirmed and r.decision == DecisionState.KNOWN),
-                "faces_verifying": sum(1 for r in results if not r.is_confirmed and r.provisional_name),
-                "faces_unknown": sum(1 for r in results if r.decision == DecisionState.UNKNOWN),
-                "faces": face_telemetry,
-                "newly_marked": newly_marked_events,
-            }
-            await websocket.send_json(telemetry)
+            # Bounded queue: drop stale frame if previous frame is still being processed
+            try:
+                frame_queue.get_nowait()
+                frame_queue.task_done()
+            except asyncio.QueueEmpty:
+                pass
+            await frame_queue.put(image)
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket client disconnected from session '{session_id}'")
     except Exception as exc:
         logger.error(f"WebSocket stream error for session '{session_id}': {exc}")
+    finally:
+        is_running = False
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+        # Clean up pipeline tracking state to prevent unbounded memory growth
+        async with _pipeline_lock:
+            _video_pipelines.pop(session_id, None)
 

@@ -110,7 +110,7 @@ if lsof -Pi :${BACKEND_PORT} -sTCP:LISTEN -t >/dev/null 2>&1; then
 fi
 
 if [ ! -f "${BACKEND_PID_FILE}" ] || ! kill -0 "$(cat "${BACKEND_PID_FILE}" 2>/dev/null || echo "0")" 2>/dev/null; then
-    "${PYTHON_BIN}" -m uvicorn backend.app.main:app --host 0.0.0.0 --port "${BACKEND_PORT}" > "${BACKEND_LOG}" 2>&1 &
+    "${PYTHON_BIN}" -m uvicorn backend.app.main:app --host 0.0.0.0 --port "${BACKEND_PORT}" --reload > "${BACKEND_LOG}" 2>&1 &
     BACKEND_PID=$!
     echo "${BACKEND_PID}" > "${BACKEND_PID_FILE}"
 fi

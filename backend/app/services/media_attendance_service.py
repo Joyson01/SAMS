@@ -128,7 +128,8 @@ class MediaAttendanceService:
             raise SessionNotFoundError(f"Attendance session '{session_id}' not found.")
 
         # 2. Run core media processing service
-        result_dict = media_processing_service.process_image_attendance(
+        result_dict = await asyncio.to_thread(
+            media_processing_service.process_image_attendance,
             image_input=image_bytes,
             session_id=session_id,
             filename=filename,
@@ -315,7 +316,8 @@ class MediaAttendanceService:
                 filename = job.filename
 
             # Run video processing through media_processing_service
-            video_result = media_processing_service.process_video_attendance(
+            video_result = await asyncio.to_thread(
+                media_processing_service.process_video_attendance,
                 video_input=file_path,
                 session_id=session_id,
                 sample_rate=sample_fps,

@@ -156,6 +156,9 @@ class StudentResponse(StudentBase):
         description="Face enrollment status: NOT_ENROLLED | PARTIAL | ENROLLED",
     )
     sample_count: int = Field(0, description="Number of enrolled face samples")
+    attendance_rate_pct: Optional[float] = Field(None, description="Pre-calculated overall attendance rate percentage")
+    total_sessions: Optional[int] = Field(None, description="Total class sessions recorded for student")
+    present_sessions: Optional[int] = Field(None, description="Total sessions student was marked present")
     created_at: datetime
     updated_at: datetime
 

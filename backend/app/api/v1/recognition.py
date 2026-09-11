@@ -165,36 +165,43 @@ async def detect_faces_in_frame(
     if len(contents) == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty frame uploaded.")
 
-    nparr = np.frombuffer(contents, np.uint8)
-    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    if image is None:
+    def _sync_detect():
+        nparr = np.frombuffer(contents, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if image is None:
+            return None, 0, 0, []
+
+        h, w = image.shape[:2]
+        pipeline = get_pipeline()
+        detected_faces = pipeline.detector.detect(image)
+
+        face_items = []
+        for face in detected_faces:
+            quality = pipeline.quality_analyzer.analyze(image, face.bbox)
+            pose = pipeline.pose_estimator.estimate(face.landmarks)
+
+            face_items.append({
+                "box": face.bbox.to_list()[:4],  # [x1, y1, x2, y2]
+                "confidence": face.det_score,
+                "landmarks": face.landmarks.tolist() if face.landmarks is not None else [],
+                "sharpness": quality.sharpness,
+                "brightness": quality.brightness,
+                "is_valid": quality.is_valid,
+                "rejection_reason": quality.rejection_reason,
+                "pose": {
+                    "yaw": pose.yaw,
+                    "pitch": pose.pitch,
+                    "roll": pose.roll,
+                    "is_frontal": pose.is_frontal,
+                    "pose_type": pose.pose_type,
+                },
+            })
+        return image, w, h, face_items
+
+    import asyncio
+    _, w, h, results = await asyncio.to_thread(_sync_detect)
+    if _ is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Failed to decode image frame.")
-
-    h, w = image.shape[:2]
-    pipeline = get_pipeline()
-    detected_faces = pipeline.detector.detect(image)
-
-    results = []
-    for face in detected_faces:
-        quality = pipeline.quality_analyzer.analyze(image, face.bbox)
-        pose = pipeline.pose_estimator.estimate(face.landmarks)
-
-        results.append({
-            "box": face.bbox.to_list()[:4],  # [x1, y1, x2, y2]
-            "confidence": face.det_score,
-            "landmarks": face.landmarks.tolist() if face.landmarks is not None else [],
-            "sharpness": quality.sharpness,
-            "brightness": quality.brightness,
-            "is_valid": quality.is_valid,
-            "rejection_reason": quality.rejection_reason,
-            "pose": {
-                "yaw": pose.yaw,
-                "pitch": pose.pitch,
-                "roll": pose.roll,
-                "is_frontal": pose.is_frontal,
-                "pose_type": pose.pose_type,
-            },
-        })
 
     elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
     return {
@@ -217,25 +224,30 @@ async def debug_detect(
 ):
     import cv2
     import numpy as np
+    import asyncio
     from backend.app.services.recognition_service import get_pipeline
 
     contents = await file.read()
-    nparr = np.frombuffer(contents, np.uint8)
-    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    if image is None:
-        raise HTTPException(status_code=400, detail="Invalid image bytes")
 
-    pipeline = get_pipeline()
-    faces = pipeline.detector.detect(image)
-    return {
-        "faces": [
+    def _sync_debug():
+        nparr = np.frombuffer(contents, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if image is None:
+            return None
+        pipeline = get_pipeline()
+        faces = pipeline.detector.detect(image)
+        return [
             {
                 "box": f.bbox.to_list()[:4],
                 "confidence": round(f.det_score, 3),
             }
             for f in faces
         ]
-    }
+
+    faces = await asyncio.to_thread(_sync_debug)
+    if faces is None:
+        raise HTTPException(status_code=400, detail="Invalid image bytes")
+    return {"faces": faces}
 
 
 @router.put(

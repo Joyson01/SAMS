@@ -114,6 +114,15 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
   const [rosterSearchQuery, setRosterSearchQuery] = useState<string>('');
   const [showMoreOptionsDropdown, setShowMoreOptionsDropdown] = useState<boolean>(false);
 
+  // Debug & Diagnostic Overlay State
+  const [showDebugDiagnostics, setShowDebugDiagnostics] = useState<boolean>(false);
+  const [debugDiagnostics, setDebugDiagnostics] = useState<{
+    raw_count: number;
+    nms_count: number;
+    tracks_count: number;
+    recognized_count: number;
+  } | null>(null);
+
   // Photo Modes State
   const isMobileDevice = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>(isMobileDevice ? 'environment' : 'user');
@@ -251,13 +260,17 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
   }, [loadEnrolledStudents]);
 
   // Poll presence state from backend
+  const isFetchingPresenceRef = useRef<boolean>(false);
   const fetchPresenceData = useCallback(async () => {
-    if (!selectedSessionId) return;
+    if (!selectedSessionId || isFetchingPresenceRef.current) return;
+    isFetchingPresenceRef.current = true;
     try {
       const res = await apiClient.get(`/attendance/sessions/${selectedSessionId}/presence`);
       setPresenceList(res.data || []);
     } catch (err) {
       // quiet poll
+    } finally {
+      isFetchingPresenceRef.current = false;
     }
   }, [selectedSessionId]);
 
@@ -288,24 +301,77 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
     }
   };
 
-  // Draw Subtle Face Bounding Boxes Over Video
-  const drawOverlayBoxes = useCallback((faces: any[], vWidth: number, vHeight: number, isMirrored: boolean = false) => {
+  // Draw Subtle Face Bounding Boxes Over Video with Mathematical Aspect-Ratio & Mirroring Mapping
+  const drawOverlayBoxes = useCallback((
+    faces: any[],
+    vWidth: number,
+    vHeight: number,
+    isMirrored: boolean = false,
+    fitMode: 'cover' | 'contain' = 'cover'
+  ) => {
     const canvas = overlayCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    canvas.width = vWidth;
-    canvas.height = vHeight;
-    ctx.clearRect(0, 0, vWidth, vHeight);
+    // Set canvas internal resolution to match container client display pixels (1-to-1 crisp mapping)
+    const cWidth = canvas.clientWidth || vWidth;
+    const cHeight = canvas.clientHeight || vHeight;
+    if (canvas.width !== cWidth || canvas.height !== cHeight) {
+      canvas.width = cWidth;
+      canvas.height = cHeight;
+    }
+    ctx.clearRect(0, 0, cWidth, cHeight);
 
-    if (faces.length === 0) return;
+    if (faces.length === 0 || vWidth === 0 || vHeight === 0) return;
+
+    const vAspect = vWidth / vHeight;
+    const cAspect = cWidth / cHeight;
+
+    let renderW = cWidth;
+    let renderH = cHeight;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    if (fitMode === 'cover') {
+      if (vAspect > cAspect) {
+        renderH = cHeight;
+        renderW = cHeight * vAspect;
+        offsetX = (cWidth - renderW) / 2.0;
+        offsetY = 0.0;
+      } else {
+        renderW = cWidth;
+        renderH = cWidth / vAspect;
+        offsetX = 0.0;
+        offsetY = (cHeight - renderH) / 2.0;
+      }
+    } else {
+      // contain mode (letterboxed/pillarboxed)
+      if (vAspect > cAspect) {
+        renderW = cWidth;
+        renderH = cWidth / vAspect;
+        offsetX = 0.0;
+        offsetY = (cHeight - renderH) / 2.0;
+      } else {
+        renderH = cHeight;
+        renderW = cHeight * vAspect;
+        offsetX = (cWidth - renderW) / 2.0;
+        offsetY = 0.0;
+      }
+    }
+
+    const scaleX = renderW / vWidth;
+    const scaleY = renderH / vHeight;
 
     faces.forEach((face) => {
       const [x1, y1, x2, y2] = face.bbox;
-      const boxW = x2 - x1;
-      const boxH = y2 - y1;
-      const renderX = isMirrored ? vWidth - x2 : x1;
+      const boxW = Math.max(4, (x2 - x1) * scaleX);
+      const boxH = Math.max(4, (y2 - y1) * scaleY);
+      const screenX = offsetX + x1 * scaleX;
+      const screenY = offsetY + y1 * scaleY;
+
+      // Handle horizontal mirroring when webcam is mirrored in CSS (transform -scale-x-100)
+      const renderX = isMirrored ? cWidth - (screenX + boxW) : screenX;
 
       const status = face.status || (face.decision === 'KNOWN' ? 'VERIFIED' : face.decision === 'UNCERTAIN' ? 'VERIFYING' : 'UNKNOWN');
       const isVerified = status === 'VERIFIED';
@@ -338,14 +404,14 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       ctx.strokeStyle = strokeColor;
       ctx.lineWidth = isVerified ? 2.5 : 2;
       ctx.beginPath();
-      ctx.roundRect(renderX, y1, boxW, boxH, 6);
+      ctx.roundRect(renderX, screenY, boxW, boxH, 6);
       ctx.stroke();
 
       ctx.font = 'bold 10px Inter, sans-serif';
       const textWidth = ctx.measureText(label).width;
       const pillW = textWidth + 14;
       const pillH = 20;
-      const pillY = Math.max(2, y1 - pillH - 3);
+      const pillY = Math.max(2, screenY - pillH - 3);
 
       ctx.fillStyle = bgColor;
       ctx.beginPath();
@@ -381,6 +447,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
     setCameraState('IDLE');
     setVideoResolution({ width: 0, height: 0 });
     setActiveFacesDetected(0);
+    setDebugDiagnostics(null);
     setHasReceivedRemoteFrames(false);
     setIsPaused(false);
   };
@@ -521,7 +588,11 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       const canvas = captureCanvasRef.current;
       if (!video || !canvas || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return;
 
-      setVideoResolution({ width: video.videoWidth, height: video.videoHeight });
+      setVideoResolution((prev) =>
+        prev.width === video.videoWidth && prev.height === video.videoHeight
+          ? prev
+          : { width: video.videoWidth, height: video.videoHeight }
+      );
       isProcessingRef.current = true;
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -538,7 +609,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
           isProcessingRef.current = false;
           return;
         }
-        await sendFrameToRecognition(blob, video.videoWidth, video.videoHeight, true);
+        await sendFrameToRecognition(blob, video.videoWidth, video.videoHeight, true, 'cover');
         isProcessingRef.current = false;
       }, 'image/jpeg', 0.85);
     } else {
@@ -572,7 +643,11 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
         return;
       }
 
-      setVideoResolution({ width: sourceWidth, height: sourceHeight });
+      setVideoResolution((prev) =>
+        prev.width === sourceWidth && prev.height === sourceHeight
+          ? prev
+          : { width: sourceWidth, height: sourceHeight }
+      );
       isProcessingRef.current = true;
 
       captureCanvas.toBlob(async (blob) => {
@@ -580,7 +655,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
           isProcessingRef.current = false;
           return;
         }
-        await sendFrameToRecognition(blob, sourceWidth, sourceHeight, false);
+        await sendFrameToRecognition(blob, sourceWidth, sourceHeight, false, 'contain');
         isProcessingRef.current = false;
       }, 'image/jpeg', 0.85);
     }
@@ -590,7 +665,8 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
     blob: Blob,
     width: number,
     height: number,
-    isMirrored: boolean
+    isMirrored: boolean,
+    fitMode: 'cover' | 'contain' = 'cover'
   ) => {
     const formData = new FormData();
     formData.append('file', blob, 'frame.jpg');
@@ -606,9 +682,13 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
 
       const data = res.data;
       const faces = data.faces || [];
-      setActiveFacesDetected(faces.length);
+      setActiveFacesDetected((prev) => (prev === faces.length ? prev : faces.length));
 
-      drawOverlayBoxes(faces, width, height, isMirrored);
+      if (data.debug_telemetry) {
+        setDebugDiagnostics(data.debug_telemetry);
+      }
+
+      drawOverlayBoxes(faces, width, height, isMirrored, fitMode);
 
       // Check for unknown faces and log event (throttled to 1 event per 4 seconds)
       const hasUnknown = faces.some((f: any) => f.decision === 'UNKNOWN' && !f.best_match);
@@ -1362,11 +1442,39 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                     )}
                   </div>
 
-                  {/* Top Right: Faces detected count */}
-                  <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded text-white text-[11px] font-medium flex items-center gap-1.5 border border-white/10">
-                    <Users className="w-3.5 h-3.5 text-blue-400" />
-                    <span>{activeFacesDetected} {activeFacesDetected === 1 ? 'Face' : 'Faces'} Detected</span>
+                  {/* Top Right: Faces detected count & Debug Diagnostics Toggle */}
+                  <div className="absolute top-3 right-3 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowDebugDiagnostics((prev) => !prev)}
+                      className={`px-2 py-1 rounded text-[10px] font-mono font-semibold transition border ${
+                        showDebugDiagnostics
+                          ? 'bg-amber-500/80 text-white border-amber-400/80 shadow-xs'
+                          : 'bg-black/60 backdrop-blur-xs text-white/70 hover:text-white border-white/10'
+                      }`}
+                      title="Toggle Pipeline Detection Diagnostics"
+                    >
+                      DEBUG
+                    </button>
+                    <div className="bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded text-white text-[11px] font-medium flex items-center gap-1.5 border border-white/10">
+                      <Users className="w-3.5 h-3.5 text-blue-400" />
+                      <span>{activeFacesDetected} {activeFacesDetected === 1 ? 'Face' : 'Faces'} Detected</span>
+                    </div>
                   </div>
+
+                  {/* Step 16: Pipeline Diagnostic Telemetry Overlay Badge */}
+                  {showDebugDiagnostics && (
+                    <div className="absolute bottom-3 left-3 bg-black/85 backdrop-blur-md px-3 py-1.5 rounded-md text-white font-mono text-[11px] border border-amber-500/40 shadow-lg flex items-center gap-3">
+                      <span className="text-amber-400 font-bold">PIPELINE:</span>
+                      <span>RAW: <strong className="text-slate-200">{debugDiagnostics?.raw_count ?? activeFacesDetected}</strong></span>
+                      <span className="text-white/30">|</span>
+                      <span>NMS: <strong className="text-sky-300">{debugDiagnostics?.nms_count ?? activeFacesDetected}</strong></span>
+                      <span className="text-white/30">|</span>
+                      <span>TRACKS: <strong className="text-emerald-300">{debugDiagnostics?.tracks_count ?? activeFacesDetected}</strong></span>
+                      <span className="text-white/30">|</span>
+                      <span>REC: <strong className="text-purple-300">{debugDiagnostics?.recognized_count ?? 0}</strong></span>
+                    </div>
+                  )}
                 </>
               )}
             </div>

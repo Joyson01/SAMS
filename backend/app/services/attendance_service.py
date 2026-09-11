@@ -219,10 +219,70 @@ class AttendanceService:
         result = await db.execute(query)
         sessions = result.scalars().all()
 
+        if not sessions:
+            return [], total_count
+
+        session_ids = [s.id for s in sessions]
+
+        stats_q = (
+            select(
+                AttendanceRecord.session_id,
+                AttendanceRecord.status,
+                func.count(AttendanceRecord.id).label('cnt'),
+            )
+            .where(AttendanceRecord.session_id.in_(session_ids))
+            .group_by(AttendanceRecord.session_id, AttendanceRecord.status)
+        )
+        stats_res = await db.execute(stats_q)
+
+        counts_by_session = {sid: {} for sid in session_ids}
+        for sid, status_name, cnt in stats_res.all():
+            counts_by_session[sid][status_name] = cnt
+
+        subject_ids = list({s.subject_id for s in sessions if s.subject_id})
+        subjects_map = {}
+        if subject_ids:
+            subj_q = select(Subject.id, Subject.code).where(Subject.id.in_(subject_ids))
+            subj_res = await db.execute(subj_q)
+            subjects_map = {sid: code for sid, code in subj_res.all()}
+
         responses = []
         for s in sessions:
-            resp = await cls.get_session_by_id(db, s.id)
-            responses.append(resp)
+            counts = counts_by_session[s.id]
+            present_cnt = counts.get("PRESENT", 0) + counts.get("MANUAL_PRESENT", 0)
+            late_cnt = counts.get("LATE", 0)
+            absent_cnt = counts.get("ABSENT", 0) + counts.get("MANUAL_ABSENT", 0)
+            excused_cnt = counts.get("EXCUSED", 0) + counts.get("MANUAL_EXCUSED", 0)
+            total_cnt = sum(counts.values())
+
+            subject_code = subjects_map.get(s.subject_id) if s.subject_id else None
+
+            responses.append(SessionResponse(
+                id=s.id,
+                session_code=s.session_code,
+                timetable_entry_id=s.timetable_entry_id,
+                subject_id=s.subject_id,
+                class_id=s.class_id,
+                class_name=s.class_name,
+                subject=s.subject,
+                subject_code=subject_code,
+                room=s.room,
+                scheduled_date=s.scheduled_date,
+                start_time=s.start_time,
+                end_time=s.end_time,
+                late_threshold_minutes=s.late_threshold_minutes,
+                attendance_mode=s.attendance_mode,
+                status=s.status,
+                camera_id=s.camera_id,
+                camera_ids=s.camera_ids or [],
+                total_records=total_cnt,
+                present_count=present_cnt,
+                late_count=late_cnt,
+                absent_count=absent_cnt,
+                excused_count=excused_cnt,
+                created_at=s.created_at,
+                updated_at=s.updated_at,
+            ))
 
         return responses, total_count
 

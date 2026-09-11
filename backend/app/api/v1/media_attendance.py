@@ -67,7 +67,8 @@ async def diagnose_image(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded image is empty.")
 
     try:
-        res = media_processing_service.process_image_attendance(
+        res = await asyncio.to_thread(
+            media_processing_service.process_image_attendance,
             image_input=image_bytes,
             session_id=None,
             filename=upload_file.filename or "diag.jpg",

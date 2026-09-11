@@ -35,12 +35,20 @@ class DetectedFaceResultDTO(BaseModel):
     is_live: Optional[bool] = True
 
 
+class DetectionDiagnosticDTO(BaseModel):
+    raw_count: int = Field(0, description="Raw face candidates detected before NMS")
+    nms_count: int = Field(0, description="Detected faces remaining after IoU NMS and sanity filters")
+    tracks_count: int = Field(0, description="Active persistent tracks tracked by ByteTrack")
+    recognized_count: int = Field(0, description="Faces confirmed with recognized identity")
+
+
 class RecognitionResponse(BaseModel):
     total_faces_detected: int
     faces: List[DetectedFaceResultDTO]
     latency_breakdown_ms: Dict[str, float]
     thresholds_applied: Dict[str, Any]
     index_student_count: int
+    debug_telemetry: Optional[DetectionDiagnosticDTO] = None
 
 
 class ThresholdsConfig(BaseModel):

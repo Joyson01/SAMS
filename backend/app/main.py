@@ -1,13 +1,19 @@
+import sys
 import time
 import uuid
 import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+# Ensure project root is in sys.path when executed directly
+_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.app.api.v1.router import api_router
@@ -38,6 +44,17 @@ async def lifespan(app: FastAPI):
             await init_db_schema()
         except Exception as e:
             logger.warning(f"Auto-schema init skipped or deferred: {e}")
+
+        # Pre-warm FaceRecognitionPipeline and vectorize in-memory gallery at startup (eliminates first-frame lag)
+        try:
+            from backend.app.database.session import AsyncSessionLocal
+            from backend.app.services.recognition_service import RecognitionService, get_pipeline
+            _ = get_pipeline()
+            async with AsyncSessionLocal() as db:
+                gallery_cnt = await RecognitionService.sync_gallery_from_db(db)
+            logger.info(f"FaceRecognitionPipeline pre-warmed with {gallery_cnt} gallery template(s).")
+        except Exception as pipe_err:
+            logger.warning(f"Pipeline pre-warm notice: {pipe_err}")
     else:
         logger.warning(f"Database connection offline at startup: {db_info}")
 
@@ -229,6 +246,21 @@ async def root():
     }
 
 
+@app.get("/docs", include_in_schema=False)
+async def redirect_docs():
+    return RedirectResponse(url=f"{settings.API_V1_STR}/docs")
+
+
+@app.get("/redoc", include_in_schema=False)
+async def redirect_redoc():
+    return RedirectResponse(url=f"{settings.API_V1_STR}/redoc")
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def redirect_openapi():
+    return RedirectResponse(url=f"{settings.API_V1_STR}/openapi.json")
+
+
 @app.get("/health", tags=["Root"])
 async def root_health():
     """Top-level health check endpoint redirecting to v1 health logic."""
@@ -243,3 +275,8 @@ async def root_health():
             "latency_ms": latency_ms,
         },
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("backend.app.main:app", host="0.0.0.0", port=8000, reload=True)
