@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Users,
+  Plus,
   Search,
   RefreshCw,
   Camera,
@@ -9,15 +10,13 @@ import {
   ChevronRight,
   UserPlus,
   Smartphone,
-  Download,
   Filter,
-  CheckCircle2,
-  AlertTriangle,
-  Mail,
   MoreVertical,
+  AlertTriangle,
   Check,
   Edit2,
   Trash2,
+  Calendar,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import {
@@ -29,11 +28,10 @@ import {
   createStudent,
   updateStudent,
   deleteStudent,
+  fetchStudentAttendanceHistory,
+  enrollStudentFace,
+  StudentAttendanceHistoryResponse,
 } from '../../services/studentApi';
-import {
-  fetchStudentAttendance,
-  StudentAttendanceSummary,
-} from '../../services/attendanceApi';
 import { apiClient } from '../../services/api';
 import { formatApiErrorMessage } from '../../utils/apiError';
 
@@ -42,6 +40,7 @@ interface StudentListPageProps {
 }
 
 export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) => {
+  // Data State
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [total, setTotal] = useState<number>(0);
@@ -49,50 +48,58 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
   const [totalPages, setTotalPages] = useState<number>(1);
   const limit = 10;
 
+  // Attendance rate map for table rows: studentId -> StudentAttendanceHistoryResponse
+  const [attendanceMap, setAttendanceMap] = useState<Record<string, StudentAttendanceHistoryResponse>>({});
+
   // Search & Filter State
   const [search, setSearch] = useState<string>('');
-  const [selectedFilterTab, setSelectedFilterTab] = useState<'ALL' | 'ENROLLED' | 'PENDING' | 'AT_RISK'>('ALL');
-  const [showFilterDropdown, setShowFilterDropdown] = useState<boolean>(false);
-  const [classFilter, setClassFilter] = useState<string>('');
-  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
+  const [filterClass, setFilterClass] = useState<string>('');
+  const [filterSection, setFilterSection] = useState<string>('');
+  const [filterEnrollment, setFilterEnrollment] = useState<string>('');
+  const [filterAttendance, setFilterAttendance] = useState<string>('');
 
-  // Active Selected Student for Side Panel
-  const [activeProfileStudent, setActiveProfileStudent] = useState<Student | null>(null);
-  const [profileAttendance, setProfileAttendance] = useState<StudentAttendanceSummary | null>(null);
-  const [, setLoadingProfileAttendance] = useState<boolean>(false);
+  // Row Action Dropdown (Active student ID for [...] popover)
+  const [activeMenuStudentId, setActiveMenuStudentId] = useState<string | null>(null);
 
-  // Table Attendance Cache Map (studentId -> summary)
-  const [attendanceCache, setAttendanceCache] = useState<Record<string, { pct: number; missed: number; total: number }>>({});
+  // Profile Slide-Over Panel State
+  const [selectedProfileStudent, setSelectedProfileStudent] = useState<Student | null>(null);
+  const [profileAttendance, setProfileAttendance] = useState<StudentAttendanceHistoryResponse | null>(null);
+  const [loadingProfileAttendance, setLoadingProfileAttendance] = useState<boolean>(false);
 
-  // Modals State
+  // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
-  const [activeModalStudent, setActiveModalStudent] = useState<Student | null>(null);
+  const [activeStudent, setActiveStudent] = useState<Student | null>(null);
   const [formSubmitting, setFormSubmitting] = useState<boolean>(false);
   const [modalError, setModalError] = useState<string | null>(null);
-  const [fullName, setFullName] = useState<string>('');
 
-  // Row Action Menu State (studentId -> boolean)
-  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
-
-  // Face Enrollment Dialog State
+  // Simplified Face Enrollment Dialog State
   const [isEnrollModalOpen, setIsEnrollModalOpen] = useState<boolean>(false);
   const [enrollStudent, setEnrollStudent] = useState<Student | null>(null);
-  const [, setCameraActive] = useState<boolean>(false);
-  const [capturingFace, setCapturingFace] = useState<boolean>(false);
-  const [enrollSuccess, setEnrollSuccess] = useState<boolean>(false);
-  const [enrollError, setEnrollError] = useState<string | null>(null);
-  const enrollVideoRef = useRef<HTMLVideoElement>(null);
-  const enrollCanvasRef = useRef<HTMLCanvasElement>(null);
-  const enrollStreamRef = useRef<MediaStream | null>(null);
+  const [enrollStep, setEnrollStep] = useState<'camera' | 'success'>('camera');
+  const [cameraActive, setCameraActive] = useState<boolean>(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [faceQuality, setFaceQuality] = useState<'GOOD' | 'POOR'>('POOR');
+  const [facePosition, setFacePosition] = useState<'CENTERED' | 'OFF_CENTER'>('OFF_CENTER');
+  const [faceLiveness, setFaceLiveness] = useState<'VERIFIED' | 'CHECKING'>('CHECKING');
+  const [isCapturingSample, setIsCapturingSample] = useState<boolean>(false);
+  const [enrollErrorMessage, setEnrollErrorMessage] = useState<string | null>(null);
 
-  // QR Mobile Enrollment Modal
+  // DOM Refs for Face Enrollment
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const captureCanvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const detectIntervalRef = useRef<any>(null);
+  const isDetectingRef = useRef<boolean>(false);
+
+  // QR Mobile Enrollment Modal State
   const [isQrModalOpen, setIsQrModalOpen] = useState<boolean>(false);
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const [mobileEnrollLink, setMobileEnrollLink] = useState<string>('');
 
-  // Form State
+  // Form State for Register / Edit
   const [formData, setFormData] = useState<StudentCreatePayload>({
     student_code: '',
     roll_number: '',
@@ -100,129 +107,300 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
     last_name: '',
     email: '',
     department: 'Computer Science',
-    class_name: 'CSE-B',
-    section: 'B',
+    class_name: 'CSE-4A',
+    section: 'A',
     status: 'ACTIVE',
   });
 
-  const filterDropdownRef = useRef<HTMLDivElement>(null);
+  // Calculate unique classes from loaded students
+  const availableClasses = useMemo(() => {
+    const set = new Set<string>();
+    students.forEach((s) => {
+      if (s.class_name) set.add(s.class_name);
+    });
+    return Array.from(set).sort();
+  }, [students]);
 
-  // Load Students
+  // Active filter count badge
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filterClass) count++;
+    if (filterSection) count++;
+    if (filterEnrollment) count++;
+    if (filterAttendance) count++;
+    return count;
+  }, [filterClass, filterSection, filterEnrollment, filterAttendance]);
+
+  // Load Students from API
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const listRes = await fetchStudents({
         search: search.trim() || undefined,
-        class_name: classFilter || undefined,
+        class_name: filterClass || undefined,
+        section: filterSection || undefined,
+        enrollment_status: filterEnrollment || undefined,
         page,
         limit,
       });
+
       setStudents(listRes.items);
       setTotal(listRes.total);
       setTotalPages(listRes.total_pages);
 
-      // Default select first student if none selected
-      if (listRes.items.length > 0 && !activeProfileStudent) {
-        setActiveProfileStudent(listRes.items[0]);
-      } else if (listRes.items.length === 0) {
-        setActiveProfileStudent(null);
-      }
-
-      // Fetch attendance summaries for students in parallel to populate attendance bars
-      const newCache: Record<string, { pct: number; missed: number; total: number }> = {};
-      await Promise.allSettled(
-        listRes.items.map(async (st, idx) => {
+      // Fetch attendance history for each student asynchronously
+      const historyMap: Record<string, StudentAttendanceHistoryResponse> = {};
+      await Promise.all(
+        listRes.items.map(async (st) => {
           try {
-            const att = await fetchStudentAttendance(st.id);
-            newCache[st.id] = {
-              pct: att.total_sessions > 0 ? Math.round(att.attendance_rate_pct) : Math.max(68, 96 - (idx * 3)),
-              missed: att.absent_sessions,
-              total: att.total_sessions || 42,
-            };
+            const hist = await fetchStudentAttendanceHistory(st.id);
+            historyMap[st.id] = hist;
           } catch {
-            // Fallback realistic attendance for UI demonstration
-            const fallbackPct = [91, 96, 72, 88, 94, 85, 68, 92, 78, 95][idx % 10] ?? 90;
-            newCache[st.id] = {
-              pct: fallbackPct,
-              missed: fallbackPct < 75 ? 6 : fallbackPct < 85 ? 4 : 2,
-              total: 42,
-            };
+            // quiet fallback
           }
         })
       );
-      setAttendanceCache((prev) => ({ ...prev, ...newCache }));
-    } catch (err: any) {
+      setAttendanceMap(historyMap);
+    } catch (err) {
       console.error('Failed to load students:', err);
     } finally {
       setLoading(false);
     }
-  }, [search, classFilter, page, activeProfileStudent]);
+  }, [search, filterClass, filterSection, filterEnrollment, page]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // Load active student profile details & recent logs
-  useEffect(() => {
-    if (!activeProfileStudent) {
-      setProfileAttendance(null);
-      return;
-    }
-    const loadStudentDetails = async () => {
-      setLoadingProfileAttendance(true);
-      try {
-        const res = await fetchStudentAttendance(activeProfileStudent.id);
-        setProfileAttendance(res);
-      } catch (err) {
-        // Fallback for visual mock when no attendance sessions exist in db yet
-        setProfileAttendance({
-          student_id: activeProfileStudent.id,
-          total_sessions: 42,
-          present_sessions: 38,
-          late_sessions: 2,
-          absent_sessions: 4,
-          excused_sessions: 0,
-          attendance_rate_pct: 91,
-          records: [],
-        });
-      } finally {
-        setLoadingProfileAttendance(false);
-      }
-    };
-    loadStudentDetails();
-  }, [activeProfileStudent]);
-
-  // Close filter dropdown on click outside
+  // Handle outside click to dismiss dropdown menus
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target as Node)) {
-        setShowFilterDropdown(false);
-      }
-      if (openActionMenuId && !(e.target as HTMLElement).closest('.action-menu-container')) {
-        setOpenActionMenuId(null);
+      const target = e.target as HTMLElement;
+      if (!target.closest('.student-action-menu-container') && !target.closest('.student-filter-container')) {
+        setActiveMenuStudentId(null);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [openActionMenuId]);
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
-  // Filtered Students according to quick filter tabs
-  const filteredStudents = useMemo(() => {
-    if (selectedFilterTab === 'ENROLLED') {
-      return students.filter((s) => s.enrollment_status === 'ENROLLED');
+  // Filter students locally by attendance health if specified
+  const displayedStudents = useMemo(() => {
+    if (!filterAttendance) return students;
+    return students.filter((st) => {
+      const hist = attendanceMap[st.id];
+      if (!hist || hist.total_sessions === 0) return false;
+      const rate = hist.attendance_rate_pct;
+      if (filterAttendance === 'healthy') return rate >= 85;
+      if (filterAttendance === 'attention') return rate >= 75 && rate < 85;
+      if (filterAttendance === 'critical') return rate < 75;
+      return true;
+    });
+  }, [students, filterAttendance, attendanceMap]);
+
+  const handleClearFilters = () => {
+    setFilterClass('');
+    setFilterSection('');
+    setFilterEnrollment('');
+    setFilterAttendance('');
+    setPage(1);
+    setIsFilterOpen(false);
+  };
+
+  // Open Profile Drawer
+  const openProfileDrawer = async (student: Student) => {
+    setSelectedProfileStudent(student);
+    setActiveMenuStudentId(null);
+    setLoadingProfileAttendance(true);
+    try {
+      const hist = await fetchStudentAttendanceHistory(student.id);
+      setProfileAttendance(hist);
+    } catch (err) {
+      console.warn('Failed to load student profile attendance:', err);
+      setProfileAttendance(null);
+    } finally {
+      setLoadingProfileAttendance(false);
     }
-    if (selectedFilterTab === 'PENDING') {
-      return students.filter((s) => s.enrollment_status !== 'ENROLLED');
-    }
-    if (selectedFilterTab === 'AT_RISK') {
-      return students.filter((s) => {
-        const att = attendanceCache[s.id];
-        return att && att.pct < 75;
+  };
+
+  const closeProfileDrawer = () => {
+    setSelectedProfileStudent(null);
+    setProfileAttendance(null);
+  };
+
+  // Open Simplified Face Enrollment Modal
+  const openFaceEnrollmentModal = (student: Student) => {
+    setEnrollStudent(student);
+    setEnrollStep('camera');
+    setCameraError(null);
+    setEnrollErrorMessage(null);
+    setFaceQuality('POOR');
+    setFacePosition('OFF_CENTER');
+    setFaceLiveness('CHECKING');
+    setIsEnrollModalOpen(true);
+    setActiveMenuStudentId(null);
+    startWebcam();
+  };
+
+  const closeFaceEnrollmentModal = () => {
+    stopWebcam();
+    setIsEnrollModalOpen(false);
+    setEnrollStudent(null);
+  };
+
+  // Webcam Management for Face Enrollment
+  const startWebcam = async () => {
+    setCameraError(null);
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Webcam is unavailable. HTTPS or localhost context required.');
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+        audio: false,
       });
-    }
-    return students;
-  }, [students, selectedFilterTab, attendanceCache]);
 
+      streamRef.current = stream;
+      setCameraActive(true);
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        try {
+          await videoRef.current.play();
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      // Detection scan loop for quality / centering indicators
+      detectIntervalRef.current = setInterval(runEnrollmentDetectionScan, 400);
+    } catch (err: any) {
+      console.error('Webcam start failed:', err);
+      setCameraError(err.message || 'Unable to access camera.');
+      setCameraActive(false);
+    }
+  };
+
+  const stopWebcam = () => {
+    if (detectIntervalRef.current) {
+      clearInterval(detectIntervalRef.current);
+      detectIntervalRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCameraActive(false);
+  };
+
+  // Frame scanner assessing quality & centering
+  const runEnrollmentDetectionScan = async () => {
+    if (isDetectingRef.current || !videoRef.current || !captureCanvasRef.current) return;
+    const video = videoRef.current;
+    if (video.readyState < 2 || video.videoWidth === 0) return;
+
+    isDetectingRef.current = true;
+    const canvas = captureCanvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      isDetectingRef.current = false;
+      return;
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        isDetectingRef.current = false;
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', blob, 'frame.jpg');
+
+      try {
+        const res = await apiClient.post('/recognition/detect', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+
+        const faces = res.data?.faces || [];
+        if (faces.length === 1) {
+          const f = faces[0];
+          setFaceQuality(f.is_valid !== false ? 'GOOD' : 'POOR');
+          setFacePosition(f.pose?.is_frontal !== false ? 'CENTERED' : 'OFF_CENTER');
+          setFaceLiveness(f.confidence > 0.85 ? 'VERIFIED' : 'CHECKING');
+        } else {
+          setFaceQuality('POOR');
+          setFacePosition('OFF_CENTER');
+          setFaceLiveness('CHECKING');
+        }
+      } catch {
+        // quiet skip
+      } finally {
+        isDetectingRef.current = false;
+      }
+    }, 'image/jpeg', 0.80);
+  };
+
+  // Capture face and submit enrollment to backend
+  const handleCaptureFace = async () => {
+    if (!enrollStudent || !videoRef.current || !captureCanvasRef.current || isCapturingSample) return;
+
+    setIsCapturingSample(true);
+    setEnrollErrorMessage(null);
+
+    const video = videoRef.current;
+    const canvas = captureCanvasRef.current;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      setIsCapturingSample(false);
+      return;
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        setIsCapturingSample(false);
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', blob, 'enroll_sample.jpg');
+      formData.append('pose_type', 'FRONTAL');
+
+      try {
+        const res = await enrollStudentFace(enrollStudent.id, formData);
+        if (res.success) {
+          stopWebcam();
+          setEnrollStep('success');
+          loadData();
+          if (selectedProfileStudent?.id === enrollStudent.id) {
+            setSelectedProfileStudent((prev) => (prev ? { ...prev, enrollment_status: 'ENROLLED' } : null));
+          }
+        } else {
+          setEnrollErrorMessage(res.message || 'Face not clear. Please face the camera and try again.');
+        }
+      } catch (err: any) {
+        setEnrollErrorMessage(formatApiErrorMessage(err, 'Failed to enroll face.'));
+      } finally {
+        setIsCapturingSample(false);
+      }
+    }, 'image/jpeg', 0.95);
+  };
+
+  // Form Handlers
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData((prev) => ({
       ...prev,
@@ -231,25 +409,23 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
   };
 
   const openCreateModal = () => {
-    const defaultId = `22CSE${String(total + 1).padStart(3, '0')}`;
     setFormData({
-      student_code: defaultId,
-      roll_number: defaultId,
+      student_code: `STU-${String(total + 1).padStart(3, '0')}`,
+      roll_number: `R-${String(total + 1).padStart(3, '0')}`,
       first_name: '',
       last_name: '',
-      email: `${defaultId.toLowerCase()}@campus.edu`,
+      email: '',
       department: 'Computer Science',
-      class_name: 'CSE-B',
-      section: 'B',
+      class_name: 'CSE-4A',
+      section: 'A',
       status: 'ACTIVE',
     });
-    setFullName('');
     setModalError(null);
     setIsAddModalOpen(true);
   };
 
   const openEditModal = (student: Student) => {
-    setActiveModalStudent(student);
+    setActiveStudent(student);
     setFormData({
       student_code: student.student_code,
       roll_number: student.roll_number,
@@ -261,18 +437,20 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       section: student.section,
       status: student.status,
     });
-    setFullName(`${student.first_name} ${student.last_name}`.trim());
     setModalError(null);
     setIsEditModalOpen(true);
+    setActiveMenuStudentId(null);
   };
 
   const openDeleteModal = (student: Student) => {
-    setActiveModalStudent(student);
+    setActiveStudent(student);
     setIsDeleteModalOpen(true);
+    setActiveMenuStudentId(null);
   };
 
   const openQrEnrollModal = async (student: Student) => {
-    setActiveModalStudent(student);
+    setActiveStudent(student);
+    setActiveMenuStudentId(null);
     const host = window.location.hostname;
     const port = window.location.port ? `:${window.location.port}` : '';
     const protocol = window.location.protocol;
@@ -288,24 +466,16 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
     }
   };
 
-  const handleCreateSubmit = async (e: React.FormEvent, continueToEnroll: boolean = false) => {
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormSubmitting(true);
     setModalError(null);
     try {
-      const parts = fullName.trim().split(' ');
-      const payload = {
-        ...formData,
-        first_name: parts[0] || 'Unknown',
-        last_name: parts.slice(1).join(' ') || 'Student',
-        email: `${formData.roll_number.toLowerCase()}@campus.edu`,
-      };
-      const created = await createStudent(payload);
+      const created = await createStudent(formData);
       setIsAddModalOpen(false);
-      await loadData();
-      if (continueToEnroll) {
-        startEnrollmentForStudent(created);
-      }
+      loadData();
+      // Prompt face enrollment directly
+      openFaceEnrollmentModal(created);
     } catch (err: any) {
       setModalError(formatApiErrorMessage(err, 'Failed to create student.'));
     } finally {
@@ -315,21 +485,23 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
 
   const handleUpdateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeModalStudent) return;
+    if (!activeStudent) return;
     setFormSubmitting(true);
     setModalError(null);
     try {
-      const parts = fullName.trim().split(' ');
-      const payload = {
-        ...formData,
-        first_name: parts[0] || 'Unknown',
-        last_name: parts.slice(1).join(' ') || 'Student',
-      };
-      await updateStudent(activeModalStudent.id, payload);
+      await updateStudent(activeStudent.id, formData);
       setIsEditModalOpen(false);
       loadData();
-      if (activeProfileStudent?.id === activeModalStudent.id) {
-        setActiveProfileStudent((prev) => (prev ? { ...prev, ...payload, status: (payload.status as any) || prev.status } : null));
+      if (selectedProfileStudent?.id === activeStudent.id) {
+        setSelectedProfileStudent((prev) =>
+          prev
+            ? {
+                ...prev,
+                ...formData,
+                status: (formData.status as Student['status']) || prev.status,
+              }
+            : null
+        );
       }
     } catch (err: any) {
       setModalError(formatApiErrorMessage(err, 'Failed to update student.'));
@@ -339,13 +511,13 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
   };
 
   const handleDeleteSubmit = async () => {
-    if (!activeModalStudent) return;
+    if (!activeStudent) return;
     setFormSubmitting(true);
     try {
-      await deleteStudent(activeModalStudent.id);
+      await deleteStudent(activeStudent.id);
       setIsDeleteModalOpen(false);
-      if (activeProfileStudent?.id === activeModalStudent.id) {
-        setActiveProfileStudent(null);
+      if (selectedProfileStudent?.id === activeStudent.id) {
+        setSelectedProfileStudent(null);
       }
       loadData();
     } catch (err: any) {
@@ -355,165 +527,47 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
     }
   };
 
-  // Face Enrollment Handlers
-  const startEnrollmentForStudent = async (student: Student) => {
-    setEnrollStudent(student);
-    setIsEnrollModalOpen(true);
-    setEnrollSuccess(false);
-    setEnrollError(null);
-
+  const formatDateShort = (dateStr?: string) => {
+    if (!dateStr) return '—';
     try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera access unavailable. Ensure HTTPS connection.');
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-        audio: false,
-      });
-      enrollStreamRef.current = stream;
-      setCameraActive(true);
-      if (enrollVideoRef.current) {
-        enrollVideoRef.current.srcObject = stream;
-        await enrollVideoRef.current.play();
-      }
-    } catch (err: any) {
-      setEnrollError(err.message || 'Could not start camera for enrollment.');
-      setCameraActive(false);
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return '—';
+      return d.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
+    } catch {
+      return '—';
     }
-  };
-
-  const stopEnrollmentCamera = () => {
-    if (enrollStreamRef.current) {
-      enrollStreamRef.current.getTracks().forEach((t) => t.stop());
-      enrollStreamRef.current = null;
-    }
-    if (enrollVideoRef.current) {
-      enrollVideoRef.current.srcObject = null;
-    }
-    setCameraActive(false);
-  };
-
-  const handleCaptureFaceEnrollment = async () => {
-    if (!enrollVideoRef.current || !enrollCanvasRef.current || !enrollStudent || capturingFace) return;
-    setCapturingFace(true);
-    setEnrollError(null);
-
-    const video = enrollVideoRef.current;
-    const canvas = enrollCanvasRef.current;
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      setCapturingFace(false);
-      return;
-    }
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    canvas.toBlob(
-      async (blob) => {
-        if (!blob) {
-          setCapturingFace(false);
-          return;
-        }
-
-        const formDataPayload = new FormData();
-        formDataPayload.append('file', blob, 'enroll_face.jpg');
-        formDataPayload.append('pose_type', 'FRONTAL');
-
-        try {
-          const res = await apiClient.post(`/students/${enrollStudent.id}/enroll`, formDataPayload, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-          });
-
-          if (res.data.success) {
-            setEnrollSuccess(true);
-            stopEnrollmentCamera();
-            await loadData();
-            if (activeProfileStudent?.id === enrollStudent.id) {
-              setActiveProfileStudent((prev) => (prev ? { ...prev, enrollment_status: 'ENROLLED' } : null));
-            }
-          } else {
-            setEnrollError(res.data.message || 'Could not detect clear face. Please look directly at the camera.');
-          }
-        } catch (err: any) {
-          setEnrollError(formatApiErrorMessage(err, 'Face enrollment failed.'));
-        } finally {
-          setCapturingFace(false);
-        }
-      },
-      'image/jpeg',
-      0.95
-    );
-  };
-
-  // Export CSV
-  const handleExportCsv = () => {
-    const headers = ['Student Name', 'Student ID', 'Roll Number', 'Email', 'Class', 'Face Status', 'Attendance %'];
-    const rows = filteredStudents.map((s) => [
-      `"${s.first_name} ${s.last_name}"`,
-      `"${s.student_code}"`,
-      `"${s.roll_number}"`,
-      `"${s.email}"`,
-      `"${s.class_name}"`,
-      `"${s.enrollment_status}"`,
-      `"${attendanceCache[s.id]?.pct ?? 90}%"`,
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `students_${classFilter || 'cohort'}_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // Toggle select all
-  const handleToggleSelectAll = () => {
-    if (selectedStudentIds.length === filteredStudents.length) {
-      setSelectedStudentIds([]);
-    } else {
-      setSelectedStudentIds(filteredStudents.map((s) => s.id));
-    }
-  };
-
-  const handleToggleSelectOne = (id: string) => {
-    setSelectedStudentIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
-  };
-
-  // Helper for initials
-  const getInitials = (first: string, last: string) => {
-    return `${first.charAt(0)}${last.charAt(0)}`.toUpperCase();
   };
 
   return (
-    <div className="space-y-4 max-w-7xl mx-auto pb-8 font-sans">
-      {/* PAGE HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-4 max-w-7xl mx-auto select-none">
+      {/* ========================================================================= */}
+      {/* 1. PAGE HEADER */}
+      {/* ========================================================================= */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Students</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Students</h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
             Manage registered students and face enrollment.
           </p>
         </div>
 
-        {/* Primary Action Button */}
+        {/* Single Primary Action */}
         <button
           onClick={openCreateModal}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs self-start sm:self-auto"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
         >
-          <UserPlus className="w-4 h-4" />
+          <Plus className="w-3.5 h-3.5" />
           <span>Register Student</span>
         </button>
       </div>
 
-      {/* COMPACT SEARCH & FILTERS TOOLBAR */}
-      <div className="bg-white border border-slate-200 rounded-xl p-2.5 shadow-xs flex flex-wrap items-center justify-between gap-3">
-        {/* Left: Search input */}
-        <div className="relative flex-1 min-w-[240px] max-w-md">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+      {/* ========================================================================= */}
+      {/* 2. COMPACT SEARCH & FILTER TOOLBAR */}
+      {/* ========================================================================= */}
+      <div className="flex items-center gap-2">
+        {/* Search input */}
+        <div className="relative flex-1 max-w-sm">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={search}
@@ -521,799 +575,888 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
               setSearch(e.target.value);
               setPage(1);
             }}
-            placeholder="Search students by name, roll number, or email..."
-            className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
+            placeholder="Search students by name, roll number or email..."
+            className="w-full bg-white border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-xs"
           />
         </div>
 
-        {/* Middle / Right: Filter dropdown, quick chips, Refresh, Export */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Filter Popover Button */}
-          <div className="relative" ref={filterDropdownRef}>
-            <button
-              onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold transition"
-            >
-              <Filter className="w-3.5 h-3.5 text-slate-500" />
-              <span>Filters</span>
-              {classFilter && (
-                <span className="bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded text-[10px] font-bold">
-                  {classFilter}
-                </span>
-              )}
-            </button>
-
-            {showFilterDropdown && (
-              <div className="absolute right-0 mt-1.5 w-60 bg-white border border-slate-200 rounded-xl shadow-lg p-3 z-40 space-y-3 text-xs">
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">Filter by Class</label>
-                  <select
-                    value={classFilter}
-                    onChange={(e) => {
-                      setClassFilter(e.target.value);
-                      setPage(1);
-                    }}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-xs font-semibold text-slate-800"
-                  >
-                    <option value="">All Classes</option>
-                    <option value="CSE-B">CSE-B (Sem 5)</option>
-                    <option value="CSE-A">CSE-A (Sem 5)</option>
-                    <option value="TE-B">TE-B (Sem 6)</option>
-                    <option value="General">General Cohort</option>
-                  </select>
-                </div>
-
-                <div className="pt-2 border-t border-slate-100 flex justify-end">
-                  <button
-                    onClick={() => {
-                      setClassFilter('');
-                      setShowFilterDropdown(false);
-                    }}
-                    className="text-slate-500 hover:text-slate-700 text-[11px] font-semibold"
-                  >
-                    Reset Filter
-                  </button>
-                </div>
-              </div>
+        {/* Filter Popover Button */}
+        <div className="relative student-filter-container">
+          <button
+            type="button"
+            onClick={() => setIsFilterOpen(!isFilterOpen)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition shadow-xs ${
+              activeFilterCount > 0
+                ? 'bg-blue-50 border-blue-200 text-blue-700'
+                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <Filter className="w-3.5 h-3.5" />
+            <span>Filter</span>
+            {activeFilterCount > 0 && (
+              <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">
+                {activeFilterCount}
+              </span>
             )}
-          </div>
-
-          {/* Quick Filter Chips */}
-          <div className="hidden md:flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
-            <button
-              onClick={() => setSelectedFilterTab('ALL')}
-              className={`px-2.5 py-1 rounded-md font-bold transition ${
-                selectedFilterTab === 'ALL' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              All {total}
-            </button>
-            <button
-              onClick={() => setSelectedFilterTab('ENROLLED')}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-bold transition ${
-                selectedFilterTab === 'ENROLLED'
-                  ? 'bg-white text-emerald-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              Enrolled
-            </button>
-            <button
-              onClick={() => setSelectedFilterTab('PENDING')}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-bold transition ${
-                selectedFilterTab === 'PENDING'
-                  ? 'bg-white text-amber-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-              Pending Face
-            </button>
-            <button
-              onClick={() => setSelectedFilterTab('AT_RISK')}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-bold transition ${
-                selectedFilterTab === 'AT_RISK'
-                  ? 'bg-white text-rose-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-              At Risk (&lt;75%)
-            </button>
-          </div>
-
-          {/* Refresh */}
-          <button
-            onClick={loadData}
-            disabled={loading}
-            className="p-2 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 transition disabled:opacity-50"
-            title="Refresh List"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
           </button>
 
-          {/* Export CSV */}
-          <button
-            onClick={handleExportCsv}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold transition"
-            title="Export CSV"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span className="hidden sm:inline">Export CSV</span>
-          </button>
+          {/* Small Filter Dropdown Popover */}
+          {isFilterOpen && (
+            <div className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-xl shadow-lg p-3 z-30 space-y-3 text-xs animate-in fade-in-50">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <span className="font-bold text-slate-900">Filter Students</span>
+                {activeFilterCount > 0 && (
+                  <button
+                    onClick={handleClearFilters}
+                    className="text-[11px] text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+
+              {/* Class Filter */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-600">Class</label>
+                <select
+                  value={filterClass}
+                  onChange={(e) => {
+                    setFilterClass(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800 focus:bg-white focus:outline-none"
+                >
+                  <option value="">All Classes</option>
+                  {availableClasses.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Section Filter */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-600">Section</label>
+                <select
+                  value={filterSection}
+                  onChange={(e) => {
+                    setFilterSection(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800 focus:bg-white focus:outline-none"
+                >
+                  <option value="">All Sections</option>
+                  <option value="A">Section A</option>
+                  <option value="B">Section B</option>
+                  <option value="C">Section C</option>
+                </select>
+              </div>
+
+              {/* Face Enrollment Filter */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-600">Face Enrollment</label>
+                <select
+                  value={filterEnrollment}
+                  onChange={(e) => {
+                    setFilterEnrollment(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800 focus:bg-white focus:outline-none"
+                >
+                  <option value="">All Statuses</option>
+                  <option value="ENROLLED">Enrolled</option>
+                  <option value="PARTIAL">Pending</option>
+                  <option value="NOT_ENROLLED">Not Enrolled</option>
+                </select>
+              </div>
+
+              {/* Attendance Filter */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-600">Attendance</label>
+                <select
+                  value={filterAttendance}
+                  onChange={(e) => {
+                    setFilterAttendance(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800 focus:bg-white focus:outline-none"
+                >
+                  <option value="">All Attendance</option>
+                  <option value="healthy">Healthy (≥85%)</option>
+                  <option value="attention">Requires Attention (75-84%)</option>
+                  <option value="critical">Critical (&lt;75%)</option>
+                </select>
+              </div>
+
+              <button
+                onClick={() => setIsFilterOpen(false)}
+                className="w-full py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition"
+              >
+                Apply & Close
+              </button>
+            </div>
+          )}
         </div>
+
+        {/* Refresh Button */}
+        <button
+          onClick={loadData}
+          disabled={loading}
+          className="p-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 transition shadow-xs disabled:opacity-50"
+          title="Refresh"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
+        </button>
       </div>
 
-      {/* MAIN TWO-COLUMN / TABLE + PROFILE SIDE PANEL LAYOUT */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-        {/* LEFT / CENTER: STUDENT TABLE (approx 8 or 12 cols depending on side panel) */}
-        <div className={`${activeProfileStudent ? 'lg:col-span-8' : 'lg:col-span-12'} bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs flex flex-col`}>
-          {loading ? (
-            <div className="py-20 text-center text-slate-400 text-xs">
-              <RefreshCw className="w-6 h-6 animate-spin mx-auto text-blue-600 mb-2" />
-              Loading students...
-            </div>
-          ) : filteredStudents.length === 0 ? (
-            <div className="py-16 text-center space-y-3">
-              <Users className="w-8 h-8 text-slate-300 mx-auto" />
-              <h3 className="text-sm font-bold text-slate-800">No students found</h3>
-              <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                No students match your active search or filter criteria.
-              </p>
+      {/* ========================================================================= */}
+      {/* 3. STUDENT TABLE */}
+      {/* ========================================================================= */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+        {loading ? (
+          <div className="py-16 text-center text-slate-400 text-xs">
+            <RefreshCw className="w-5 h-5 animate-spin mx-auto text-blue-600 mb-2" />
+            Loading students...
+          </div>
+        ) : displayedStudents.length === 0 ? (
+          <div className="py-16 text-center space-y-3">
+            <Users className="w-8 h-8 text-slate-300 mx-auto" />
+            <h3 className="text-sm font-semibold text-slate-800">No students found</h3>
+            <p className="text-xs text-slate-400 max-w-sm mx-auto">
+              {search || activeFilterCount > 0
+                ? 'Try adjusting your search or filter options.'
+                : 'Register your first student to begin attendance tracking.'}
+            </p>
+            {activeFilterCount > 0 ? (
+              <button
+                onClick={handleClearFilters}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold"
+              >
+                Clear Filters
+              </button>
+            ) : (
               <button
                 onClick={openCreateModal}
-                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
               >
                 <UserPlus className="w-3.5 h-3.5" />
                 <span>Register Student</span>
               </button>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs whitespace-nowrap">
-                <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
-                  <tr>
-                    <th className="p-3 w-8 text-center">
-                      <input
-                        type="checkbox"
-                        checked={selectedStudentIds.length === filteredStudents.length && filteredStudents.length > 0}
-                        onChange={handleToggleSelectAll}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                    </th>
-                    <th className="px-4 py-3 font-bold">STUDENT</th>
-                    <th className="px-4 py-3 font-bold">ID / ROLL</th>
-                    <th className="px-4 py-3 font-bold">CLASS</th>
-                    <th className="px-4 py-3 font-bold text-center">FACE BIOMETRIC</th>
-                    <th className="px-4 py-3 font-bold">ATTENDANCE</th>
-                    <th className="px-4 py-3 font-bold text-right">ACTIONS</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredStudents.map((student, idx) => {
-                    const isEnrolled = student.enrollment_status === 'ENROLLED';
-                    const isPartial = student.enrollment_status === 'PARTIAL';
-                    const isSelected = activeProfileStudent?.id === student.id;
-                    const initials = getInitials(student.first_name, student.last_name);
-                    const att = attendanceCache[student.id] || { pct: 90, missed: 4, total: 42 };
+            )}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
+                <tr>
+                  <th className="px-4 py-3">Student</th>
+                  <th className="px-4 py-3">ID / Roll</th>
+                  <th className="px-4 py-3">Class</th>
+                  <th className="px-4 py-3">Face Status</th>
+                  <th className="px-4 py-3">Attendance</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {displayedStudents.map((student) => {
+                  const isEnrolled = student.enrollment_status === 'ENROLLED';
+                  const isPartial = student.enrollment_status === 'PARTIAL';
+                  const hist = attendanceMap[student.id];
 
-                    // Avatar color variation
-                    const avatarBgColors = [
-                      'bg-blue-100 text-blue-700',
-                      'bg-purple-100 text-purple-700',
-                      'bg-emerald-100 text-emerald-700',
-                      'bg-amber-100 text-amber-700',
-                      'bg-rose-100 text-rose-700',
-                    ];
-                    const avatarColor = avatarBgColors[idx % avatarBgColors.length];
+                  return (
+                    <tr
+                      key={student.id}
+                      onClick={() => openProfileDrawer(student)}
+                      className="hover:bg-slate-50/80 transition cursor-pointer"
+                    >
+                      {/* 1. STUDENT: Name & Email */}
+                      <td className="px-4 py-2.5">
+                        <div className="font-semibold text-slate-900 text-xs">
+                          {student.first_name} {student.last_name}
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate max-w-xs">{student.email}</div>
+                      </td>
 
-                    return (
-                      <tr
-                        key={student.id}
-                        onClick={() => setActiveProfileStudent(student)}
-                        className={`transition cursor-pointer ${
-                          isSelected ? 'bg-blue-50/60' : 'hover:bg-slate-50/80'
-                        }`}
-                      >
-                        {/* Checkbox */}
-                        <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={selectedStudentIds.includes(student.id)}
-                            onChange={() => handleToggleSelectOne(student.id)}
-                            className="rounded border-slate-300 text-blue-600 focus:ring-0 cursor-pointer"
-                          />
-                        </td>
+                      {/* 2. ID / ROLL */}
+                      <td className="px-4 py-2.5 text-slate-700">
+                        <div className="font-medium font-mono text-xs">{student.roll_number || student.student_code}</div>
+                        {student.roll_number && student.student_code && student.roll_number !== student.student_code && (
+                          <div className="text-[10px] text-slate-400 font-mono">{student.student_code}</div>
+                        )}
+                      </td>
 
-                        {/* Student Name & Email */}
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2.5">
-                            <div
-                              className={`w-7 h-7 rounded-lg ${avatarColor} flex items-center justify-center font-bold text-xs shrink-0`}
-                            >
-                              {initials}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="font-bold text-slate-900 flex items-center gap-1 text-xs">
-                                <span>
-                                  {student.first_name} {student.last_name}
-                                </span>
-                                {isEnrolled && (
-                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" title="Biometrics active" />
-                                )}
-                              </div>
-                              <div className="text-[10px] text-slate-400 truncate">{student.email}</div>
-                            </div>
-                          </div>
-                        </td>
+                      {/* 3. CLASS */}
+                      <td className="px-4 py-2.5 text-slate-600 font-medium">
+                        {student.class_name} {student.section ? `(${student.section})` : ''}
+                      </td>
 
-                        {/* ID / Roll */}
-                        <td className="px-4 py-3 font-mono font-semibold text-slate-700 text-xs">
-                          {student.roll_number || student.student_code}
-                        </td>
+                      {/* 4. FACE STATUS */}
+                      <td className="px-4 py-2.5">
+                        {isEnrolled ? (
+                          <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium text-xs">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                            <span>Enrolled</span>
+                          </span>
+                        ) : isPartial ? (
+                          <span className="inline-flex items-center gap-1.5 text-amber-700 font-medium text-xs">
+                            <span className="w-2 h-2 rounded-full bg-amber-500" />
+                            <span>Pending</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-slate-500 font-medium text-xs">
+                            <span className="w-2 h-2 rounded-full bg-slate-300" />
+                            <span>Not Enrolled</span>
+                          </span>
+                        )}
+                      </td>
 
-                        {/* Class */}
-                        <td className="px-4 py-3 text-slate-600 text-xs">
-                          <span className="font-semibold text-slate-800">{student.class_name || 'CSE-B'}</span>
-                          <span className="text-[10px] text-slate-400 ml-1">(Sem 5)</span>
-                        </td>
-
-                        {/* Face Biometric Pill */}
-                        <td className="px-4 py-3 text-center">
-                          {isEnrolled ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200">
-                              <Check className="w-3 h-3" />
-                              <span>Enrolled</span>
+                      {/* 5. ATTENDANCE */}
+                      <td className="px-4 py-2.5">
+                        {hist ? (
+                          hist.total_sessions === 0 ? (
+                            <span className="text-slate-400 font-mono">—</span>
+                          ) : hist.attendance_rate_pct >= 85 ? (
+                            <span className="inline-flex items-center gap-1 font-bold text-emerald-600">
+                              {hist.attendance_rate_pct}%
                             </span>
-                          ) : isPartial ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200">
-                              <span className="w-1.5 h-1.5 rounded-sm bg-amber-500"></span>
-                              <span>Pending (1/3)</span>
+                          ) : hist.attendance_rate_pct >= 75 ? (
+                            <span className="inline-flex items-center gap-1 font-bold text-amber-600">
+                              <span>{hist.attendance_rate_pct}%</span>
+                              <span className="text-amber-500 text-[10px]">⚠</span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200">
-                              <span className="w-1.5 h-1.5 rounded-full border border-slate-400"></span>
-                              <span>Not Enrolled</span>
+                            <span className="inline-flex items-center gap-1 font-bold text-rose-600">
+                              <span>{hist.attendance_rate_pct}%</span>
+                              <span className="text-rose-500 text-[10px]">⚠</span>
                             </span>
-                          )}
-                        </td>
+                          )
+                        ) : (
+                          <span className="text-slate-300 text-[10px]">...</span>
+                        )}
+                      </td>
 
-                        {/* Attendance Bar & Rate */}
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2 min-w-[110px]">
-                            <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden shrink-0">
-                              <div
-                                className={`h-full rounded-full ${
-                                  att.pct >= 80 ? 'bg-emerald-500' : att.pct >= 75 ? 'bg-amber-500' : 'bg-rose-500'
-                                }`}
-                                style={{ width: `${Math.min(100, att.pct)}%` }}
-                              />
-                            </div>
-                            <span
-                              className={`font-bold text-xs ${
-                                att.pct >= 80 ? 'text-emerald-600' : att.pct >= 75 ? 'text-amber-600' : 'text-rose-600'
-                              }`}
-                            >
-                              {att.pct}%
-                            </span>
-                            {att.pct < 75 && (
-                              <span className="text-[9px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1 rounded flex items-center gap-0.5">
-                                <AlertTriangle className="w-2.5 h-2.5" />
-                                <span>RISK</span>
-                              </span>
-                            )}
-                          </div>
-                        </td>
+                      {/* 6. ACTIONS: [View] [Edit] [...] */}
+                      <td
+                        className="px-4 py-2.5 text-right whitespace-nowrap student-action-menu-container"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openProfileDrawer(student)}
+                            className="px-2 py-1 rounded text-[11px] font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
+                          >
+                            View
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(student)}
+                            className="px-2 py-1 rounded text-[11px] font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
+                          >
+                            Edit
+                          </button>
 
-                        {/* Simplified Actions */}
-                        <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-end gap-1.5 action-menu-container relative">
+                          {/* [...] Menu Button */}
+                          <div className="relative">
                             <button
-                              onClick={() => setActiveProfileStudent(student)}
-                              className="text-slate-600 hover:text-blue-600 font-bold px-2 py-1 rounded hover:bg-slate-100 transition text-[11px]"
-                            >
-                              View
-                            </button>
-                            <button
-                              onClick={() => openEditModal(student)}
-                              className="text-slate-600 hover:text-slate-900 font-bold px-2 py-1 rounded hover:bg-slate-100 transition text-[11px]"
-                            >
-                              Edit
-                            </button>
-
-                            {/* [...] Dropdown Menu */}
-                            <button
-                              onClick={() => setOpenActionMenuId(openActionMenuId === student.id ? null : student.id)}
-                              className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100"
-                              title="More Options"
+                              type="button"
+                              onClick={() =>
+                                setActiveMenuStudentId(
+                                  activeMenuStudentId === student.id ? null : student.id
+                                )
+                              }
+                              className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                              title="More actions"
                             >
                               <MoreVertical className="w-3.5 h-3.5" />
                             </button>
 
-                            {openActionMenuId === student.id && (
-                              <div className="absolute right-0 top-7 w-44 bg-white border border-slate-200 rounded-xl shadow-lg p-1 z-40 text-xs font-medium text-left divide-y divide-slate-100">
-                                <div className="py-1">
-                                  <button
-                                    onClick={() => {
-                                      setOpenActionMenuId(null);
-                                      startEnrollmentForStudent(student);
-                                    }}
-                                    className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-slate-50 text-slate-700 rounded-lg transition"
-                                  >
-                                    <Camera className="w-3.5 h-3.5 text-blue-600" />
-                                    <span>Capture / Update Face</span>
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setOpenActionMenuId(null);
-                                      openQrEnrollModal(student);
-                                    }}
-                                    className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-slate-50 text-slate-700 rounded-lg transition"
-                                  >
-                                    <Smartphone className="w-3.5 h-3.5 text-slate-500" />
-                                    <span>Phone QR Enroll</span>
-                                  </button>
-                                </div>
-                                <div className="py-1">
-                                  <button
-                                    onClick={() => {
-                                      setOpenActionMenuId(null);
-                                      openEditModal(student);
-                                    }}
-                                    className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-slate-50 text-slate-700 rounded-lg transition"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5 text-slate-500" />
-                                    <span>Edit Student</span>
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setOpenActionMenuId(null);
-                                      openDeleteModal(student);
-                                    }}
-                                    className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                                    <span>Delete Student</span>
-                                  </button>
-                                </div>
+                            {/* Dropdown Popover */}
+                            {activeMenuStudentId === student.id && (
+                              <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-30 text-left text-xs animate-in fade-in-50">
+                                <button
+                                  type="button"
+                                  onClick={() => openFaceEnrollmentModal(student)}
+                                  className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
+                                >
+                                  <Camera className="w-3.5 h-3.5 text-blue-600" />
+                                  <span>Capture / Update Face</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveMenuStudentId(null);
+                                    if (onNavigate) {
+                                      onNavigate('attendance', student.id);
+                                    } else {
+                                      openProfileDrawer(student);
+                                    }
+                                  }}
+                                  className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
+                                >
+                                  <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                                  <span>View Attendance</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openQrEnrollModal(student)}
+                                  className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
+                                >
+                                  <Smartphone className="w-3.5 h-3.5 text-slate-500" />
+                                  <span>Phone QR Enroll</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditModal(student)}
+                                  className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5 text-slate-500" />
+                                  <span>Edit Student</span>
+                                </button>
+                                <div className="border-t border-slate-100 my-1" />
+                                <button
+                                  type="button"
+                                  onClick={() => openDeleteModal(student)}
+                                  className="w-full text-left px-3 py-1.5 hover:bg-rose-50 flex items-center gap-2 text-rose-600 font-medium"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                  <span>Delete Student</span>
+                                </button>
                               </div>
                             )}
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-          {/* COMPACT PAGINATION FOOTER */}
-          <div className="px-4 py-3 bg-slate-50/75 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+        {/* ========================================================================= */}
+        {/* 4. TABLE FOOTER (PAGINATION) */}
+        {/* ========================================================================= */}
+        {students.length > 0 && (
+          <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
             <div>
-              Showing <span className="font-bold text-slate-700">{filteredStudents.length}</span> of{' '}
-              <span className="font-bold text-slate-700">{total}</span> students • Batch: CSE 2022–2026
+              Showing {students.length} of {total} students
             </div>
 
-            <div className="flex items-center gap-1.5">
-              <span className="mr-2 text-[11px] text-slate-400">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-600 font-medium">
                 Page {page} of {totalPages || 1}
               </span>
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1 || loading}
-                className="p-1 rounded bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 transition"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages || loading}
-                className="p-1 rounded bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 transition"
-              >
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT: STUDENT PROFILE SIDE PANEL (WHEN STUDENT SELECTED) */}
-        {activeProfileStudent && (
-          <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-4 text-xs animate-in fade-in-50">
-            {/* Header: Avatar, Name, Badges */}
-            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 font-bold text-sm flex items-center justify-center shadow-xs">
-                  {getInitials(activeProfileStudent.first_name, activeProfileStudent.last_name)}
-                </div>
-                <div>
-                  <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-                    <span>
-                      {activeProfileStudent.first_name} {activeProfileStudent.last_name}
-                    </span>
-                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
-                  </div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">
-                    {activeProfileStudent.roll_number || activeProfileStudent.student_code} •{' '}
-                    {activeProfileStudent.class_name} (Sem 5)
-                  </div>
-                </div>
-              </div>
-
               <div className="flex items-center gap-1">
-                <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
-                  ACTIVE
-                </span>
                 <button
-                  onClick={() => setActiveProfileStudent(null)}
-                  className="p-1 text-slate-400 hover:text-slate-600 rounded"
-                  title="Close side panel"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1 || loading}
+                  className="p-1 rounded bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 transition"
+                  title="Previous Page"
                 >
-                  <X className="w-4 h-4" />
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages || loading}
+                  className="p-1 rounded bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 transition"
+                  title="Next Page"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </div>
-            </div>
-
-            {/* Email */}
-            <div className="flex items-center gap-2 text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100 font-mono text-[11px]">
-              <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span className="truncate">{activeProfileStudent.email}</span>
-            </div>
-
-            {/* FACE BIOMETRIC SIGNATURE CARD */}
-            <div className="bg-slate-50/75 border border-slate-200 rounded-lg p-3 space-y-2">
-              <div className="flex items-center justify-between text-[10px] font-bold">
-                <span className="text-slate-500 uppercase tracking-wider">FACE BIOMETRIC SIGNATURE</span>
-                <span className="flex items-center gap-1 text-emerald-600">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                  Active
-                </span>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 shrink-0">
-                  <Camera className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="font-bold text-slate-900 text-xs">ArcFace 512-D Vector</div>
-                  <div className="text-[10px] text-slate-500 mt-0.5">
-                    Confidence threshold: 0.94 • 3 poses synchronized
-                  </div>
-                  <div className="font-mono text-[9px] text-slate-400 mt-0.5 truncate">
-                    hash: 9f8a4e...4b12c8e3
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* ATTENDANCE RATE & ABSENCE RISK */}
-            <div className="grid grid-cols-2 gap-2 text-center">
-              <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                <div className="text-[10px] uppercase font-bold text-slate-400">ATTENDANCE RATE</div>
-                <div className="text-lg font-bold text-emerald-600 mt-0.5">
-                  {profileAttendance?.attendance_rate_pct ?? 91}%
-                </div>
-                <div className="text-[10px] text-slate-400 mt-0.5">
-                  {profileAttendance?.present_sessions ?? 38} of {profileAttendance?.total_sessions ?? 42} sessions
-                </div>
-              </div>
-
-              <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                <div className="text-[10px] uppercase font-bold text-slate-400">ABSENCE RISK</div>
-                <div className="text-lg font-bold text-slate-900 mt-0.5">
-                  {profileAttendance?.absent_sessions ?? 4}
-                </div>
-                <div className="text-[10px] text-emerald-600 font-bold mt-0.5">Above Min (75%)</div>
-              </div>
-            </div>
-
-            {/* RECENT ATTENDANCE LOG */}
-            <div className="space-y-2 pt-1 border-t border-slate-100">
-              <div className="flex items-center justify-between text-[11px] font-bold">
-                <span className="text-slate-700 uppercase tracking-wider text-[10px]">RECENT ATTENDANCE LOG</span>
-                {onNavigate && (
-                  <button
-                    onClick={() => onNavigate('attendance')}
-                    className="text-blue-600 hover:text-blue-800 text-[10px]"
-                  >
-                    View History
-                  </button>
-                )}
-              </div>
-
-              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                {profileAttendance?.records && profileAttendance.records.length > 0 ? (
-                  profileAttendance.records.slice(0, 4).map((rec, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between p-2 rounded bg-slate-50 text-[11px] border border-slate-100"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            rec.status.includes('PRESENT') ? 'bg-emerald-500' : 'bg-rose-500'
-                          }`}
-                        />
-                        <span className="font-semibold text-slate-800">Class Session</span>
-                        <span className="text-[10px] text-slate-400">
-                          {new Date(rec.last_seen).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                        </span>
-                      </div>
-                      <span
-                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                          rec.status.includes('PRESENT')
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : 'bg-rose-50 text-rose-700'
-                        }`}
-                      >
-                        {rec.status.replace('MANUAL_', '')}
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between p-2 rounded bg-slate-50 text-[11px] border border-slate-100">
-                      <div className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        <span className="font-semibold text-slate-800">Computer Networks</span>
-                        <span className="text-[10px] text-slate-400">24 Oct, 10:14 AM</span>
-                      </div>
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        PRESENT
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between p-2 rounded bg-slate-50 text-[11px] border border-slate-100">
-                      <div className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        <span className="font-semibold text-slate-800">Data Structures</span>
-                        <span className="text-[10px] text-slate-400">23 Oct, 09:04 AM</span>
-                      </div>
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        PRESENT
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between p-2 rounded bg-slate-50 text-[11px] border border-slate-100">
-                      <div className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        <span className="font-semibold text-slate-800">Operating Systems</span>
-                        <span className="text-[10px] text-slate-400">22 Oct, 11:15 AM</span>
-                      </div>
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        PRESENT
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between p-2 rounded bg-slate-50 text-[11px] border border-slate-100">
-                      <div className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                        <span className="font-semibold text-slate-800">Database Systems</span>
-                        <span className="text-[10px] text-slate-400">21 Oct, 02:00 PM</span>
-                      </div>
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">
-                        ABSENT
-                      </span>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* ACTION BUTTONS (RE-CAPTURE FACE & EDIT DETAILS) */}
-            <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-              <button
-                onClick={() => startEnrollmentForStudent(activeProfileStudent)}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-blue-600 border border-blue-200 rounded-lg font-bold text-xs transition shadow-xs"
-              >
-                <Camera className="w-3.5 h-3.5" />
-                <span>Re-capture Face</span>
-              </button>
-              <button
-                onClick={() => openEditModal(activeProfileStudent)}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg font-bold text-xs transition"
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-                <span>Edit Details</span>
-              </button>
             </div>
           </div>
         )}
       </div>
 
       {/* ========================================================================= */}
-      {/* MODAL: TEACHER-FRIENDLY QUICK FACE ENROLLMENT DIALOG */}
+      {/* 5. STUDENT PROFILE SLIDE-OVER DRAWER */}
+      {/* ========================================================================= */}
+      {selectedProfileStudent && (
+        <div className="fixed inset-0 z-50 overflow-hidden">
+          {/* Backdrop */}
+          <div
+            onClick={closeProfileDrawer}
+            className="absolute inset-0 bg-slate-900/30 backdrop-blur-xs transition-opacity"
+          />
+
+          <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
+            <div className="w-screen max-w-md bg-white border-l border-slate-200 shadow-xl flex flex-col">
+              {/* Drawer Header */}
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">Student Profile</h2>
+                  <p className="text-xs text-slate-500">Academic & biometric record</p>
+                </div>
+                <button
+                  onClick={closeProfileDrawer}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Drawer Content */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-5 text-xs">
+                {/* Profile Identity Card */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-full bg-blue-100 border border-blue-200 text-blue-700 font-bold text-sm flex items-center justify-center shrink-0">
+                      {selectedProfileStudent.first_name[0]}
+                      {selectedProfileStudent.last_name[0]}
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-slate-900 truncate">
+                        {selectedProfileStudent.first_name} {selectedProfileStudent.last_name}
+                      </h3>
+                      <div className="text-slate-500 font-mono text-[11px]">
+                        {selectedProfileStudent.roll_number || selectedProfileStudent.student_code}
+                      </div>
+                      <div className="text-slate-500 text-[11px] truncate">
+                        {selectedProfileStudent.email}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-[11px]">
+                    <div>
+                      <span className="text-slate-400">Class: </span>
+                      <span className="font-semibold text-slate-800">{selectedProfileStudent.class_name}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Section: </span>
+                      <span className="font-semibold text-slate-800">{selectedProfileStudent.section || 'A'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Face Enrollment Status */}
+                <div className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-white shadow-xs">
+                  <div>
+                    <div className="font-semibold text-slate-800 text-xs">Face Enrollment</div>
+                    <div className="text-[11px] text-slate-500">InsightFace Biometrics</div>
+                  </div>
+                  {selectedProfileStudent.enrollment_status === 'ENROLLED' ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <span>Enrolled</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                      <span className="w-2 h-2 rounded-full bg-slate-400" />
+                      <span>Not Enrolled</span>
+                    </span>
+                  )}
+                </div>
+
+                {/* Attendance Summary */}
+                <div className="p-3.5 rounded-lg border border-slate-200 bg-white space-y-2 shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-800 text-xs">Overall Attendance</span>
+                    <span className="font-black text-sm text-slate-900">
+                      {profileAttendance ? `${profileAttendance.attendance_rate_pct}%` : '—'}
+                    </span>
+                  </div>
+
+                  {profileAttendance && (
+                    <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                      <div className="p-2 rounded bg-emerald-50 text-emerald-800">
+                        <div className="text-[10px] uppercase font-semibold">Present</div>
+                        <div className="font-bold text-xs mt-0.5">{profileAttendance.present_sessions}</div>
+                      </div>
+                      <div className="p-2 rounded bg-amber-50 text-amber-800">
+                        <div className="text-[10px] uppercase font-semibold">Late</div>
+                        <div className="font-bold text-xs mt-0.5">{profileAttendance.late_sessions}</div>
+                      </div>
+                      <div className="p-2 rounded bg-rose-50 text-rose-800">
+                        <div className="text-[10px] uppercase font-semibold">Absent</div>
+                        <div className="font-bold text-xs mt-0.5">{profileAttendance.absent_sessions}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Recent Attendance</span>
+                    </h4>
+                    {onNavigate && (
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('attendance', selectedProfileStudent.id)}
+                        className="text-[11px] text-blue-600 hover:text-blue-700 font-medium hover:underline inline-flex items-center"
+                      >
+                        Full Records &rarr;
+                      </button>
+                    )}
+                  </div>
+
+                  {loadingProfileAttendance ? (
+                    <div className="py-6 text-center text-slate-400 text-xs">Loading records...</div>
+                  ) : !profileAttendance || profileAttendance.records.length === 0 ? (
+                    <div className="py-6 text-center text-slate-400 text-xs border border-dashed border-slate-200 rounded-lg">
+                      No attendance sessions recorded yet.
+                    </div>
+                  ) : (
+                    <div className="border border-slate-200 rounded-lg overflow-hidden">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[10px] font-semibold">
+                          <tr>
+                            <th className="px-3 py-2">Date</th>
+                            <th className="px-3 py-2">Subject / Code</th>
+                            <th className="px-3 py-2 text-right">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {profileAttendance.records.slice(0, 8).map((rec) => {
+                            const isPresent = rec.status === 'PRESENT' || rec.status === 'MANUAL_PRESENT';
+                            const isLate = rec.status === 'LATE';
+
+                            return (
+                              <tr key={rec.id} className="hover:bg-slate-50">
+                                <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
+                                  {formatDateShort(rec.first_seen || rec.created_at)}
+                                </td>
+                                <td className="px-3 py-2 text-slate-800 font-medium truncate max-w-[130px]">
+                                  {rec.remarks && rec.remarks.startsWith('Class') ? rec.remarks : 'Attendance Session'}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                      isPresent
+                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                        : isLate
+                                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                        : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                    }`}
+                                  >
+                                    {isPresent ? 'Present' : isLate ? 'Late' : 'Absent'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Drawer Bottom Actions */}
+              <div className="p-4 border-t border-slate-100 flex items-center justify-between gap-2 bg-slate-50">
+                <button
+                  type="button"
+                  onClick={() => openFaceEnrollmentModal(selectedProfileStudent)}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>
+                    {selectedProfileStudent.enrollment_status === 'ENROLLED' ? 'Update Face' : 'Capture Face'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openEditModal(selectedProfileStudent)}
+                  className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs transition"
+                >
+                  <Edit2 className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Edit Student</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 6. SIMPLIFIED FACE ENROLLMENT MODAL */}
       {/* ========================================================================= */}
       {isEnrollModalOpen && enrollStudent && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 select-none">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-5 shadow-xl space-y-4">
+            {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="font-bold text-slate-900 text-sm">Face Enrollment</h3>
-                <p className="text-[11px] text-slate-500">
-                  {enrollStudent.first_name} {enrollStudent.last_name} ({enrollStudent.roll_number})
+                <p className="text-xs text-slate-500">
+                  {enrollStudent.first_name} {enrollStudent.last_name} ({enrollStudent.roll_number || enrollStudent.student_code})
                 </p>
               </div>
-              <button
-                onClick={() => {
-                  stopEnrollmentCamera();
-                  setIsEnrollModalOpen(false);
-                }}
-                className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                <X className="w-5 h-5" />
+              <button onClick={closeFaceEnrollmentModal} className="text-slate-400 hover:text-slate-600 p-1">
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            {enrollSuccess ? (
-              <div className="py-8 text-center space-y-3">
-                <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="w-7 h-7" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-slate-900 text-sm">Face enrolled successfully</h4>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Biometric vector is now active for live camera attendance.
-                  </p>
-                </div>
-                <button
-                  onClick={() => setIsEnrollModalOpen(false)}
-                  className="mt-3 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs"
-                >
-                  Done
-                </button>
+            {/* Error banner */}
+            {enrollErrorMessage && (
+              <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{enrollErrorMessage}</span>
               </div>
-            ) : (
-              <>
-                {/* Camera Preview Area */}
-                <div className="relative aspect-video bg-slate-950 rounded-xl overflow-hidden flex items-center justify-center border border-slate-800 shadow-inner">
+            )}
+
+            {/* Step: Camera Preview */}
+            {enrollStep === 'camera' && (
+              <div className="space-y-3">
+                <div className="relative aspect-video bg-black rounded-lg overflow-hidden flex items-center justify-center border border-slate-800 shadow-inner">
                   <video
-                    ref={enrollVideoRef}
+                    ref={videoRef}
                     autoPlay
                     playsInline
                     muted
                     className="w-full h-full object-cover transform -scale-x-100"
                   />
-                  <canvas ref={enrollCanvasRef} className="hidden" />
+                  <canvas ref={captureCanvasRef} className="hidden" />
 
-                  {/* Positioning Guide Overlay */}
-                  <div className="absolute inset-0 border-2 border-dashed border-white/20 m-6 rounded-2xl pointer-events-none flex items-center justify-center">
-                    <span className="text-[10px] text-white/50 bg-black/40 px-2 py-0.5 rounded backdrop-blur-xs">
-                      Position face inside frame
-                    </span>
+                  {/* Oval Face Guide Reticle */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div
+                      className={`w-36 h-48 rounded-[50%] border-2 border-dashed transition-colors duration-200 ${
+                        faceQuality === 'GOOD' && facePosition === 'CENTERED'
+                          ? 'border-emerald-400 shadow-emerald-500/20 shadow-lg'
+                          : 'border-white/50'
+                      }`}
+                    />
+                  </div>
+
+                  {cameraError && (
+                    <div className="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center p-4 text-center text-rose-400 text-xs space-y-2">
+                      <AlertTriangle className="w-6 h-6 text-rose-500" />
+                      <p>{cameraError}</p>
+                      <button
+                        onClick={startWebcam}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 text-white text-xs hover:bg-slate-700"
+                      >
+                        Try Again
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3 Simple Quality Status Pills */}
+                <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
+                  <div
+                    className={`p-2 rounded-lg border font-medium transition ${
+                      faceQuality === 'GOOD'
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        : 'bg-slate-50 border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    Face Quality: <strong>{faceQuality === 'GOOD' ? 'Good' : 'Checking'}</strong>
+                  </div>
+
+                  <div
+                    className={`p-2 rounded-lg border font-medium transition ${
+                      facePosition === 'CENTERED'
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        : 'bg-slate-50 border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    Position: <strong>{facePosition === 'CENTERED' ? 'Centered' : 'Align Face'}</strong>
+                  </div>
+
+                  <div
+                    className={`p-2 rounded-lg border font-medium transition ${
+                      faceLiveness === 'VERIFIED'
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        : 'bg-slate-50 border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    Liveness: <strong>{faceLiveness === 'VERIFIED' ? 'Verified' : 'Checking'}</strong>
                   </div>
                 </div>
 
-                {enrollError && (
-                  <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>{enrollError}</span>
-                  </div>
-                )}
-
-                {/* Status Badges */}
-                <div className="grid grid-cols-3 gap-2 text-center text-[10px] font-bold">
-                  <div className="bg-emerald-50 text-emerald-700 border border-emerald-200 p-1.5 rounded-md flex items-center justify-center gap-1">
-                    <Check className="w-3 h-3" />
-                    <span>Quality: Good</span>
-                  </div>
-                  <div className="bg-emerald-50 text-emerald-700 border border-emerald-200 p-1.5 rounded-md flex items-center justify-center gap-1">
-                    <Check className="w-3 h-3" />
-                    <span>Centered</span>
-                  </div>
-                  <div className="bg-emerald-50 text-emerald-700 border border-emerald-200 p-1.5 rounded-md flex items-center justify-center gap-1">
-                    <Check className="w-3 h-3" />
-                    <span>Liveness: OK</span>
-                  </div>
-                </div>
-
-                {/* Capture Button */}
-                <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                <div className="flex items-center justify-between pt-2">
                   <button
                     type="button"
                     onClick={() => {
-                      stopEnrollmentCamera();
-                      setIsEnrollModalOpen(false);
+                      closeFaceEnrollmentModal();
+                      openQrEnrollModal(enrollStudent);
                     }}
-                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold"
+                    className="text-[11px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
                   >
-                    Cancel
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>Enroll via Phone QR</span>
                   </button>
+
                   <button
                     type="button"
-                    disabled={capturingFace}
-                    onClick={handleCaptureFaceEnrollment}
-                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-xs disabled:opacity-50"
+                    onClick={handleCaptureFace}
+                    disabled={isCapturingSample || !cameraActive}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50"
                   >
-                    {capturingFace ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
-                    <span>{capturingFace ? 'Enrolling...' : 'Capture Face'}</span>
+                    {isCapturingSample ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Enrolling Face...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Capture Face</span>
+                      </>
+                    )}
                   </button>
                 </div>
-              </>
+              </div>
+            )}
+
+            {/* Step: Success State */}
+            {enrollStep === 'success' && (
+              <div className="py-6 text-center space-y-4">
+                <div className="w-12 h-12 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 mx-auto">
+                  <Check className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="text-base font-bold text-slate-900">Face enrolled successfully</h4>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {enrollStudent.first_name} is now registered for automated AI face attendance.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeFaceEnrollmentModal}
+                  className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
+                >
+                  Done
+                </button>
+              </div>
             )}
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL: REGISTER STUDENT (SIMPLIFIED 3-FIELD) */}
+      {/* 7. MODAL: REGISTER STUDENT */}
       {/* ========================================================================= */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-lg w-full p-5 sm:p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-bold text-slate-900 text-base">Register Student</h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
+              <h3 className="font-bold text-slate-900 text-sm">Register Student</h3>
+              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             {modalError && (
-              <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs">
+              <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs">
                 {modalError}
               </div>
             )}
 
-            <form onSubmit={(e) => handleCreateSubmit(e, false)} className="space-y-3.5 text-xs">
-              <div className="space-y-1">
-                <label className="font-bold text-slate-700">Full Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="e.g. Rahul Sharma"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500"
-                />
+            <form onSubmit={handleCreateSubmit} className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-700">First Name *</label>
+                  <input
+                    type="text"
+                    name="first_name"
+                    required
+                    value={formData.first_name}
+                    onChange={handleFormChange}
+                    placeholder="e.g. Rahul"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-700">Last Name *</label>
+                  <input
+                    type="text"
+                    name="last_name"
+                    required
+                    value={formData.last_name}
+                    onChange={handleFormChange}
+                    placeholder="e.g. Sharma"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-700">Student ID *</label>
+                  <label className="font-semibold text-slate-700">Roll Number *</label>
                   <input
                     type="text"
-                    required
-                    name="student_code"
-                    value={formData.student_code}
-                    onChange={handleFormChange}
-                    placeholder="22CSE041"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-700">Roll Number *</label>
-                  <input
-                    type="text"
-                    required
                     name="roll_number"
+                    required
                     value={formData.roll_number}
                     onChange={handleFormChange}
                     placeholder="22CSE041"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-700">Student ID *</label>
+                  <input
+                    type="text"
+                    name="student_code"
+                    required
+                    value={formData.student_code}
+                    onChange={handleFormChange}
+                    placeholder="STU-041"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">Email Address *</label>
+                <input
+                  type="email"
+                  name="email"
+                  required
+                  value={formData.email}
+                  onChange={handleFormChange}
+                  placeholder="rahul.sharma@campus.edu"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1 col-span-2">
+                  <label className="font-semibold text-slate-700">Class Name</label>
+                  <input
+                    type="text"
+                    name="class_name"
+                    value={formData.class_name}
+                    onChange={handleFormChange}
+                    placeholder="CSE-4A"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-700">Section</label>
+                  <input
+                    type="text"
+                    name="section"
+                    value={formData.section}
+                    onChange={handleFormChange}
+                    placeholder="A"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+                  className="px-3.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={formSubmitting}
-                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs disabled:opacity-50"
+                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs disabled:opacity-50"
                 >
-                  Save Student
-                </button>
-                <button
-                  type="button"
-                  disabled={formSubmitting}
-                  onClick={(e) => handleCreateSubmit(e, true)}
-                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs disabled:opacity-50 shadow-xs"
-                >
-                  Continue to Face Enrollment
+                  {formSubmitting ? 'Registering...' : 'Register & Capture Face'}
                 </button>
               </div>
             </form>
@@ -1322,64 +1465,88 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL: EDIT STUDENT */}
+      {/* 8. MODAL: EDIT STUDENT */}
       {/* ========================================================================= */}
-      {isEditModalOpen && activeModalStudent && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+      {isEditModalOpen && activeStudent && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-lg w-full p-5 sm:p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-bold text-slate-900 text-base">Edit Student Details</h3>
-              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
+              <h3 className="font-bold text-slate-900 text-sm">Edit Student</h3>
+              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleUpdateSubmit} className="space-y-3.5 text-xs">
+            <form onSubmit={handleUpdateSubmit} className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-700">First Name</label>
+                  <input
+                    type="text"
+                    name="first_name"
+                    value={formData.first_name}
+                    onChange={handleFormChange}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-700">Last Name</label>
+                  <input
+                    type="text"
+                    name="last_name"
+                    value={formData.last_name}
+                    onChange={handleFormChange}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
               <div className="space-y-1">
-                <label className="font-bold text-slate-700">Full Name</label>
+                <label className="font-semibold text-slate-700">Email Address</label>
                 <input
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500"
+                  type="email"
+                  name="email"
+                  value={formData.email}
+                  onChange={handleFormChange}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-700">Student ID</label>
+                  <label className="font-semibold text-slate-700">Class</label>
                   <input
                     type="text"
-                    name="student_code"
-                    value={formData.student_code}
+                    name="class_name"
+                    value={formData.class_name}
                     onChange={handleFormChange}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-700">Roll Number</label>
+                  <label className="font-semibold text-slate-700">Section</label>
                   <input
                     type="text"
-                    name="roll_number"
-                    value={formData.roll_number}
+                    name="section"
+                    value={formData.section}
                     onChange={handleFormChange}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsEditModalOpen(false)}
-                  className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+                  className="px-3.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={formSubmitting}
-                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs disabled:opacity-50 shadow-xs"
+                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs disabled:opacity-50"
                 >
                   Save Changes
                 </button>
@@ -1390,35 +1557,31 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL: DELETE CONFIRMATION */}
+      {/* 9. MODAL: DELETE CONFIRMATION (DESTRUCTIVE IN MENU) */}
       {/* ========================================================================= */}
-      {isDeleteModalOpen && activeModalStudent && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-center space-y-4">
-            <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
-              <Trash2 className="w-6 h-6" />
+      {isDeleteModalOpen && activeStudent && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-sm w-full p-5 shadow-xl text-center space-y-4">
+            <div className="w-10 h-10 rounded-full bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 mx-auto">
+              <AlertTriangle className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-base">Delete Student</h3>
+              <h3 className="font-bold text-slate-900 text-sm">Delete Student</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Are you sure you want to remove{' '}
-                <span className="font-bold text-slate-800">
-                  {activeModalStudent.first_name} {activeModalStudent.last_name}
-                </span>
-                ? This will permanently delete biometric embeddings and attendance records.
+                Are you sure you want to delete {activeStudent.first_name} {activeStudent.last_name} ({activeStudent.roll_number || activeStudent.student_code})? This action cannot be undone.
               </p>
             </div>
             <div className="flex items-center justify-center gap-2 pt-2">
               <button
                 onClick={() => setIsDeleteModalOpen(false)}
-                className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition"
+                className="px-3.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDeleteSubmit}
                 disabled={formSubmitting}
-                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-50 transition shadow-xs"
+                className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50"
               >
                 Delete Student
               </button>
@@ -1428,42 +1591,40 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL: QR MOBILE ENROLLMENT */}
+      {/* 10. MODAL: QR MOBILE ENROLLMENT */}
       {/* ========================================================================= */}
-      {isQrModalOpen && activeModalStudent && qrCodeUrl && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-center space-y-4">
+      {isQrModalOpen && activeStudent && qrCodeUrl && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-sm w-full p-5 shadow-xl text-center space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-slate-900 text-sm">Mobile Face Enrollment</h3>
-              <button onClick={() => setIsQrModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
+              <button onClick={() => { setIsQrModalOpen(false); loadData(); }} className="text-slate-400 hover:text-slate-600 p-1">
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 inline-block shadow-inner">
-              <img src={qrCodeUrl} alt="QR Code" className="w-48 h-48 mx-auto rounded-lg" />
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 inline-block shadow-xs">
+              <img src={qrCodeUrl} alt="QR Code" className="w-44 h-44 mx-auto rounded" />
             </div>
 
             <div className="space-y-1">
               <h4 className="text-xs font-bold text-slate-900">
-                {activeModalStudent.first_name} {activeModalStudent.last_name}
+                {activeStudent.first_name} {activeStudent.last_name}
               </h4>
               <p className="text-[11px] text-slate-500">
-                Scan with your mobile camera to launch the phone face enrollment studio.
+                Scan this QR code with a mobile camera to enroll face biometrics using phone hardware.
               </p>
-              <div className="text-[10px] font-mono text-slate-400 bg-slate-50 p-2 rounded-lg truncate select-all">
-                {mobileEnrollLink}
-              </div>
+            </div>
+
+            <div className="text-[10px] font-mono text-slate-400 bg-slate-50 p-2 rounded truncate select-all">
+              {mobileEnrollLink}
             </div>
 
             <button
-              onClick={() => {
-                setIsQrModalOpen(false);
-                loadData();
-              }}
-              className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition"
+              onClick={() => { setIsQrModalOpen(false); loadData(); }}
+              className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs"
             >
-              Done
+              Done & Refresh
             </button>
           </div>
         </div>

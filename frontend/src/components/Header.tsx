@@ -1,103 +1,136 @@
-import React from 'react';
-import { Menu, Plus } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { Menu, Plus, User } from 'lucide-react';
 import { ServiceHealthResponse } from '../types';
 
 interface HeaderProps {
-  healthData: ServiceHealthResponse | null;
-  healthStatus: 'healthy' | 'degraded' | 'unhealthy' | 'loading';
-  onRefreshHealth: () => void;
-  isRefreshing: boolean;
+  healthData?: ServiceHealthResponse | null;
+  healthStatus?: 'healthy' | 'degraded' | 'unhealthy' | 'loading';
   activeTab: string;
+  onNavigate: (tab: string) => void;
+  offlineCameraCount?: number;
   onToggleMobileMenu?: () => void;
 }
 
 const TAB_TITLES: Record<string, string> = {
   dashboard: 'Dashboard',
+  attendance: 'Attendance',
   students: 'Students',
-  subjects: 'Academic & Courses',
-  timetable: 'Weekly Timetable',
-  enrollment: 'Face Enrollment',
+  timetable: 'Timetable',
+  reports: 'Reports',
+  settings: 'Settings',
+  cameras: 'Cameras',
   live: 'Live Attendance',
   media: 'Media Attendance',
-  attendance: 'Attendance Records',
-  reports: 'Reports & Analytics',
-  cameras: 'Cameras',
-  audit: 'Security Audit Logs',
-  settings: 'Settings',
+  enrollment: 'Enrollment',
+  subjects: 'Academic & Courses',
+  audit: 'Audit Logs',
 };
 
 export const Header: React.FC<HeaderProps> = ({
-  healthStatus,
-  onRefreshHealth,
-  isRefreshing,
   activeTab,
+  onNavigate,
+  offlineCameraCount = 0,
   onToggleMobileMenu,
 }) => {
-  const isOnline = healthStatus === 'healthy';
-  const currentDate = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
+  const formattedDate = useMemo(() => {
+    return new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(new Date());
+  }, []);
+
+  const pageTitle = TAB_TITLES[activeTab] || 'Dashboard';
 
   return (
-    <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shrink-0">
-      {/* Left: Mobile Menu Trigger & Page Title */}
-      <div className="flex items-center gap-3">
+    <header className="h-14 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 select-none">
+      {/* Left: Mobile Trigger & Brand / Page Title with Dynamic Date */}
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
         {onToggleMobileMenu && (
           <button
             onClick={onToggleMobileMenu}
-            className="md:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition shrink-0"
+            className="md:hidden p-1.5 rounded text-slate-600 hover:bg-slate-100 transition"
             title="Open Navigation"
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="w-4 h-4" />
           </button>
         )}
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-sm">
-            <span className="font-bold text-slate-900 hidden sm:inline-block">JOJIPA-SAMS</span>
-            <span className="text-slate-300 hidden sm:inline-block">/</span>
-            <span className="font-semibold text-slate-700">{TAB_TITLES[activeTab] || 'Dashboard'}</span>
-            <span className="text-slate-300 hidden sm:inline-block">/</span>
-            <span className="text-slate-500 font-medium text-[13px] hidden sm:inline-block">{currentDate}</span>
+
+        <div className="flex items-center gap-1.5 min-w-0 text-xs">
+          <span className="text-sm sm:text-base font-bold text-slate-900 tracking-tight shrink-0">
+            JOJIPA-SAMS
+          </span>
+          <span className="text-slate-400 font-normal">&gt;</span>
+          <span className="font-semibold text-slate-800 truncate">
+            {pageTitle}
+          </span>
+          <span className="text-slate-400 font-normal hidden sm:inline">&gt;</span>
+          <span className="font-medium text-slate-500 hidden sm:inline truncate">
+            {formattedDate}
+          </span>
         </div>
       </div>
 
-      {/* Right Controls */}
-      <div className="flex items-center gap-2.5 sm:gap-4 shrink-0">
-        {/* Camera / Online Status Indicator */}
+      {/* Right: Camera Status Indicator & Single Start Attendance Action */}
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        {/* Hardware Status Indicator (Clickable to open Cameras) */}
         <button
-          onClick={onRefreshHealth}
-          disabled={isRefreshing}
-          title="Refresh connection status"
-          className="flex items-center gap-2 text-xs font-semibold text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100/70 border border-emerald-200/80 px-3 py-1.5 rounded-full transition disabled:opacity-60"
+          onClick={() => onNavigate('cameras')}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded border text-xs font-medium transition-colors cursor-pointer ${
+            offlineCameraCount > 0
+              ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-800'
+              : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+          }`}
+          title={
+            offlineCameraCount > 0
+              ? `${offlineCameraCount} camera(s) offline. Click to review cameras.`
+              : 'All cameras connected. Click to view cameras.'
+          }
         >
-          <span className={`w-2 h-2 rounded-full ${isRefreshing ? 'bg-amber-500 animate-spin' : 'bg-emerald-500 animate-pulse'}`}></span>
-          <span className="hidden sm:inline">
-            {activeTab === 'live' ? 'HP-CAM Connected' : isOnline ? 'All Cameras Connected' : 'Connecting...'}
-          </span>
-          <span className="sm:hidden">Online</span>
+          {offlineCameraCount > 0 ? (
+            <>
+              <span className="text-amber-600 font-bold text-xs leading-none">⚠</span>
+              <span>
+                {offlineCameraCount} Camera{offlineCameraCount > 1 ? 's' : ''} Offline
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+              <span className="hidden xs:inline">All Cameras Connected</span>
+              <span className="xs:hidden">Cameras</span>
+            </>
+          )}
         </button>
 
+        {/* Start Attendance Action / Live Badge */}
         {activeTab === 'live' ? (
-          /* Profile badge in live view matching mock */
-          <div className="flex items-center gap-2 pl-1">
-            <div className="w-7 h-7 rounded-md bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
-              SR
-            </div>
-            <span className="text-xs font-semibold text-slate-800 hidden md:inline">Dr. S. Raman</span>
-          </div>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 rounded text-xs font-semibold select-none">
+            <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+            <span>Live Session</span>
+          </span>
         ) : (
-          /* Start Attendance Button on dashboard / other tabs */
           <button
-            onClick={() => onToggleMobileMenu?.() /* or default navigation */}
-            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-md text-xs font-semibold shadow-sm transition"
+            onClick={() => onNavigate('live')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+            title="Launch live face recognition attendance"
           >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Start Attendance</span>
-            <span className="sm:hidden">Start</span>
+            <Plus className="w-3.5 h-3.5" />
+            <span>Start Attendance</span>
           </button>
         )}
+
+        {/* User Profile */}
+        <div className="flex items-center gap-2 pl-1 sm:pl-2 border-l border-slate-200">
+          <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 font-semibold text-xs shrink-0">
+            <User className="w-3.5 h-3.5 text-slate-500" />
+          </div>
+          <div className="hidden lg:flex flex-col min-w-0 text-left">
+            <span className="text-xs font-semibold text-slate-900 leading-tight truncate">Dr. S. Raman</span>
+            <span className="text-[10px] text-slate-500 leading-tight truncate">Faculty</span>
+          </div>
+        </div>
       </div>
     </header>
   );

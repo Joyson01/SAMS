@@ -16,6 +16,7 @@ import { MobileEnrollmentPage } from './features/mobile/MobileEnrollmentPage';
 import { CameraTestPage } from './features/camera-test/CameraTestPage';
 import { AuditLogsPage } from './features/security/AuditLogsPage';
 import { fetchHealthStatus } from './services/api';
+import { fetchCameras } from './services/cameraApi';
 import { ServiceHealthResponse } from './types';
 
 import { ErrorBoundary } from './components/common/ErrorBoundary';
@@ -50,6 +51,7 @@ export const App: React.FC = () => {
   const [enrollingStudentId, setEnrollingStudentId] = useState<string | undefined>(undefined);
   const [healthData, setHealthData] = useState<ServiceHealthResponse | null>(null);
   const [healthStatus, setHealthStatus] = useState<'healthy' | 'degraded' | 'unhealthy' | 'loading'>('loading');
+  const [offlineCameraCount, setOfflineCameraCount] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
   const loadHealth = async () => {
@@ -63,6 +65,16 @@ export const App: React.FC = () => {
       setHealthStatus('unhealthy');
     } finally {
       setIsRefreshing(false);
+    }
+
+    try {
+      const cams = await fetchCameras();
+      const offline = cams.filter(
+        (c) => c.status === 'OFFLINE' || c.status === 'ERROR' || c.status === 'NO_FRAME' || !c.is_connected
+      ).length;
+      setOfflineCameraCount(offline);
+    } catch (e) {
+      // ignore camera status fetch error
     }
   };
 
@@ -88,6 +100,7 @@ export const App: React.FC = () => {
         isRefreshing={isRefreshing}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        offlineCameraCount={offlineCameraCount}
       >
         <ErrorBoundary key={activeTab} fallbackTitle={`Error in ${activeTab.toUpperCase()}`}>
           {activeTab === 'dashboard' && <DashboardOverview onNavigate={handleNavigate} />}

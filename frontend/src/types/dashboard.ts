@@ -82,6 +82,17 @@ export interface DashboardExceptionItem {
   count: number;
 }
 
+export interface DashboardLiveRecognitionItem {
+  id: string;
+  student_name?: string;
+  name?: string;
+  confidence_pct?: number | null;
+  confidence?: number | null;
+  status: 'PRESENT' | 'LATE' | 'UNKNOWN' | 'REVIEW' | string;
+  time_ago?: string;
+  is_warning?: boolean;
+}
+
 export interface DashboardSummaryResponse {
   summary: DashboardSummaryMetrics;
   active_session?: DashboardActiveSession | null;
@@ -90,6 +101,7 @@ export interface DashboardSummaryResponse {
   attendance_trend: DashboardTrendItem[];
   cameras: DashboardCameraItem[];
   recent_activities: DashboardActivityItem[];
+  live_recognitions?: DashboardLiveRecognitionItem[];
   exceptions: DashboardExceptionItem[];
   server_time: string;
 }

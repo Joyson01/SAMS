@@ -18,6 +18,7 @@ from backend.app.schemas.dashboard import (
     DashboardActiveSession,
     DashboardCameraItem,
     DashboardExceptionItem,
+    DashboardLiveRecognitionItem,
     DashboardSessionItem,
     DashboardSummaryMetrics,
     DashboardSummaryResponse,
@@ -379,8 +380,20 @@ class DashboardService:
             .limit(6)
         )
         recent_recs = (await db.execute(recent_rec_q)).scalars().all()
+        live_recognitions: List[DashboardLiveRecognitionItem] = []
         for r in recent_recs:
-            st_name = f"{r.student.first_name} {r.student.last_name}" if r.student else "Student"
+            st_name = f"{r.student.first_name} {r.student.last_name}".strip() if r.student else "Student"
+            conf = int(round((r.confidence or 0.95) * 100)) if (r.confidence and r.confidence <= 1.0) else int(r.confidence or 95)
+            st_status = "LATE" if "LATE" in r.status else "PRESENT"
+            live_recognitions.append(
+                DashboardLiveRecognitionItem(
+                    id=f"recog-rec-{r.id}",
+                    name=st_name,
+                    confidence=conf,
+                    status=st_status,
+                    time_ago=format_time_ago(r.last_seen),
+                )
+            )
             sess_name = r.session.subject if r.session else "Class Session"
             status_clean = r.status.replace("MANUAL_", "")
             recent_activities.append(
@@ -425,6 +438,15 @@ class DashboardService:
         )
         recent_recogs = (await db.execute(recent_recog_q)).scalars().all()
         for rg in recent_recogs:
+            live_recognitions.append(
+                DashboardLiveRecognitionItem(
+                    id=f"recog-{rg.id}",
+                    name="Unknown Face",
+                    confidence=int(round((rg.similarity or 0) * 100)) if (rg.similarity and rg.similarity > 0) else 0,
+                    status="REVIEW",
+                    time_ago=format_time_ago(rg.event_timestamp),
+                )
+            )
             recent_activities.append(
                 DashboardActivityItem(
                     id=f"recog-{rg.id}",
@@ -552,6 +574,7 @@ class DashboardService:
             attendance_trend=attendance_trend,
             cameras=camera_items,
             recent_activities=recent_activities,
+            live_recognitions=live_recognitions,
             exceptions=exceptions,
             server_time=datetime.now(timezone.utc),
         )

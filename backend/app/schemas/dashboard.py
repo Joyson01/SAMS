@@ -87,6 +87,14 @@ class DashboardExceptionItem(BaseModel):
     count: int = 0
 
 
+class DashboardLiveRecognitionItem(BaseModel):
+    id: str
+    name: str
+    confidence: int = 95
+    status: str = "PRESENT"  # PRESENT, LATE, UNKNOWN
+    time_ago: Optional[str] = None
+
+
 class DashboardSummaryResponse(BaseModel):
     summary: DashboardSummaryMetrics
     active_session: Optional[DashboardActiveSession] = None
@@ -95,5 +103,6 @@ class DashboardSummaryResponse(BaseModel):
     attendance_trend: List[DashboardTrendItem] = Field(default_factory=list)
     cameras: List[DashboardCameraItem] = Field(default_factory=list)
     recent_activities: List[DashboardActivityItem] = Field(default_factory=list)
+    live_recognitions: List[DashboardLiveRecognitionItem] = Field(default_factory=list)
     exceptions: List[DashboardExceptionItem] = Field(default_factory=list)
     server_time: datetime = Field(default_factory=lambda: datetime.now())
