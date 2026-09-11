@@ -1,4 +1,4 @@
-# JOJIPA-SAMS — Smart Attendance Management System
+# SAMS — Smart Attendance Management System
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg)](https://fastapi.tiangolo.com/)
@@ -8,7 +8,7 @@
 [![Tests](https://img.shields.io/badge/Tests-102%20Passing-brightgreen.svg)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**JOJIPA-SAMS** is an AI-powered biometric attendance management platform that automates student presence verification across universities, colleges, and schools using computer vision and deep facial recognition.
+**SAMS** is an AI-powered biometric attendance management platform that automates student presence verification across universities, colleges, and schools using computer vision and deep facial recognition.
 
 It eliminates manual roll-calling, paper sign-in sheets, and proxy attendance by identifying students in real time from **live webcams**, **wireless mobile phone cameras**, **CCTV RTSP streams**, **high-resolution classroom group photographs**, and **recorded lecture videos**.
 
@@ -16,7 +16,7 @@ It eliminates manual roll-calling, paper sign-in sheets, and proxy attendance by
 
 ## 📌 Table of Contents
 
-- [What is JOJIPA-SAMS?](#what-is-jojipa-sams)
+- [What is SAMS?](#what-is-sams)
   - [The Problem It Solves](#the-problem-it-solves)
   - [How It Works](#how-it-works)
 - [Key Features](#key-features)
@@ -36,7 +36,7 @@ It eliminates manual roll-calling, paper sign-in sheets, and proxy attendance by
 
 ---
 
-## 💡 What is JOJIPA-SAMS?
+## 💡 What is SAMS?
 
 ### The Problem It Solves
 
@@ -48,7 +48,7 @@ Traditional classroom attendance has major drawbacks:
 
 ### How It Works
 
-**JOJIPA-SAMS** automates the entire presence verification lifecycle:
+**SAMS** automates the entire presence verification lifecycle:
 
 ```mermaid
 flowchart LR
