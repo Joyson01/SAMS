@@ -20,8 +20,10 @@ from backend.app.schemas.attendance import (
     AttendanceMarkPayload,
     AttendanceOverridePayload,
     AttendanceRecordResponse,
+    ClassRosterStudentItem,
     SessionCreate,
     SessionResponse,
+    SessionRosterResponse,
     SessionUpdate,
     StudentAttendanceSummary,
 )
@@ -382,6 +384,16 @@ class AttendanceService:
             camera_id=payload.camera_id,
         )
 
+        # Determine assigned status: explicit payload override OR auto PRESENT/LATE based on scheduled time
+        if payload.status:
+            assigned_status = payload.status.upper()
+        else:
+            assigned_status = "PRESENT"
+            grace_min = session.late_threshold_minutes or 10
+            scheduled_start = datetime.combine(session.scheduled_date, session.start_time, tzinfo=timezone.utc)
+            if now > (scheduled_start + timedelta(minutes=grace_min)):
+                assigned_status = "LATE"
+
         # Level 1 Duplicate Check: Query existing record for this (session, student)
         query = (
             select(AttendanceRecord)
@@ -396,10 +408,25 @@ class AttendanceService:
         existing = (await db.execute(query)).scalars().first()
 
         if existing:
-            # Student is already marked! Update presence tracking metadata only (last_seen, max confidence)
-            existing.last_seen = now
-            if payload.confidence > existing.confidence:
+            # Auto-recovery: If previously marked ABSENT, NOT_DETECTED, or REVIEW_REQUIRED, upgrade to PRESENT/LATE
+            if existing.status in ["ABSENT", "MANUAL_ABSENT", "NOT_DETECTED", "REVIEW_REQUIRED"]:
+                existing.status = assigned_status
+                existing.first_seen = now
+                existing.source = payload.source or "AI"
                 existing.confidence = payload.confidence
+                existing.remarks = payload.remarks or f"Recovered from {existing.status} to {assigned_status}"
+                logger.info(f"[STATE RECOVERY] Student {student.student_code} recovered from ABSENT to {assigned_status}")
+            elif payload.status:
+                existing.status = assigned_status
+                if payload.remarks:
+                    existing.remarks = payload.remarks
+                if payload.source:
+                    existing.source = payload.source
+            else:
+                if payload.confidence > existing.confidence:
+                    existing.confidence = payload.confidence
+
+            existing.last_seen = now
             if payload.track_id:
                 existing.track_id = payload.track_id
             if payload.camera_id:
@@ -407,15 +434,12 @@ class AttendanceService:
 
             await db.commit()
             await db.refresh(existing)
+            if assigned_status in ["ABSENT", "MANUAL_ABSENT"]:
+                presence_manager.remove_student(session_id, payload.student_id)
+            else:
+                presence_manager.mark_student_present(session_id, student, payload.camera_id)
             logger.info(f"[PRESENCE TRACKING] Updated last_seen for {student.student_code} ({presence_state})")
             return cls._serialize_record(existing, student)
-
-        # Determine if arrival is PRESENT vs LATE based on start_time and session late threshold
-        assigned_status = "PRESENT"
-        grace_min = session.late_threshold_minutes or 10
-        scheduled_start = datetime.combine(session.scheduled_date, session.start_time, tzinfo=timezone.utc)
-        if now > (scheduled_start + timedelta(minutes=grace_min)):
-            assigned_status = "LATE"
 
         # Level 2 & 3: Atomic insertion with unique constraint fallback
         try:
@@ -437,6 +461,10 @@ class AttendanceService:
             await db.commit()
             await db.refresh(new_record)
 
+            if assigned_status in ["ABSENT", "MANUAL_ABSENT"]:
+                presence_manager.remove_student(session_id, payload.student_id)
+            else:
+                presence_manager.mark_student_present(session_id, student, payload.camera_id)
             logger.info(f"[FIRST VERIFIED] Marked attendance ONCE: {student.student_code} ({student.first_name} {student.last_name}) as {assigned_status}")
             return cls._serialize_record(new_record, student)
         except IntegrityError:
@@ -444,7 +472,15 @@ class AttendanceService:
             await db.rollback()
             existing_after_race = (await db.execute(query)).scalars().first()
             if existing_after_race:
+                if existing_after_race.status in ["ABSENT", "MANUAL_ABSENT", "NOT_DETECTED", "REVIEW_REQUIRED"]:
+                    existing_after_race.status = assigned_status
+                    existing_after_race.first_seen = now
+                    existing_after_race.source = payload.source or "AI"
+                    existing_after_race.confidence = payload.confidence
+                    existing_after_race.remarks = payload.remarks or f"Recovered from {existing_after_race.status} to {assigned_status}"
                 existing_after_race.last_seen = now
+                if payload.confidence > existing_after_race.confidence:
+                    existing_after_race.confidence = payload.confidence
                 await db.commit()
                 return cls._serialize_record(existing_after_race, student)
             raise
@@ -528,6 +564,14 @@ class AttendanceService:
             existing.updated_at = now
             await db.commit()
             await db.refresh(existing)
+
+            # Synchronize with PresenceManager
+            from backend.app.services.presence_service import presence_manager
+            if status.upper() in ["ABSENT", "MANUAL_ABSENT"]:
+                presence_manager.remove_student(session_id, student_id)
+            elif status.upper() in ["PRESENT", "LATE", "MANUAL_PRESENT"]:
+                presence_manager.mark_student_present(session_id, student)
+
             return cls._serialize_record(existing, student)
 
         new_rec = AttendanceRecord(
@@ -544,7 +588,140 @@ class AttendanceService:
         db.add(new_rec)
         await db.commit()
         await db.refresh(new_rec)
+
+        # Synchronize with PresenceManager
+        from backend.app.services.presence_service import presence_manager
+        if status.upper() in ["ABSENT", "MANUAL_ABSENT"]:
+            presence_manager.remove_student(session_id, student_id)
+        elif status.upper() in ["PRESENT", "LATE", "MANUAL_PRESENT"]:
+            presence_manager.mark_student_present(session_id, student)
+
         return cls._serialize_record(new_rec, student)
+
+    @classmethod
+    async def get_session_roster(
+        cls,
+        db: AsyncSession,
+        session_id: str,
+    ) -> SessionRosterResponse:
+        """Retrieves the complete class roster for a session, merging enrolled students,
+        authoritative attendance records, and live runtime presence tracking data.
+        """
+        from backend.app.services.presence_service import presence_manager
+
+        session = await db.get(AttendanceSession, session_id)
+        if not session:
+            raise SessionNotFoundError(session_id)
+
+        # 1. Fetch all active students enrolled in this session's class
+        students_q = (
+            select(Student)
+            .where(
+                and_(
+                    Student.class_name == session.class_name,
+                    Student.status == "ACTIVE",
+                )
+            )
+            .order_by(Student.roll_number.asc(), Student.first_name.asc())
+        )
+        students = (await db.execute(students_q)).scalars().all()
+
+        # 2. Fetch existing attendance records for this session
+        records_q = (
+            select(AttendanceRecord)
+            .where(AttendanceRecord.session_id == session_id)
+        )
+        records = (await db.execute(records_q)).scalars().all()
+        records_by_student = {r.student_id: r for r in records}
+
+        # 3. Fetch runtime presence states
+        presence_items = presence_manager.get_session_presence(session_id)
+        presence_by_student = {p.student_id: p for p in presence_items}
+
+        roster_items: List[ClassRosterStudentItem] = []
+        present_count = 0
+        late_count = 0
+        absent_count = 0
+        in_frame_count = 0
+        away_count = 0
+
+        for st in students:
+            rec = records_by_student.get(st.id)
+            pres = presence_by_student.get(st.id)
+
+            # Determine attendance status
+            if rec:
+                att_status = rec.status
+                first_seen = rec.first_seen
+                last_seen = rec.last_seen
+                confidence = rec.confidence
+                source = rec.source or "AI"
+                record_id = rec.id
+            else:
+                att_status = "NOT_RECORDED"
+                first_seen = pres.first_seen if pres else None
+                last_seen = pres.last_seen if pres else None
+                confidence = pres.confidence if pres else 0.0
+                source = "AUTO_ROSTER"
+                record_id = None
+
+            # Determine presence state
+            if pres:
+                pres_state = pres.presence_state.value
+                sec_since = pres.seconds_since_last_seen
+            else:
+                pres_state = "NOT_SEEN"
+                sec_since = None
+
+            if pres_state == "PRESENT_AND_VISIBLE":
+                in_frame_count += 1
+            elif pres_state in ["TEMPORARILY_NOT_VISIBLE", "NOT_CURRENTLY_VISIBLE", "NOT_SEEN"]:
+                away_count += 1
+
+            if att_status in ["PRESENT", "MANUAL_PRESENT"]:
+                present_count += 1
+            elif att_status in ["LATE", "MANUAL_LATE"]:
+                late_count += 1
+            else:
+                absent_count += 1
+
+            roster_items.append(
+                ClassRosterStudentItem(
+                    student_id=st.id,
+                    student_name=f"{st.first_name} {st.last_name}".strip(),
+                    student_code=st.student_code or "N/A",
+                    roll_number=st.roll_number or "N/A",
+                    attendance_status=att_status,
+                    presence_state=pres_state,
+                    first_seen=first_seen,
+                    last_seen=last_seen,
+                    seconds_since_last_seen=sec_since,
+                    confidence=confidence,
+                    source=source,
+                    record_id=record_id,
+                )
+            )
+
+        total_enrolled = len(students)
+        attendance_rate = (
+            round((present_count + late_count) / total_enrolled * 100.0, 1)
+            if total_enrolled > 0
+            else 0.0
+        )
+
+        return SessionRosterResponse(
+            session_id=session.id,
+            class_name=session.class_name,
+            subject=session.subject,
+            total_enrolled=total_enrolled,
+            present_count=present_count,
+            late_count=late_count,
+            absent_count=absent_count,
+            in_frame_count=in_frame_count,
+            away_count=away_count,
+            attendance_rate_pct=attendance_rate,
+            roster=roster_items,
+        )
 
     @classmethod
     async def get_session_records(

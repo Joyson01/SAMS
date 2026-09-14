@@ -268,7 +268,7 @@ export const MobileCameraPage: React.FC = () => {
           <ShieldAlert className="w-12 h-12 text-rose-500 mx-auto" />
           <h2 className="text-base font-bold text-slate-100">Pairing Session Expired</h2>
           <p className="text-xs text-slate-400">
-            This wireless camera pairing token is invalid, expired, or was revoked. Please generate a new QR code from the SAMS admin console.
+            This wireless camera pairing token is invalid, expired, or was revoked. Please generate a new QR code from the AttedDEL console.
           </p>
         </div>
       </div>
@@ -281,7 +281,7 @@ export const MobileCameraPage: React.FC = () => {
       <div className="flex items-center justify-between border-b border-slate-800 pb-3">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-xs text-white shadow">
-            JS
+            AD
           </div>
           <div>
             <h1 className="font-bold text-sm leading-tight text-slate-100">{cameraName}</h1>
@@ -328,7 +328,7 @@ export const MobileCameraPage: React.FC = () => {
               <Tv className="w-10 h-10 mx-auto text-slate-600" />
               <p className="text-sm font-medium text-slate-200">Smartphone Camera Ready</p>
               <p className="text-xs text-slate-500 max-w-xs mx-auto">
-                Tap "Start Camera" below to stream live video directly to the SAMS laptop preview.
+                Tap "Start Camera" below to stream live video directly to the AttedDEL console preview.
               </p>
             </div>
           )}

@@ -3,18 +3,18 @@ version: '3.8'
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: sams_postgres
+    container_name: atteddel_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgrespassword
-      POSTGRES_DB: sams_db
+      POSTGRES_DB: atteddel_db
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d sams_db"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d atteddel_db"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -23,11 +23,11 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.backend
-    container_name: sams_backend
+    container_name: atteddel_backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: "postgresql+asyncpg://postgres:postgrespassword@postgres:5432/sams_db"
-      DATABASE_SYNC_URL: "postgresql://postgres:postgrespassword@postgres:5432/sams_db"
+      DATABASE_URL: "postgresql+asyncpg://postgres:postgrespassword@postgres:5432/atteddel_db"
+      DATABASE_SYNC_URL: "postgresql://postgres:postgrespassword@postgres:5432/atteddel_db"
       ENVIRONMENT: "production"
       DEBUG: "false"
       LOG_LEVEL: "INFO"
@@ -42,13 +42,12 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: ../infra/docker/Dockerfile.frontend
-    container_name: sams_frontend
+      context: .
+      dockerfile: infra/docker/Dockerfile.frontend
+    container_name: atteddel_frontend
     restart: unless-stopped
     ports:
       - "80:80"
-      - "5173:5173"
     depends_on:
       - backend
 

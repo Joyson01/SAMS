@@ -190,3 +190,38 @@ export const fetchStudentAttendance = async (studentId: string): Promise<Student
   const response = await apiClient.get<StudentAttendanceSummary>(`/attendance/students/${studentId}`);
   return response.data;
 };
+
+export interface ClassRosterStudentItem {
+  student_id: string;
+  student_name: string;
+  student_code: string;
+  roll_number: string;
+  attendance_status: string;
+  presence_state: string;
+  first_seen?: string | null;
+  last_seen?: string | null;
+  seconds_since_last_seen?: number | null;
+  confidence: number;
+  source: string;
+  record_id?: string | null;
+}
+
+export interface SessionRosterResponse {
+  session_id: string;
+  class_name: string;
+  subject: string;
+  total_enrolled: number;
+  present_count: number;
+  late_count: number;
+  absent_count: number;
+  in_frame_count: number;
+  away_count: number;
+  attendance_rate_pct: number;
+  roster: ClassRosterStudentItem[];
+}
+
+export const fetchSessionRoster = async (sessionId: string): Promise<SessionRosterResponse> => {
+  const response = await apiClient.get<SessionRosterResponse>(`/attendance/sessions/${sessionId}/roster`);
+  return response.data;
+};
+

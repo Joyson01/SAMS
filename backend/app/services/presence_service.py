@@ -136,6 +136,39 @@ class PresenceManager:
         track.presence_state = PresenceState.PRESENT_AND_VISIBLE
         return PresenceState.PRESENT_AND_VISIBLE, False
 
+    def remove_student(self, session_id: str, student_id: str) -> bool:
+        """Removes a student from active presence tracking (e.g. when manually marked absent)."""
+        if session_id in self._sessions and student_id in self._sessions[session_id]:
+            del self._sessions[session_id][student_id]
+            return True
+        return False
+
+    def mark_student_present(
+        self,
+        session_id: str,
+        student: Student,
+        camera_id: Optional[str] = None,
+    ) -> None:
+        """Explicitly adds or confirms a student in presence tracking (e.g. manual present)."""
+        now = datetime.now(timezone.utc)
+        if session_id not in self._sessions:
+            self._sessions[session_id] = {}
+        track = self._sessions[session_id].get(student.id)
+        if not track:
+            track = StudentTrackState(
+                student_id=student.id,
+                student_name=f"{student.first_name} {student.last_name}",
+                student_code=student.student_code,
+                roll_number=student.roll_number,
+                first_seen=now,
+                confidence=1.0,
+                camera_id=camera_id,
+            )
+            self._sessions[session_id][student.id] = track
+        track.is_attendance_marked = True
+        track.presence_state = PresenceState.PRESENT_AND_VISIBLE
+        track.last_seen = now
+
     def get_session_presence(self, session_id: str) -> List[StudentPresenceDTO]:
         """Computes live presence states for all students observed in a session."""
         now = datetime.now(timezone.utc)

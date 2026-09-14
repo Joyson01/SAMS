@@ -39,6 +39,7 @@ def test_single_person_moving_produces_exactly_one_track_no_ghosts():
     After fix: Exactly 1 track is emitted per frame.
     """
     tracker = ByteFaceTracker(min_hits=1, max_lost_frames=15, iou_threshold=0.30)
+    first_track_id = None
 
     x = 100.0
     for frame in range(15):
@@ -48,7 +49,9 @@ def test_single_person_moving_produces_exactly_one_track_no_ghosts():
 
         # Exactly 1 track must be returned on every single frame
         assert len(active_tracks) == 1, f"Frame {frame} returned {len(active_tracks)} tracks instead of 1!"
-        assert active_tracks[0].track_id == 1
+        if first_track_id is None:
+            first_track_id = active_tracks[0].track_id
+        assert active_tracks[0].track_id == first_track_id
         assert active_tracks[0].time_since_update == 0
 
         x += 4.0

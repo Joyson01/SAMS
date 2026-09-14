@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# JOJIPA-SAMS — Smart Attendance Management System
+# AttedDEL — Smart Attendance Management System
 # One-Time Environment & Dependency Setup Script
 # ==============================================================================
 set -euo pipefail
@@ -11,7 +11,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
 echo "============================================================"
-echo "          JOJIPA-SAMS — Initial Environment Setup           "
+echo "           AttedDEL — Initial Environment Setup             "
 echo "============================================================"
 echo ""
 

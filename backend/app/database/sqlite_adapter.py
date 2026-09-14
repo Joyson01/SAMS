@@ -100,7 +100,7 @@ def get_student_details(identifier: str) -> Optional[Dict[str, Any]]:
 
 
 def is_marked_present(student_id: str, session_id: str) -> bool:
-    """Checks whether a student is already marked for this session."""
+    """Checks whether a student is already marked present or late for this session."""
     if not DB_PATH.is_file() or not session_id:
         return False
 
@@ -120,7 +120,9 @@ def is_marked_present(student_id: str, session_id: str) -> bool:
         if not row:
             return False
             
-        return str(row["status"]).upper() in ["PRESENT", "MANUAL_PRESENT", "EXCUSED", "MANUAL_EXCUSED"]
+        return str(row["status"]).upper() in [
+            "PRESENT", "MANUAL_PRESENT", "LATE", "MANUAL_LATE", "EXCUSED", "MANUAL_EXCUSED", "REVIEW_REQUIRED"
+        ]
     except Exception as e:
         logger.warning(f"Error checking attendance presence: {e}")
         return False
@@ -134,7 +136,7 @@ def mark_attendance(
     source: str = "MEDIA_IMAGE",
     remarks: str = "Marked via InsightFace Recognition",
 ) -> Dict[str, Any]:
-    """Marks attendance record for a student in a session with atomic UPSERT duplicate protection."""
+    """Marks attendance record for a student in a session with atomic UPSERT duplicate protection and ABSENT recovery."""
     if not DB_PATH.is_file() or not session_id:
         return {"success": False, "error": "Database not initialized or invalid session"}
 
@@ -151,6 +153,14 @@ def mark_attendance(
 
         resolved_st_id = str(st_row["id"])
         st_name = f"{st_row['first_name']} {st_row['last_name']}".strip()
+
+        # Check existing record status before UPSERT
+        cursor.execute(
+            "SELECT id, status FROM attendance_records WHERE session_id = ? AND student_id = ?",
+            (session_id, resolved_st_id),
+        )
+        prev_row = cursor.fetchone()
+        prev_status = str(prev_row["status"]).upper() if prev_row else None
 
         rec_id = str(uuid.uuid4())
         meta_json = json.dumps({
@@ -171,7 +181,12 @@ def mark_attendance(
                 last_seen = excluded.last_seen,
                 confidence = MAX(attendance_records.confidence, excluded.confidence),
                 updated_at = excluded.updated_at,
+                first_seen = CASE
+                    WHEN attendance_records.status IN ('ABSENT', 'MANUAL_ABSENT', 'NOT_DETECTED') THEN excluded.first_seen
+                    ELSE attendance_records.first_seen
+                END,
                 status = CASE
+                    WHEN attendance_records.status IN ('ABSENT', 'MANUAL_ABSENT', 'NOT_DETECTED') THEN excluded.status
                     WHEN attendance_records.status = 'REVIEW_REQUIRED' AND excluded.status = 'PRESENT' THEN 'PRESENT'
                     ELSE attendance_records.status
                 END
@@ -193,19 +208,18 @@ def mark_attendance(
             ),
         )
 
-        was_insert = cursor.rowcount == 1 and cursor.lastrowid is not None
-        # Check if this was a true insert or an update by seeing if our rec_id exists
-        cursor.execute("SELECT id FROM attendance_records WHERE session_id = ? AND student_id = ?", (session_id, resolved_st_id))
-        row = cursor.fetchone()
-        is_new = (row and str(row["id"]) == rec_id)
-
         conn.commit()
+
+        is_recovered = (prev_status in ["ABSENT", "MANUAL_ABSENT", "NOT_DETECTED"]) or (prev_status == "REVIEW_REQUIRED" and status == "PRESENT")
+        is_marked = (prev_status is None) or is_recovered
+
         return {
             "success": True,
-            "alreadyPresent": not is_new,
-            "attendanceMarked": is_new,
+            "alreadyPresent": not is_marked,
+            "attendanceMarked": is_marked,
             "studentId": resolved_st_id,
             "studentName": st_name,
+            "status": status if is_marked else (prev_status or status),
         }
     except Exception as e:
         logger.error(f"Error marking attendance: {e}", exc_info=True)

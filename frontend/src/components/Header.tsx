@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Menu, Plus, User } from 'lucide-react';
+import { Menu, Search, User, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { ServiceHealthResponse } from '../types';
 
 interface HeaderProps {
@@ -13,16 +13,16 @@ interface HeaderProps {
 
 const TAB_TITLES: Record<string, string> = {
   dashboard: 'Dashboard',
-  attendance: 'Attendance',
+  attendance: 'Attendance Sessions',
   students: 'Students',
   timetable: 'Timetable',
   reports: 'Reports',
   settings: 'Settings',
   cameras: 'Cameras',
   live: 'Live Attendance',
-  media: 'Media Attendance',
-  enrollment: 'Enrollment',
-  subjects: 'Academic & Courses',
+  media: 'Photo Attendance',
+  enrollment: 'Face Enrollment',
+  subjects: 'Courses & Rooms',
   audit: 'Audit Logs',
 };
 
@@ -34,10 +34,9 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const formattedDate = useMemo(() => {
     return new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
+      weekday: 'short',
       month: 'short',
       day: 'numeric',
-      year: 'numeric',
     }).format(new Date());
   }, []);
 
@@ -45,42 +44,55 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="h-14 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 select-none">
-      {/* Left: Mobile Trigger & Brand / Page Title with Dynamic Date */}
+      {/* LEFT: Page title / breadcrumb */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0">
         {onToggleMobileMenu && (
           <button
             onClick={onToggleMobileMenu}
-            className="md:hidden p-1.5 rounded text-slate-600 hover:bg-slate-100 transition"
+            className="md:hidden p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition"
             title="Open Navigation"
+            aria-label="Open Navigation"
           >
             <Menu className="w-4 h-4" />
           </button>
         )}
 
         <div className="flex items-center gap-1.5 min-w-0 text-xs">
-          <span className="text-sm sm:text-base font-bold text-slate-900 tracking-tight shrink-0">
-            JOJIPA-SAMS
+          <span className="text-xs font-bold text-slate-900 tracking-tight shrink-0">
+            AttedDEL
           </span>
-          <span className="text-slate-400 font-normal">&gt;</span>
-          <span className="font-semibold text-slate-800 truncate">
+          <span className="text-slate-300 font-normal">/</span>
+          <span className="font-semibold text-slate-800 truncate text-xs sm:text-sm">
             {pageTitle}
           </span>
-          <span className="text-slate-400 font-normal hidden sm:inline">&gt;</span>
-          <span className="font-medium text-slate-500 hidden sm:inline truncate">
+          <span className="text-slate-300 font-normal hidden lg:inline">•</span>
+          <span className="font-medium text-slate-400 hidden lg:inline truncate">
             {formattedDate}
           </span>
         </div>
       </div>
 
-      {/* Right: Camera Status Indicator & Single Start Attendance Action */}
-      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-        {/* Hardware Status Indicator (Clickable to open Cameras) */}
+      {/* CENTER: Global search */}
+      <div className="hidden md:flex items-center max-w-sm w-full mx-4">
+        <div className="relative w-full">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search students, classes, records..."
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+          />
+        </div>
+      </div>
+
+      {/* RIGHT: System status, Notifications, User profile */}
+      <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+        {/* Hardware / Camera Status Indicator (Clickable to open Cameras) */}
         <button
           onClick={() => onNavigate('cameras')}
-          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded border text-xs font-medium transition-colors cursor-pointer ${
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
             offlineCameraCount > 0
-              ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-800'
-              : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+              ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-900'
+              : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
           }`}
           title={
             offlineCameraCount > 0
@@ -90,44 +102,29 @@ export const Header: React.FC<HeaderProps> = ({
         >
           {offlineCameraCount > 0 ? (
             <>
-              <span className="text-amber-600 font-bold text-xs leading-none">⚠</span>
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
               <span>
                 {offlineCameraCount} Camera{offlineCameraCount > 1 ? 's' : ''} Offline
               </span>
             </>
           ) : (
             <>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-              <span className="hidden xs:inline">All Cameras Connected</span>
-              <span className="xs:hidden">Cameras</span>
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span className="hidden sm:inline">Cameras Online</span>
+              <span className="sm:hidden">Online</span>
             </>
           )}
         </button>
 
-        {/* Start Attendance Action / Live Badge */}
-        {activeTab === 'live' ? (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 rounded text-xs font-semibold select-none">
-            <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
-            <span>Live Session</span>
-          </span>
-        ) : (
-          <button
-            onClick={() => onNavigate('live')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-            title="Launch live face recognition attendance"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Start Attendance</span>
-          </button>
-        )}
-
         {/* User Profile */}
-        <div className="flex items-center gap-2 pl-1 sm:pl-2 border-l border-slate-200">
+        <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
           <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 font-semibold text-xs shrink-0">
             <User className="w-3.5 h-3.5 text-slate-500" />
           </div>
-          <div className="hidden lg:flex flex-col min-w-0 text-left">
-            <span className="text-xs font-semibold text-slate-900 leading-tight truncate">Dr. S. Raman</span>
+          <div className="hidden xl:flex flex-col min-w-0 text-left">
+            <span className="text-xs font-semibold text-slate-900 leading-tight truncate">
+              Dr. S. Raman
+            </span>
             <span className="text-[10px] text-slate-500 leading-tight truncate">Faculty</span>
           </div>
         </div>

@@ -27,12 +27,16 @@ import {
   markManualAttendance,
   recognizeImageAttendance,
   PhotoRecognitionResponse,
+  fetchSessionRoster,
+  SessionRosterResponse,
+  ClassRosterStudentItem,
 } from '../../services/attendanceApi';
 import { fetchStudents } from '../../services/studentApi';
 import { CameraDevice } from '../../types/camera';
 import { AttendanceSession } from '../../types/attendance';
 import { Student } from '../../types/student';
 import { apiClient } from '../../services/api';
+import { StatusBadge } from '../../components/ui';
 
 interface StudentPresenceItem {
   student_id: string;
@@ -88,6 +92,9 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
 
   // Presence & Recognition State
   const [presenceList, setPresenceList] = useState<StudentPresenceItem[]>([]);
+  const [sessionRoster, setSessionRoster] = useState<SessionRosterResponse | null>(null);
+  const [rosterTab, setRosterTab] = useState<'ALL' | 'IN_FRAME' | 'AWAY'>('ALL');
+  const [rosterSearch, setRosterSearch] = useState<string>('');
   const [activeFacesDetected, setActiveFacesDetected] = useState<number>(0);
   const [unknownEvents, setUnknownEvents] = useState<UnknownFaceEvent[]>([]);
   const lastUnknownLoggedAtRef = useRef<number>(0);
@@ -274,13 +281,32 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
     }
   }, [selectedSessionId]);
 
+  // Poll complete session roster from backend
+  const isFetchingRosterRef = useRef<boolean>(false);
+  const fetchRosterData = useCallback(async () => {
+    if (!selectedSessionId || isFetchingRosterRef.current) return;
+    isFetchingRosterRef.current = true;
+    try {
+      const data = await fetchSessionRoster(selectedSessionId);
+      setSessionRoster(data);
+    } catch (err) {
+      // quiet poll
+    } finally {
+      isFetchingRosterRef.current = false;
+    }
+  }, [selectedSessionId]);
+
   useEffect(() => {
     fetchPresenceData();
-    presencePollIntervalRef.current = setInterval(fetchPresenceData, 2000);
+    fetchRosterData();
+    presencePollIntervalRef.current = setInterval(() => {
+      fetchPresenceData();
+      fetchRosterData();
+    }, 2000);
     return () => {
       if (presencePollIntervalRef.current) clearInterval(presencePollIntervalRef.current);
     };
-  }, [fetchPresenceData]);
+  }, [fetchPresenceData, fetchRosterData]);
 
   // Format Helper Functions
   const getInitials = (name: string) => {
@@ -709,6 +735,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       const hasKnown = faces.some((f: any) => f.status === 'VERIFIED' || f.decision === 'KNOWN');
       if (hasKnown) {
         fetchPresenceData();
+        fetchRosterData();
       }
     } catch (err) {
       // quiet skip
@@ -786,7 +813,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
     setMarkingStudentId(studentId);
     try {
       await markManualAttendance(selectedSessionId, studentId, status);
-      await fetchPresenceData();
+      await Promise.all([fetchPresenceData(), fetchRosterData()]);
     } catch (err) {
       console.error('Error marking manual attendance:', err);
     } finally {
@@ -799,7 +826,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
     if (!selectedSessionId || !reviewStudentId) return;
     try {
       await markManualAttendance(selectedSessionId, reviewStudentId, status, 'Identified from Unknown Face');
-      await fetchPresenceData();
+      await Promise.all([fetchPresenceData(), fetchRosterData()]);
       if (selectedUnknownEvent) {
         setUnknownEvents((prev) => prev.filter((e) => e.id !== selectedUnknownEvent.id));
       }
@@ -914,7 +941,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
     try {
       const resp = await recognizeImageAttendance(selectedSessionId, capturedBlob, 0.40);
       setCaptureRecognitionResult(resp);
-      fetchPresenceData();
+      await Promise.all([fetchPresenceData(), fetchRosterData()]);
     } catch (err: any) {
       setCaptureErrorMessage(err.response?.data?.detail || err.message || 'Photo recognition failed.');
     } finally {
@@ -942,7 +969,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
     try {
       const resp = await recognizeImageAttendance(selectedSessionId, uploadFile, 0.40);
       setUploadRecognitionResult(resp);
-      fetchPresenceData();
+      await Promise.all([fetchPresenceData(), fetchRosterData()]);
     } catch (err: any) {
       setUploadErrorMessage(err.response?.data?.detail || err.message || 'Upload recognition failed.');
     } finally {
@@ -1021,12 +1048,73 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
 
   // Calculations for live metrics
   const isSessionRunning = cameraState === 'STREAMING';
-  const totalRoster = enrolledStudents.length || selectedSession?.total_records || presenceList.length || 0;
-  const presentCount = presenceList.filter((p) => p.attendance_status === 'PRESENT').length;
-  const lateCount = presenceList.filter((p) => p.attendance_status === 'LATE').length;
+  const totalRoster = sessionRoster?.total_enrolled ?? (enrolledStudents.length || selectedSession?.total_records || presenceList.length || 0);
+  const presentCount = sessionRoster?.present_count ?? presenceList.filter((p) => p.attendance_status === 'PRESENT' || p.attendance_status === 'MANUAL_PRESENT').length;
+  const lateCount = sessionRoster?.late_count ?? presenceList.filter((p) => p.attendance_status === 'LATE' || p.attendance_status === 'MANUAL_LATE').length;
+  const inFrameCount = sessionRoster?.in_frame_count ?? presenceList.filter((p) => p.presence_state === 'PRESENT_AND_VISIBLE').length;
+  const awayCount = sessionRoster?.away_count ?? presenceList.filter((p) => p.presence_state === 'TEMPORARILY_NOT_VISIBLE' || p.presence_state === 'NOT_CURRENTLY_VISIBLE').length;
   const markedTotal = presentCount + lateCount;
-  const absentCount = Math.max(0, totalRoster - markedTotal);
+  const absentCount = sessionRoster?.absent_count ?? Math.max(0, totalRoster - markedTotal);
+  const verifyingCount = presenceList.filter((p) => p.presence_state === 'VERIFYING').length;
   const ratePct = totalRoster > 0 ? Math.round((markedTotal / totalRoster) * 100) : 0;
+
+  // Filter roster for right-hand column display
+  const displayRosterItems = useMemo(() => {
+    // If backend sessionRoster is available, use its complete roster
+    if (sessionRoster && sessionRoster.roster.length > 0) {
+      let list = sessionRoster.roster;
+      if (rosterTab === 'IN_FRAME') {
+        list = list.filter((r) => r.presence_state === 'PRESENT_AND_VISIBLE');
+      } else if (rosterTab === 'AWAY') {
+        list = list.filter((r) => r.presence_state !== 'PRESENT_AND_VISIBLE' && r.presence_state !== 'VERIFYING');
+      }
+      if (rosterSearch.trim()) {
+        const q = rosterSearch.toLowerCase();
+        list = list.filter(
+          (r) =>
+            r.student_name.toLowerCase().includes(q) ||
+            r.student_code.toLowerCase().includes(q) ||
+            r.roll_number.toLowerCase().includes(q)
+        );
+      }
+      return list;
+    }
+
+    // Fallback: merge enrolledStudents with presenceList
+    const fallbackList: ClassRosterStudentItem[] = enrolledStudents.map((st) => {
+      const pres = presenceList.find((p) => p.student_id === st.id);
+      return {
+        student_id: st.id,
+        student_name: `${st.first_name} ${st.last_name}`.trim(),
+        student_code: st.student_code || '',
+        roll_number: st.roll_number || '',
+        attendance_status: pres?.attendance_status || 'NOT_RECORDED',
+        presence_state: pres?.presence_state || 'NOT_SEEN',
+        first_seen: pres?.first_seen,
+        last_seen: pres?.last_seen,
+        seconds_since_last_seen: pres?.seconds_since_last_seen,
+        confidence: pres?.confidence || 0,
+        source: 'AUTO_ROSTER',
+      };
+    });
+
+    let list = fallbackList;
+    if (rosterTab === 'IN_FRAME') {
+      list = list.filter((r) => r.presence_state === 'PRESENT_AND_VISIBLE');
+    } else if (rosterTab === 'AWAY') {
+      list = list.filter((r) => r.presence_state !== 'PRESENT_AND_VISIBLE' && r.presence_state !== 'VERIFYING');
+    }
+    if (rosterSearch.trim()) {
+      const q = rosterSearch.toLowerCase();
+      list = list.filter(
+        (r) =>
+          r.student_name.toLowerCase().includes(q) ||
+          r.student_code.toLowerCase().includes(q) ||
+          r.roll_number.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [sessionRoster, enrolledStudents, presenceList, rosterTab, rosterSearch]);
 
   const isRemoteSource = selectedCamera && (selectedCamera.source_type === 'MOBILE' || selectedCamera.source_type === 'RTSP');
   const mjpegUrl = selectedCamera ? `/api/v1/cameras/${selectedCamera.id}/mjpeg?t=${mjpegTimestamp}` : '';
@@ -1058,18 +1146,10 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
   }, [enrolledStudents, rosterSearchQuery]);
 
   return (
-    <div className="space-y-4 max-w-7xl mx-auto select-none">
-      {/* Page Title & Subtitle */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Live Attendance</h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Automatically recognize students and mark attendance.
-          </p>
-        </div>
-
-        {/* Secondary Mode Back Button */}
-        {attendanceMode !== 'LIVE_CAMERA' && (
+    <div className="space-y-4 w-full select-none">
+      {/* Secondary Mode Back Button */}
+      {attendanceMode !== 'LIVE_CAMERA' && (
+        <div className="flex items-center justify-between pb-1">
           <button
             onClick={() => {
               stopCaptureCamera();
@@ -1080,28 +1160,66 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Back to Live Camera</span>
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
-      {/* SESSION CONTROLS (ONE ROW ONLY) */}
+      {/* SESSION CONTEXT & CONTROLS HEADER */}
       {/* ========================================================================= */}
-      <div className="bg-white border border-slate-200 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-        {/* Left: Class, Camera, and Status Pill */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Class Select */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500 shrink-0">Class:</span>
+      <div className="bg-white border border-slate-200 rounded-lg p-3 sm:px-4 sm:py-3 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+        {/* Left: Session Context & Status */}
+        <div className="flex flex-wrap items-center gap-3 min-w-0">
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider shrink-0">
+                Live Attendance
+              </span>
+              <span className="text-slate-300">•</span>
+              <span className="text-sm font-bold text-slate-900 truncate">
+                {selectedSession ? `${selectedSession.class_name} · ${selectedSession.subject}` : 'TE-B · Soft Computing'}
+              </span>
+            </div>
+            <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+              <span>{selectedSession?.room ? `Room ${selectedSession.room}` : 'CR 26'}</span>
+              <span>•</span>
+              <span>
+                {selectedSession
+                  ? `${formatTime(selectedSession.start_time)} – ${formatTime(selectedSession.end_time)}`
+                  : '10:00 AM – 11:00 AM'}
+              </span>
+              <span>•</span>
+              <span className="font-medium text-slate-600">
+                Camera: {selectedCamera?.name || 'HP-CAM'}
+              </span>
+            </div>
+          </div>
+
+          {/* Status Badge */}
+          <div className="flex items-center">
             {isSessionRunning ? (
-              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800">
-                {selectedSession ? `${selectedSession.class_name} • ${selectedSession.subject}` : 'Active Class'}
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Attendance Running</span>
               </span>
             ) : (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-xs font-medium">
+                <span className="w-2 h-2 rounded-full bg-slate-400" />
+                <span>Camera Standby</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Controls */}
+        <div className="flex items-center gap-2 relative shrink-0">
+          {!isSessionRunning ? (
+            <div className="flex items-center gap-2">
+              {/* Class picker if multiple */}
               <select
                 value={selectedSessionId}
                 onChange={(e) => setSelectedSessionId(e.target.value)}
                 disabled={loadingSessions || sessions.length === 0}
-                className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-xs max-w-xs truncate"
+                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[200px] truncate"
               >
                 {loadingSessions ? (
                   <option value="">Loading classes...</option>
@@ -1110,120 +1228,80 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 ) : (
                   sessions.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.class_name} • {s.subject} ({s.room || 'Room'})
+                      {s.class_name} • {s.subject}
                     </option>
                   ))
                 )}
               </select>
-            )}
-          </div>
 
-          {/* Camera Select */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500 shrink-0">Camera:</span>
-            {isSessionRunning ? (
-              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800">
-                {selectedCamera?.name || 'Camera'} ({selectedCamera?.location || 'Room'})
-              </span>
-            ) : (
+              {/* Camera picker */}
               <select
                 value={selectedCameraId}
                 onChange={(e) => handleCameraChange(e.target.value)}
                 disabled={loadingCameras || cameras.length === 0}
-                className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-xs max-w-xs truncate"
+                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[150px] truncate"
               >
-                {loadingCameras ? (
-                  <option value="">Loading cameras...</option>
-                ) : cameras.length === 0 ? (
-                  <option value="">No Cameras Configured</option>
-                ) : (
-                  cameras.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.location}) • ● {c.status}
-                    </option>
-                  ))
-                )}
+                {cameras.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
               </select>
-            )}
-          </div>
 
-          {/* Camera Status Indicator Pill */}
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border bg-slate-50 text-slate-700 border-slate-200">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isSessionRunning
-                  ? 'bg-emerald-500 animate-pulse'
-                  : selectedCamera?.status === 'OFFLINE'
-                  ? 'bg-rose-500'
-                  : 'bg-emerald-500'
-              }`}
-            />
-            <span>
-              {selectedCamera
-                ? `${selectedCamera.name} • ${isSessionRunning ? 'Streaming' : selectedCamera.status}`
-                : 'No Camera'}
-            </span>
-          </div>
-        </div>
-
-        {/* Right: Actions (Start / Live controls + More Options) */}
-        <div className="flex items-center gap-2 relative">
-          {isSessionRunning ? (
+              <button
+                onClick={startLiveAttendance}
+                disabled={cameraState === 'STARTING' || cameras.length === 0 || !selectedSessionId}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50 cursor-pointer"
+              >
+                {cameraState === 'STARTING' ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Connecting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5" />
+                    <span>Start Attendance</span>
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
             <>
-              {/* Green indicator: Live Attendance Running */}
-              <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Live Attendance Running</span>
-              </span>
-
               {/* Pause / Resume Button */}
               <button
                 onClick={handleTogglePause}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs transition"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs transition cursor-pointer"
                 title={isPaused ? 'Resume frame recognition' : 'Pause frame recognition'}
               >
-                {isPaused ? <Play className="w-3.5 h-3.5 text-blue-600" /> : <Pause className="w-3.5 h-3.5 text-amber-600" />}
+                {isPaused ? (
+                  <Play className="w-3.5 h-3.5 text-blue-600 fill-current" />
+                ) : (
+                  <Pause className="w-3.5 h-3.5 text-amber-600" />
+                )}
                 <span>{isPaused ? 'Resume' : 'Pause'}</span>
               </button>
 
-              {/* End Attendance Button */}
+              {/* Single primary End Attendance Button */}
               <button
                 onClick={() => setShowEndSessionModal(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
               >
                 <Square className="w-3.5 h-3.5" />
                 <span>End Attendance</span>
               </button>
             </>
-          ) : (
-            <button
-              onClick={startLiveAttendance}
-              disabled={cameraState === 'STARTING' || cameras.length === 0 || !selectedSessionId}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50"
-            >
-              {cameraState === 'STARTING' ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Connecting...</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-3.5 h-3.5" />
-                  <span>Start Attendance</span>
-                </>
-              )}
-            </button>
           )}
 
           {/* More Options Dropdown */}
           <div className="relative">
             <button
               onClick={() => setShowMoreOptionsDropdown(!showMoreOptionsDropdown)}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold shadow-xs transition"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold shadow-xs transition cursor-pointer"
               title="More Options"
             >
               <MoreVertical className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Options</span>
+              <span>More</span>
             </button>
 
             {showMoreOptionsDropdown && (
@@ -1266,6 +1344,21 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                   )}
                   <span>{testingCamera ? 'Testing Camera...' : 'Test Camera Connection'}</span>
                 </button>
+                <div className="border-t border-slate-100 my-1"></div>
+                <button
+                  onClick={() => {
+                    setShowMoreOptionsDropdown(false);
+                    setShowDebugDiagnostics((prev) => !prev);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700"
+                >
+                  <Eye className="w-3.5 h-3.5 text-amber-600" />
+                  <span>
+                    {showDebugDiagnostics
+                      ? 'Hide Pipeline Diagnostics'
+                      : 'Pipeline Diagnostics'}
+                  </span>
+                </button>
               </div>
             )}
           </div>
@@ -1302,13 +1395,13 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       )}
 
       {/* ========================================================================= */}
-      {/* MODE 1: LIVE CAMERA VIEW (2-COLUMN 70% / 30% SPLIT) */}
+      {/* MODE 1: LIVE CAMERA VIEW (2-COLUMN 65% / 35% SPLIT) */}
       {/* ========================================================================= */}
       {attendanceMode === 'LIVE_CAMERA' && (
-        <div className="grid grid-cols-1 lg:grid-cols-10 gap-5 items-start">
-          {/* Left Column (70%): Camera View */}
-          <div className="lg:col-span-7 space-y-3">
-            <div className="bg-slate-950 rounded-xl overflow-hidden relative border border-slate-800 shadow-sm flex items-center justify-center aspect-video min-h-[360px] sm:min-h-[440px]">
+        <div className="flex flex-col lg:flex-row gap-5 items-start">
+          {/* Left Column (65%): Camera View */}
+          <div className="w-full lg:w-[65%] space-y-3 min-w-0">
+            <div className="bg-slate-950 rounded-xl overflow-hidden relative border border-slate-800 shadow-sm flex items-center justify-center aspect-video min-h-[360px] sm:min-h-[460px]">
               {/* Local Webcam Video */}
               {selectedCamera?.source_type === 'WEBCAM' && (
                 <video
@@ -1392,7 +1485,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                   <button
                     onClick={startLiveAttendance}
                     disabled={cameras.length === 0 || !selectedSessionId}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
                   >
                     <Play className="w-3.5 h-3.5" />
                     <span>Start Attendance</span>
@@ -1418,7 +1511,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                   </div>
                   <button
                     onClick={startLiveAttendance}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold border border-slate-700"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold border border-slate-700 cursor-pointer"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
                     <span>Reconnect</span>
@@ -1426,46 +1519,30 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 </div>
               )}
 
-              {/* Subtle Video Overlays */}
+              {/* Video Overlays */}
               {cameraState === 'STREAMING' && (
                 <>
                   {/* Top Left: Camera name + Live status */}
-                  <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded text-white text-[11px] font-medium flex items-center gap-2 border border-white/10">
+                  <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-xs px-2.5 py-1 rounded-md text-white text-[11px] font-medium flex items-center gap-2 border border-white/10 select-none">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span>LIVE</span>
+                    <span className="font-bold">LIVE</span>
                     <span className="text-white/40">|</span>
-                    <span className="truncate max-w-[150px]">{selectedCamera?.name}</span>
-                    {videoResolution.width > 0 && (
-                      <span className="text-white/60 font-mono text-[10px]">
-                        ({videoResolution.width}×{videoResolution.height})
-                      </span>
-                    )}
+                    <span className="truncate max-w-[150px]">{selectedCamera?.name || 'HP-CAM'}</span>
+                    <span className="text-white/60 font-mono text-[10px]">
+                      {videoResolution.width > 0 ? `${videoResolution.width} × ${videoResolution.height}` : '1280 × 720'}
+                    </span>
                   </div>
 
-                  {/* Top Right: Faces detected count & Debug Diagnostics Toggle */}
-                  <div className="absolute top-3 right-3 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowDebugDiagnostics((prev) => !prev)}
-                      className={`px-2 py-1 rounded text-[10px] font-mono font-semibold transition border ${
-                        showDebugDiagnostics
-                          ? 'bg-amber-500/80 text-white border-amber-400/80 shadow-xs'
-                          : 'bg-black/60 backdrop-blur-xs text-white/70 hover:text-white border-white/10'
-                      }`}
-                      title="Toggle Pipeline Detection Diagnostics"
-                    >
-                      DEBUG
-                    </button>
-                    <div className="bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded text-white text-[11px] font-medium flex items-center gap-1.5 border border-white/10">
-                      <Users className="w-3.5 h-3.5 text-blue-400" />
-                      <span>{activeFacesDetected} {activeFacesDetected === 1 ? 'Face' : 'Faces'} Detected</span>
-                    </div>
+                  {/* Top Right: Faces detected count */}
+                  <div className="absolute top-3 right-3 bg-black/70 backdrop-blur-xs px-2.5 py-1 rounded-md text-white text-[11px] font-medium flex items-center gap-1.5 border border-white/10 select-none">
+                    <Users className="w-3.5 h-3.5 text-blue-400" />
+                    <span>{activeFacesDetected} {activeFacesDetected === 1 ? 'Face' : 'Faces'} Detected</span>
                   </div>
 
-                  {/* Step 16: Pipeline Diagnostic Telemetry Overlay Badge */}
+                  {/* Diagnostic Telemetry Overlay (Only visible when toggled via More -> Pipeline Diagnostics) */}
                   {showDebugDiagnostics && (
                     <div className="absolute bottom-3 left-3 bg-black/85 backdrop-blur-md px-3 py-1.5 rounded-md text-white font-mono text-[11px] border border-amber-500/40 shadow-lg flex items-center gap-3">
-                      <span className="text-amber-400 font-bold">PIPELINE:</span>
+                      <span className="text-amber-400 font-bold">DIAGNOSTICS:</span>
                       <span>RAW: <strong className="text-slate-200">{debugDiagnostics?.raw_count ?? activeFacesDetected}</strong></span>
                       <span className="text-white/30">|</span>
                       <span>NMS: <strong className="text-sky-300">{debugDiagnostics?.nms_count ?? activeFacesDetected}</strong></span>
@@ -1478,51 +1555,116 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 </>
               )}
             </div>
+
+            {/* Compact Camera Status Sub-strip */}
+            <div className="bg-white border border-slate-200 rounded-lg px-3 py-2 flex items-center justify-between text-xs text-slate-600 shadow-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="font-semibold text-slate-800">{selectedCamera?.name || 'HP-CAM'}</span>
+                <span className="text-slate-400">•</span>
+                <span>{selectedCamera?.location || 'Classroom CR 26'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={startLiveAttendance}
+                  className="p-1 text-slate-500 hover:text-slate-800 rounded hover:bg-slate-100 transition cursor-pointer"
+                  title="Reconnect camera stream"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
           </div>
 
-          {/* Right Column (30%): Live Recognized Students & Attendance */}
-          <div className="lg:col-span-3 space-y-3">
-            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col h-[440px] sm:h-[480px]">
+          {/* Right Column (35%): Live Class Roster */}
+          <div className="w-full lg:w-[35%] space-y-3 min-w-0">
+            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col h-[520px] sm:h-[580px]">
               {/* Panel Header */}
               <div className="border-b border-slate-100 pb-3">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-bold text-slate-900">Attendance</h2>
-                  <div className="flex items-center gap-1.5">
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      <span>Recognition Active</span>
-                    </span>
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                      <span>Liveness Active</span>
-                    </span>
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                      <span>LIVE CLASS ROSTER</span>
+                      {isSessionRunning && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
+                    </h2>
+                    <div className="text-[11px] text-slate-500 font-medium mt-0.5">
+                      {selectedSession ? `${selectedSession.class_name} · ${selectedSession.subject}` : 'TE-B · Soft Computing'}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs font-bold text-slate-900">{presentCount} / {totalRoster} Present</div>
+                    <div className="text-[10px] text-slate-500 font-mono">Attendance Rate: {ratePct}%</div>
                   </div>
                 </div>
 
-                {/* Quick Counter & Progress */}
-                <div className="flex items-center justify-between text-xs mt-3 mb-1.5">
-                  <span className="font-semibold text-slate-700">
-                    {presentCount} / {totalRoster} Present
-                  </span>
-                  <span className="font-bold text-slate-900">{ratePct}%</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                {/* Progress */}
+                <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden mt-2.5">
                   <div
                     className="bg-emerald-600 h-1.5 rounded-full transition-all duration-300"
                     style={{ width: `${Math.min(100, ratePct)}%` }}
                   />
                 </div>
+
+                {/* Roster Filter Tabs */}
+                <div className="flex items-center gap-1 mt-2.5 bg-slate-100 p-0.5 rounded-lg text-[11px] font-semibold text-slate-600">
+                  <button
+                    type="button"
+                    onClick={() => setRosterTab('ALL')}
+                    className={`flex-1 py-1 rounded-md transition text-center cursor-pointer ${
+                      rosterTab === 'ALL'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'hover:text-slate-900'
+                    }`}
+                  >
+                    All ({totalRoster})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRosterTab('IN_FRAME')}
+                    className={`flex-1 py-1 rounded-md transition text-center cursor-pointer ${
+                      rosterTab === 'IN_FRAME'
+                        ? 'bg-white text-emerald-700 shadow-xs'
+                        : 'hover:text-slate-900'
+                    }`}
+                  >
+                    In Frame ({inFrameCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRosterTab('AWAY')}
+                    className={`flex-1 py-1 rounded-md transition text-center cursor-pointer ${
+                      rosterTab === 'AWAY'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'hover:text-slate-900'
+                    }`}
+                  >
+                    Away ({awayCount})
+                  </button>
+                </div>
+
+                {/* Search Filter Box */}
+                <div className="relative mt-2">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={rosterSearch}
+                    onChange={(e) => setRosterSearch(e.target.value)}
+                    placeholder="Search student..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-md pl-7 pr-2.5 py-1 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
               </div>
 
-              {/* UNKNOWN FACE SECTION (Warning Card) */}
+              {/* UNKNOWN FACE SECTION (Warning Banner) */}
               {unknownEvents.length > 0 && (
-                <div className="mt-3 p-2.5 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-between gap-2 shrink-0">
+                <div className="mt-2.5 p-2 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-between gap-2 shrink-0">
                   <div className="flex items-center gap-2 min-w-0">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                     <div className="min-w-0">
-                      <div className="text-xs font-bold text-amber-900 truncate">Unknown Face Detected</div>
-                      <div className="text-[10px] text-amber-700">
-                        {unknownEvents[0]?.timeStr || 'Just now'} • Needs review
+                      <div className="text-[11px] font-bold text-amber-900 truncate">Unknown Face Detected</div>
+                      <div className="text-[10px] text-amber-700 truncate">
+                        {unknownEvents[0]?.timeStr || 'Just now'} • Review candidate
                       </div>
                     </div>
                   </div>
@@ -1531,57 +1673,81 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                       setSelectedUnknownEvent(unknownEvents[0]);
                       setShowReviewModal(true);
                     }}
-                    className="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-semibold transition shrink-0"
+                    className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-semibold transition shrink-0 cursor-pointer"
                   >
                     Review
                   </button>
                 </div>
               )}
 
-              {/* LIVE RECOGNITION FEED (Scrollable) */}
-              <div className="flex-1 overflow-y-auto space-y-2 mt-3 pr-1 divide-y divide-slate-100">
-                {presenceList.length === 0 ? (
+              {/* LIVE ROSTER LIST (Scrollable) */}
+              <div className="flex-1 overflow-y-auto space-y-1 mt-2.5 pr-1 divide-y divide-slate-100">
+                {displayRosterItems.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
                     <UserCheck className="w-8 h-8 text-slate-300 mb-2" />
-                    <p className="text-xs font-semibold text-slate-700">No Students Recognized Yet</p>
+                    <p className="text-xs font-semibold text-slate-700">No Students in This View</p>
                     <p className="text-[11px] text-slate-400 mt-1 max-w-[200px]">
-                      Students recognized by the AI camera feed will appear here immediately.
+                      Students will appear based on camera detection and class enrollment.
                     </p>
                   </div>
                 ) : (
-                  presenceList.map((st) => (
-                    <div key={st.student_id} className="pt-2 first:pt-0 flex items-center justify-between gap-2 text-xs">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        {/* Avatar / Initials */}
-                        <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-700 text-[10px] shrink-0">
-                          {getInitials(st.student_name)}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="font-semibold text-slate-900 truncate">{st.student_name}</div>
-                          <div className="text-[11px] text-slate-500 font-mono flex items-center gap-1.5">
-                            <span>{st.roll_number || st.student_code}</span>
-                            <span>•</span>
-                            <span>{formatTime(st.first_seen || st.last_seen)}</span>
+                  displayRosterItems.map((st) => {
+                    const isPresent = st.attendance_status === 'PRESENT' || st.attendance_status === 'MANUAL_PRESENT';
+                    const isLate = st.attendance_status === 'LATE' || st.attendance_status === 'MANUAL_LATE';
+                    const isInFrame = st.presence_state === 'PRESENT_AND_VISIBLE';
+
+                    return (
+                      <div
+                        key={st.student_id}
+                        className="pt-1.5 first:pt-0 flex items-center justify-between gap-2 text-xs hover:bg-slate-50/80 rounded-md p-1 transition"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {/* Avatar / Initials */}
+                          <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-700 text-[10px] shrink-0">
+                            {getInitials(st.student_name)}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-900 truncate">{st.student_name}</div>
+                            <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1.5">
+                              <span>
+                                {isPresent
+                                  ? st.last_seen
+                                    ? `Present · ${formatTime(st.last_seen)}`
+                                    : 'Present'
+                                  : 'Not detected'}
+                              </span>
+                              <span>•</span>
+                              <span className={isInFrame ? 'text-emerald-600 font-semibold' : 'text-slate-400'}>
+                                {isInFrame ? 'In Frame' : 'Away'}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {st.presence_state === 'PRESENT_AND_VISIBLE' && (
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="In Frame" />
-                        )}
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                            st.attendance_status === 'LATE'
-                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          }`}
-                        >
-                          {st.attendance_status === 'LATE' ? 'Late' : 'Present'}
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Attendance Status Badge */}
+                          <StatusBadge status={st.attendance_status} category="attendance" size="sm" />
+
+                          {/* Inline Quick Action Button */}
+                          {selectedSessionId && (
+                            <button
+                              type="button"
+                              onClick={() => handleMarkStudent(st.student_id, isPresent || isLate ? 'ABSENT' : 'PRESENT')}
+                              disabled={markingStudentId === st.student_id}
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer ${
+                                isPresent || isLate
+                                  ? 'border border-rose-200 text-rose-600 hover:bg-rose-50'
+                                  : 'border border-blue-200 text-blue-600 hover:bg-blue-50'
+                              } disabled:opacity-50`}
+                              title={isPresent || isLate ? 'Mark Absent' : 'Mark Present'}
+                            >
+                              {markingStudentId === st.student_id ? '...' : isPresent || isLate ? 'Absent' : 'Present'}
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -1877,16 +2043,11 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
           </button>
         </div>
 
-        {/* Center: Real-Time Summary Row */}
-        <div className="flex items-center gap-2.5 sm:gap-3 text-xs font-medium text-slate-600">
+        {/* Right Side: Real-Time Summary Row */}
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs font-medium text-slate-600">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
             <span>Present: <strong className="text-slate-900">{presentCount}</strong></span>
-          </div>
-          <span className="text-slate-300">|</span>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-rose-400" />
-            <span>Absent: <strong className="text-slate-900">{absentCount}</strong></span>
           </div>
           <span className="text-slate-300">|</span>
           <div className="flex items-center gap-1.5">
@@ -1895,22 +2056,19 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
           </div>
           <span className="text-slate-300">|</span>
           <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-rose-600" />
+            <span className="w-2 h-2 rounded-full bg-rose-400" />
+            <span>Absent: <strong className="text-slate-900">{absentCount}</strong></span>
+          </div>
+          <span className="text-slate-300">|</span>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-blue-500" />
+            <span>Verifying: <strong className="text-slate-900">{verifyingCount}</strong></span>
+          </div>
+          <span className="text-slate-300">|</span>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-slate-400" />
             <span>Unknown: <strong className="text-slate-900">{unknownEvents.length}</strong></span>
           </div>
-        </div>
-
-        {/* Right Side: End Attendance Action */}
-        <div className="flex items-center justify-end w-full sm:w-auto">
-          {isSessionRunning && (
-            <button
-              onClick={() => setShowEndSessionModal(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition"
-            >
-              <Square className="w-3.5 h-3.5" />
-              <span>End Attendance</span>
-            </button>
-          )}
         </div>
       </div>
 

@@ -2,7 +2,7 @@ import os
 import time
 from pathlib import Path
 from typing import AsyncGenerator, Tuple
-from sqlalchemy import text
+from sqlalchemy import text, event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -19,6 +19,20 @@ _db_url = settings.DATABASE_URL
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 _active_db_type: str = "postgresql"
+
+
+def _enable_sqlite_pragmas(engine: AsyncEngine) -> None:
+    """Configures high-concurrency PRAGMAs (WAL, synchronous, timeout) on SQLite connections."""
+    @event.listens_for(engine.sync_engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        try:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=10000")
+            cursor.close()
+        except Exception:
+            pass
 
 
 def get_engine() -> AsyncEngine:
@@ -41,6 +55,7 @@ def get_engine() -> AsyncEngine:
             echo=False,
             connect_args={"check_same_thread": False},
         )
+        _enable_sqlite_pragmas(_engine)
     else:
         _active_db_type = "postgresql"
         _engine = create_async_engine(
@@ -115,6 +130,7 @@ async def check_database_connection() -> Tuple[bool, str, float]:
                     settings.SQLITE_FALLBACK_URL,
                     connect_args={"check_same_thread": False},
                 )
+                _enable_sqlite_pragmas(fallback_engine)
                 async with fallback_engine.connect() as conn:
                     await conn.execute(text("SELECT 1"))
 

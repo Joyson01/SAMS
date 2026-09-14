@@ -76,6 +76,7 @@ class SessionResponse(BaseModel):
 class AttendanceMarkPayload(BaseModel):
     student_id: str = Field(..., description="UUID of the student")
     confidence: float = Field(1.0, ge=0.0, le=1.0, description="Recognition confidence score")
+    status: Optional[str] = Field(None, description="Optional status override (e.g. PRESENT, ABSENT, LATE, EXCUSED)")
     track_id: Optional[int] = None
     camera_id: Optional[str] = None
     liveness_score: float = Field(1.0, ge=0.0, le=1.0)
@@ -132,3 +133,32 @@ class StudentAttendanceSummary(BaseModel):
     excused_sessions: int = 0
     attendance_rate_pct: float
     records: List[AttendanceRecordResponse]
+
+
+class ClassRosterStudentItem(BaseModel):
+    student_id: str
+    student_name: str
+    student_code: str
+    roll_number: str
+    attendance_status: str  # PRESENT, LATE, ABSENT, NOT_RECORDED, etc.
+    presence_state: str     # PRESENT_AND_VISIBLE, TEMPORARILY_NOT_VISIBLE, NOT_CURRENTLY_VISIBLE, NOT_SEEN, VERIFYING
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+    seconds_since_last_seen: Optional[float] = None
+    confidence: float = 0.0
+    source: str = "AUTO_ROSTER"
+    record_id: Optional[str] = None
+
+
+class SessionRosterResponse(BaseModel):
+    session_id: str
+    class_name: str
+    subject: str
+    total_enrolled: int
+    present_count: int
+    late_count: int
+    absent_count: int
+    in_frame_count: int
+    away_count: int
+    attendance_rate_pct: float
+    roster: List[ClassRosterStudentItem]

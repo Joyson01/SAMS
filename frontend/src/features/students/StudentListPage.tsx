@@ -8,7 +8,6 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  UserPlus,
   Smartphone,
   Filter,
   MoreVertical,
@@ -17,6 +16,11 @@ import {
   Edit2,
   Trash2,
   Calendar,
+  CheckCircle2,
+  RotateCcw,
+  Copy,
+  Download,
+  ArrowRight,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import {
@@ -34,9 +38,78 @@ import {
 } from '../../services/studentApi';
 import { apiClient } from '../../services/api';
 import { formatApiErrorMessage } from '../../utils/apiError';
+import { StatusBadge, Progress, Avatar, Button, Badge } from '../../components/ui';
 
 interface StudentListPageProps {
   onNavigate?: (tab: string, studentId?: string) => void;
+}
+
+// 7-step guided face enrollment specification
+interface EnrollmentAngle {
+  id: string;
+  name: string;
+  poseType: string;
+  instruction: string;
+  hint: string;
+}
+
+const ENROLLMENT_ANGLES: EnrollmentAngle[] = [
+  {
+    id: 'front',
+    name: 'Front (Neutral)',
+    poseType: 'FRONT',
+    instruction: 'Look directly at the camera with a neutral expression',
+    hint: 'Keep your head straight and eyes open.',
+  },
+  {
+    id: 'smile',
+    name: 'Front (Smile)',
+    poseType: 'FRONT',
+    instruction: 'Now smile naturally facing forward',
+    hint: 'A gentle smile helps recognize natural expression variations.',
+  },
+  {
+    id: 'left',
+    name: 'Turn Left (15°)',
+    poseType: 'LEFT_15',
+    instruction: 'Slowly turn your head slightly to the left',
+    hint: 'Turn about 15 degrees while keeping camera in sight.',
+  },
+  {
+    id: 'right',
+    name: 'Turn Right (15°)',
+    poseType: 'RIGHT_15',
+    instruction: 'Slowly turn your head slightly to the right',
+    hint: 'Turn about 15 degrees to your right.',
+  },
+  {
+    id: 'up',
+    name: 'Tilt Up (10°)',
+    poseType: 'TILT_UP',
+    instruction: 'Slightly tilt your head upward',
+    hint: 'Lift your chin slightly.',
+  },
+  {
+    id: 'down',
+    name: 'Tilt Down (10°)',
+    poseType: 'TILT_DOWN',
+    instruction: 'Slightly tilt your head downward',
+    hint: 'Lower your chin slightly.',
+  },
+  {
+    id: 'final',
+    name: 'Final Confirmation',
+    poseType: 'FRONT',
+    instruction: 'Look straight ahead for final confirmation',
+    hint: 'Hold steady for biometric verification.',
+  },
+];
+
+interface CapturedAngleSample {
+  angleIndex: number;
+  dataUrl: string;
+  qualityScore: number;
+  capturedAt: string;
 }
 
 export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) => {
@@ -59,6 +132,9 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
   const [filterEnrollment, setFilterEnrollment] = useState<string>('');
   const [filterAttendance, setFilterAttendance] = useState<string>('');
 
+  // Bulk Selection
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+
   // Row Action Dropdown (Active student ID for [...] popover)
   const [activeMenuStudentId, setActiveMenuStudentId] = useState<string | null>(null);
 
@@ -75,15 +151,20 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
   const [formSubmitting, setFormSubmitting] = useState<boolean>(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
-  // Simplified Face Enrollment Dialog State
+  // 7-Step Guided Face Enrollment Dialog State
   const [isEnrollModalOpen, setIsEnrollModalOpen] = useState<boolean>(false);
   const [enrollStudent, setEnrollStudent] = useState<Student | null>(null);
-  const [enrollStep, setEnrollStep] = useState<'camera' | 'success'>('camera');
+  const [enrollStep, setEnrollStep] = useState<'camera' | 'summary' | 'success'>('camera');
+  const [currentAngleIndex, setCurrentAngleIndex] = useState<number>(0);
+  const [capturedSamples, setCapturedSamples] = useState<Record<number, CapturedAngleSample>>({});
   const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [faceQuality, setFaceQuality] = useState<'GOOD' | 'POOR'>('POOR');
-  const [facePosition, setFacePosition] = useState<'CENTERED' | 'OFF_CENTER'>('OFF_CENTER');
-  const [faceLiveness, setFaceLiveness] = useState<'VERIFIED' | 'CHECKING'>('CHECKING');
+  const [justCaptured, setJustCaptured] = useState<boolean>(false);
+
+  // Real-time Detection State for Enrollment Reticle
+  const [faceDetected, setFaceDetected] = useState<boolean>(false);
+  const [faceQuality, setFaceQuality] = useState<'Good' | 'Too Dark' | 'Too Bright' | 'Checking'>('Checking');
+  const [facePosition, setFacePosition] = useState<'Centered' | 'Move Closer' | 'Move Back' | 'Align Face'>('Align Face');
   const [isCapturingSample, setIsCapturingSample] = useState<boolean>(false);
   const [enrollErrorMessage, setEnrollErrorMessage] = useState<string | null>(null);
 
@@ -98,6 +179,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
   const [isQrModalOpen, setIsQrModalOpen] = useState<boolean>(false);
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const [mobileEnrollLink, setMobileEnrollLink] = useState<string>('');
+  const [isCopiedQr, setIsCopiedQr] = useState<boolean>(false);
 
   // Form State for Register / Edit
   const [formData, setFormData] = useState<StudentCreatePayload>({
@@ -112,7 +194,58 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
     status: 'ACTIVE',
   });
 
-  // Calculate unique classes from loaded students
+  // Load students list
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetchStudents({
+        search: search.trim() || undefined,
+        class_name: filterClass || undefined,
+        section: filterSection || undefined,
+        enrollment_status: filterEnrollment || undefined,
+        page,
+        limit,
+      });
+      setStudents(res.items || []);
+      setTotal(res.total || 0);
+      setTotalPages(res.total_pages || Math.ceil((res.total || 0) / limit) || 1);
+
+      // Fetch attendance history for each student asynchronously
+      const idsToFetch = (res.items || []).map((s) => s.id);
+      idsToFetch.forEach(async (id) => {
+        try {
+          const hist = await fetchStudentAttendanceHistory(id);
+          setAttendanceMap((prev) => ({ ...prev, [id]: hist }));
+        } catch {
+          // ignore error for table row summary
+        }
+      });
+    } catch (err) {
+      console.error('Failed to load students:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, filterClass, filterSection, filterEnrollment, page, limit]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Click outside to close row action menu
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (activeMenuStudentId && !(e.target as Element)?.closest('.student-action-menu-container')) {
+        setActiveMenuStudentId(null);
+      }
+      if (isFilterOpen && !(e.target as Element)?.closest('.student-filter-container')) {
+        setIsFilterOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [activeMenuStudentId, isFilterOpen]);
+
+  // Available classes for dropdown filter
   const availableClasses = useMemo(() => {
     const set = new Set<string>();
     students.forEach((s) => {
@@ -121,104 +254,29 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
     return Array.from(set).sort();
   }, [students]);
 
-  // Active filter count badge
-  const activeFilterCount = useMemo(() => {
-    let count = 0;
-    if (filterClass) count++;
-    if (filterSection) count++;
-    if (filterEnrollment) count++;
-    if (filterAttendance) count++;
-    return count;
-  }, [filterClass, filterSection, filterEnrollment, filterAttendance]);
-
-  // Load Students from API
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const listRes = await fetchStudents({
-        search: search.trim() || undefined,
-        class_name: filterClass || undefined,
-        section: filterSection || undefined,
-        enrollment_status: filterEnrollment || undefined,
-        page,
-        limit,
-      });
-
-      setStudents(listRes.items);
-      setTotal(listRes.total);
-      setTotalPages(listRes.total_pages);
-
-      // Populate attendance map directly from batch-aggregated backend metrics (eliminates N+1 API calls!)
-      const historyMap: Record<string, StudentAttendanceHistoryResponse> = {};
-      const missingAttendanceStudentIds: string[] = [];
-
-      listRes.items.forEach((st) => {
-        if (st.attendance_rate_pct !== undefined && st.attendance_rate_pct !== null) {
-          historyMap[st.id] = {
-            student_id: st.id,
-            total_sessions: st.total_sessions || 0,
-            present_sessions: st.present_sessions || 0,
-            late_sessions: 0,
-            absent_sessions: 0,
-            excused_sessions: 0,
-            attendance_rate_pct: st.attendance_rate_pct,
-            records: [],
-          };
-        } else {
-          missingAttendanceStudentIds.push(st.id);
-        }
-      });
-
-      // Only fetch individually if the backend did not provide batch aggregated stats
-      if (missingAttendanceStudentIds.length > 0) {
-        await Promise.all(
-          missingAttendanceStudentIds.map(async (id) => {
-            try {
-              const hist = await fetchStudentAttendanceHistory(id);
-              historyMap[id] = hist;
-            } catch {
-              // quiet fallback
-            }
-          })
-        );
-      }
-      setAttendanceMap(historyMap);
-    } catch (err) {
-      console.error('Failed to load students:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [search, filterClass, filterSection, filterEnrollment, page]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  // Handle outside click to dismiss dropdown menus
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest('.student-action-menu-container') && !target.closest('.student-filter-container')) {
-        setActiveMenuStudentId(null);
-      }
-    };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, []);
-
-  // Filter students locally by attendance health if specified
+  // Client-side filter for attendance health
   const displayedStudents = useMemo(() => {
     if (!filterAttendance) return students;
-    return students.filter((st) => {
-      const hist = attendanceMap[st.id];
-      if (!hist || hist.total_sessions === 0) return false;
-      const rate = hist.attendance_rate_pct;
-      if (filterAttendance === 'healthy') return rate >= 85;
-      if (filterAttendance === 'attention') return rate >= 75 && rate < 85;
-      if (filterAttendance === 'critical') return rate < 75;
+    return students.filter((s) => {
+      const hist = attendanceMap[s.id];
+      if (!hist || hist.total_sessions === 0) return filterAttendance === 'untracked';
+      const pct = hist.attendance_rate_pct;
+      if (filterAttendance === 'healthy') return pct >= 85;
+      if (filterAttendance === 'attention') return pct >= 75 && pct < 85;
+      if (filterAttendance === 'critical') return pct < 75;
       return true;
     });
-  }, [students, filterAttendance, attendanceMap]);
+  }, [students, attendanceMap, filterAttendance]);
+
+  // Active filter count badge
+  const activeFilterCount = useMemo(() => {
+    let c = 0;
+    if (filterClass) c++;
+    if (filterSection) c++;
+    if (filterEnrollment) c++;
+    if (filterAttendance) c++;
+    return c;
+  }, [filterClass, filterSection, filterEnrollment, filterAttendance]);
 
   const handleClearFilters = () => {
     setFilterClass('');
@@ -229,7 +287,70 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
     setIsFilterOpen(false);
   };
 
-  // Open Profile Drawer
+  // Bulk Selection Handlers
+  const handleToggleSelectAll = () => {
+    if (selectedStudentIds.length === displayedStudents.length) {
+      setSelectedStudentIds([]);
+    } else {
+      setSelectedStudentIds(displayedStudents.map((s) => s.id));
+    }
+  };
+
+  const handleToggleSelectStudent = (id: string) => {
+    setSelectedStudentIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleExportSelectedCsv = () => {
+    const selected = students.filter((s) => selectedStudentIds.includes(s.id));
+    if (selected.length === 0) return;
+
+    const headers = ['Roll Number', 'Student Code', 'First Name', 'Last Name', 'Email', 'Class', 'Section', 'Enrollment Status', 'Attendance Rate'];
+    const rows = selected.map((s) => {
+      const hist = attendanceMap[s.id];
+      const rate = hist && hist.total_sessions > 0 ? `${hist.attendance_rate_pct}%` : 'N/A';
+      return [
+        `"${s.roll_number || ''}"`,
+        `"${s.student_code || ''}"`,
+        `"${s.first_name}"`,
+        `"${s.last_name}"`,
+        `"${s.email}"`,
+        `"${s.class_name || ''}"`,
+        `"${s.section || ''}"`,
+        `"${s.enrollment_status}"`,
+        `"${rate}"`,
+      ].join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `students_export_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!confirm(`Are you sure you want to delete ${selectedStudentIds.length} selected students? This action cannot be undone.`)) {
+      return;
+    }
+    setLoading(true);
+    try {
+      await Promise.all(selectedStudentIds.map((id) => deleteStudent(id)));
+      setSelectedStudentIds([]);
+      loadData();
+    } catch (err: any) {
+      alert(formatApiErrorMessage(err, 'Failed to delete some students.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Profile Slide-Over Drawer
   const openProfileDrawer = async (student: Student) => {
     setSelectedProfileStudent(student);
     setActiveMenuStudentId(null);
@@ -250,27 +371,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
     setProfileAttendance(null);
   };
 
-  // Open Simplified Face Enrollment Modal
-  const openFaceEnrollmentModal = (student: Student) => {
-    setEnrollStudent(student);
-    setEnrollStep('camera');
-    setCameraError(null);
-    setEnrollErrorMessage(null);
-    setFaceQuality('POOR');
-    setFacePosition('OFF_CENTER');
-    setFaceLiveness('CHECKING');
-    setIsEnrollModalOpen(true);
-    setActiveMenuStudentId(null);
-    startWebcam();
-  };
-
-  const closeFaceEnrollmentModal = () => {
-    stopWebcam();
-    setIsEnrollModalOpen(false);
-    setEnrollStudent(null);
-  };
-
-  // Webcam Management for Face Enrollment
+  // Webcam Management for Guided 7-Step Face Enrollment
   const startWebcam = async () => {
     setCameraError(null);
     try {
@@ -293,7 +394,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
         videoRef.current.srcObject = stream;
         try {
           await videoRef.current.play();
-        } catch (e) {
+        } catch {
           // ignore
         }
       }
@@ -322,6 +423,30 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
     setCameraActive(false);
   };
 
+  // Open Guided Face Enrollment Modal
+  const openFaceEnrollmentModal = (student: Student) => {
+    setEnrollStudent(student);
+    setEnrollStep('camera');
+    setCurrentAngleIndex(0);
+    setCapturedSamples({});
+    setCameraError(null);
+    setEnrollErrorMessage(null);
+    setFaceDetected(false);
+    setFaceQuality('Checking');
+    setFacePosition('Align Face');
+    setJustCaptured(false);
+    setIsEnrollModalOpen(true);
+    setActiveMenuStudentId(null);
+    startWebcam();
+  };
+
+  const closeFaceEnrollmentModal = () => {
+    stopWebcam();
+    setIsEnrollModalOpen(false);
+    setEnrollStudent(null);
+    setCapturedSamples({});
+  };
+
   // Frame scanner assessing quality & centering
   const runEnrollmentDetectionScan = async () => {
     if (isDetectingRef.current || !videoRef.current || !captureCanvasRef.current) return;
@@ -346,24 +471,40 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
         return;
       }
 
-      const formData = new FormData();
-      formData.append('file', blob, 'frame.jpg');
+      const form = new FormData();
+      form.append('file', blob, 'frame.jpg');
 
       try {
-        const res = await apiClient.post('/recognition/detect', formData, {
+        const res = await apiClient.post('/recognition/detect', form, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
 
         const faces = res.data?.faces || [];
         if (faces.length === 1) {
           const f = faces[0];
-          setFaceQuality(f.is_valid !== false ? 'GOOD' : 'POOR');
-          setFacePosition(f.pose?.is_frontal !== false ? 'CENTERED' : 'OFF_CENTER');
-          setFaceLiveness(f.confidence > 0.85 ? 'VERIFIED' : 'CHECKING');
+          setFaceDetected(true);
+          const brightness = f.brightness ?? 100;
+          if (brightness < 45) {
+            setFaceQuality('Too Dark');
+          } else if (brightness > 220) {
+            setFaceQuality('Too Bright');
+          } else {
+            setFaceQuality('Good');
+          }
+
+          if (f.pose?.is_frontal !== false) {
+            setFacePosition('Centered');
+          } else {
+            setFacePosition('Align Face');
+          }
+        } else if (faces.length > 1) {
+          setFaceDetected(true);
+          setFaceQuality('Too Dark');
+          setFacePosition('Align Face');
         } else {
-          setFaceQuality('POOR');
-          setFacePosition('OFF_CENTER');
-          setFaceLiveness('CHECKING');
+          setFaceDetected(false);
+          setFaceQuality('Checking');
+          setFacePosition('Align Face');
         }
       } catch {
         // quiet skip
@@ -373,8 +514,8 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
     }, 'image/jpeg', 0.80);
   };
 
-  // Capture face and submit enrollment to backend
-  const handleCaptureFace = async () => {
+  // Capture face for the active angle
+  const handleCaptureCurrentAngle = async () => {
     if (!enrollStudent || !videoRef.current || !captureCanvasRef.current || isCapturingSample) return;
 
     setIsCapturingSample(true);
@@ -391,6 +532,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       return;
     }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
 
     canvas.toBlob(async (blob) => {
       if (!blob) {
@@ -398,28 +540,73 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
         return;
       }
 
-      const formData = new FormData();
-      formData.append('file', blob, 'enroll_sample.jpg');
-      formData.append('pose_type', 'FRONTAL');
+      const activeAngle = ENROLLMENT_ANGLES[currentAngleIndex];
+      const form = new FormData();
+      form.append('file', blob, `enroll_${activeAngle.id}.jpg`);
+      form.append('pose_type', activeAngle.poseType);
 
       try {
-        const res = await enrollStudentFace(enrollStudent.id, formData);
+        const res = await enrollStudentFace(enrollStudent.id, form);
         if (res.success) {
-          stopWebcam();
-          setEnrollStep('success');
-          loadData();
-          if (selectedProfileStudent?.id === enrollStudent.id) {
-            setSelectedProfileStudent((prev) => (prev ? { ...prev, enrollment_status: 'ENROLLED' } : null));
-          }
+          // Visual capture confirmation: trigger green flash
+          setJustCaptured(true);
+          setTimeout(() => setJustCaptured(false), 900);
+
+          // Save thumbnail in captured map
+          setCapturedSamples((prev) => ({
+            ...prev,
+            [currentAngleIndex]: {
+              angleIndex: currentAngleIndex,
+              dataUrl,
+              qualityScore: 95,
+              capturedAt: new Date().toISOString(),
+            },
+          }));
+
+          // Auto-advance after 1.2s delay
+          setTimeout(() => {
+            if (currentAngleIndex < ENROLLMENT_ANGLES.length - 1) {
+              setCurrentAngleIndex((prev) => prev + 1);
+            } else {
+              // Completed all 7 angles! Show summary card
+              setEnrollStep('summary');
+            }
+          }, 1200);
         } else {
-          setEnrollErrorMessage(res.message || 'Face not clear. Please face the camera and try again.');
+          setEnrollErrorMessage(res.message || 'Face unclear or position invalid. Please adjust and try again.');
         }
       } catch (err: any) {
-        setEnrollErrorMessage(formatApiErrorMessage(err, 'Failed to enroll face.'));
+        setEnrollErrorMessage(formatApiErrorMessage(err, 'Failed to capture face sample.'));
       } finally {
         setIsCapturingSample(false);
       }
     }, 'image/jpeg', 0.95);
+  };
+
+  // Retake a specific angle
+  const handleRetakeAngle = (index: number) => {
+    setCurrentAngleIndex(index);
+    setEnrollStep('camera');
+    setEnrollErrorMessage(null);
+  };
+
+  // Skip the current angle
+  const handleSkipAngle = () => {
+    if (currentAngleIndex < ENROLLMENT_ANGLES.length - 1) {
+      setCurrentAngleIndex((prev) => prev + 1);
+    } else {
+      setEnrollStep('summary');
+    }
+  };
+
+  // Finalize Enrollment
+  const handleCompleteEnrollment = () => {
+    stopWebcam();
+    setEnrollStep('success');
+    loadData();
+    if (selectedProfileStudent && enrollStudent && selectedProfileStudent.id === enrollStudent.id) {
+      setSelectedProfileStudent((prev) => (prev ? { ...prev, enrollment_status: 'ENROLLED' } : null));
+    }
   };
 
   // Form Handlers
@@ -454,7 +641,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       first_name: student.first_name,
       last_name: student.last_name,
       email: student.email,
-      department: student.department,
+      department: student.department || 'Computer Science',
       class_name: student.class_name,
       section: student.section,
       status: student.status,
@@ -473,6 +660,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
   const openQrEnrollModal = async (student: Student) => {
     setActiveStudent(student);
     setActiveMenuStudentId(null);
+    setIsCopiedQr(false);
     const host = window.location.hostname;
     const port = window.location.port ? `:${window.location.port}` : '';
     const protocol = window.location.protocol;
@@ -488,6 +676,13 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
     }
   };
 
+  const handleCopyQrLink = () => {
+    if (!mobileEnrollLink) return;
+    navigator.clipboard.writeText(mobileEnrollLink);
+    setIsCopiedQr(true);
+    setTimeout(() => setIsCopiedQr(false), 2000);
+  };
+
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormSubmitting(true);
@@ -496,10 +691,9 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       const created = await createStudent(formData);
       setIsAddModalOpen(false);
       loadData();
-      // Prompt face enrollment directly
       openFaceEnrollmentModal(created);
     } catch (err: any) {
-      setModalError(formatApiErrorMessage(err, 'Failed to create student.'));
+      setModalError(formatApiErrorMessage(err, 'Failed to register student.'));
     } finally {
       setFormSubmitting(false);
     }
@@ -560,35 +754,38 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
     }
   };
 
+  const isAllSelected = displayedStudents.length > 0 && selectedStudentIds.length === displayedStudents.length;
+
   return (
     <div className="space-y-4 max-w-7xl mx-auto select-none">
       {/* ========================================================================= */}
       {/* 1. PAGE HEADER */}
       {/* ========================================================================= */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Students</h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Manage registered students and face enrollment.
+          <p className="text-xs text-slate-500 mt-0.5">
+            Institutional directory, multi-angle face enrollment, and individual attendance history.
           </p>
         </div>
 
-        {/* Single Primary Action */}
-        <button
-          onClick={openCreateModal}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Register Student</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={openCreateModal}
+            icon={<Plus className="w-4 h-4" />}
+          >
+            Register Student
+          </Button>
+        </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* 2. COMPACT SEARCH & FILTER TOOLBAR */}
+      {/* 2. SEARCH & FILTER TOOLBAR */}
       {/* ========================================================================= */}
-      <div className="flex items-center gap-2">
-        {/* Search input */}
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+        <div className="relative flex-1">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
@@ -597,7 +794,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
               setSearch(e.target.value);
               setPage(1);
             }}
-            placeholder="Search students by name, roll number or email..."
+            placeholder="Search students by name, roll number, or email..."
             className="w-full bg-white border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-xs"
           />
         </div>
@@ -607,7 +804,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
           <button
             type="button"
             onClick={() => setIsFilterOpen(!isFilterOpen)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition shadow-xs ${
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition shadow-xs ${
               activeFilterCount > 0
                 ? 'bg-blue-50 border-blue-200 text-blue-700'
                 : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -622,7 +819,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
             )}
           </button>
 
-          {/* Small Filter Dropdown Popover */}
+          {/* Filter Dropdown Popover */}
           {isFilterOpen && (
             <div className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-xl shadow-lg p-3 z-30 space-y-3 text-xs animate-in fade-in-50">
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -731,6 +928,42 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       </div>
 
       {/* ========================================================================= */}
+      {/* BULK ACTIONS TOOLBAR (When students are selected) */}
+      {/* ========================================================================= */}
+      {selectedStudentIds.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-blue-900 shadow-xs animate-in fade-in-50">
+          <div className="flex items-center gap-2">
+            <span className="font-bold">{selectedStudentIds.length}</span>
+            <span>students selected</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportSelectedCsv}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 font-semibold transition"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export CSV</span>
+            </button>
+            <button
+              onClick={handleDeleteSelected}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700 font-semibold transition shadow-xs"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Selected</span>
+            </button>
+            <button
+              onClick={() => setSelectedStudentIds([])}
+              className="p-1 text-blue-500 hover:text-blue-700 ml-1"
+              title="Clear selection"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* 3. STUDENT TABLE */}
       {/* ========================================================================= */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
@@ -746,59 +979,77 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
               {search || activeFilterCount > 0
                 ? 'Try adjusting your search or filter options.'
-                : 'Register your first student to begin attendance tracking.'}
+                : 'Register your first student to begin automated attendance tracking.'}
             </p>
-            {activeFilterCount > 0 ? (
-              <button
-                onClick={handleClearFilters}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold"
-              >
-                Clear Filters
-              </button>
-            ) : (
-              <button
-                onClick={openCreateModal}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>Register Student</span>
-              </button>
-            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold text-[11px]">
                 <tr>
+                  <th className="p-3 w-8 text-center">
+                    <input
+                      type="checkbox"
+                      checked={isAllSelected}
+                      onChange={handleToggleSelectAll}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </th>
                   <th className="px-4 py-3">Student</th>
-                  <th className="px-4 py-3">ID / Roll</th>
+                  <th className="px-4 py-3">Roll / ID</th>
                   <th className="px-4 py-3">Class</th>
                   <th className="px-4 py-3">Face Status</th>
-                  <th className="px-4 py-3">Attendance</th>
+                  <th className="px-4 py-3">Attendance Rate</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 text-slate-700">
                 {displayedStudents.map((student) => {
-                  const isEnrolled = student.enrollment_status === 'ENROLLED';
-                  const isPartial = student.enrollment_status === 'PARTIAL';
                   const hist = attendanceMap[student.id];
+                  const isEnrolled = student.enrollment_status === 'ENROLLED';
+                  const isSelected = selectedStudentIds.includes(student.id);
 
                   return (
                     <tr
                       key={student.id}
                       onClick={() => openProfileDrawer(student)}
-                      className="hover:bg-slate-50/80 transition cursor-pointer"
+                      className={`hover:bg-slate-50/70 transition cursor-pointer ${
+                        isSelected ? 'bg-blue-50/40' : ''
+                      }`}
                     >
-                      {/* 1. STUDENT: Name & Email */}
-                      <td className="px-4 py-2.5">
-                        <div className="font-semibold text-slate-900 text-xs">
-                          {student.first_name} {student.last_name}
-                        </div>
-                        <div className="text-[11px] text-slate-500 truncate max-w-xs">{student.email}</div>
+                      {/* Checkbox */}
+                      <td
+                        className="p-3 text-center"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleSelectStudent(student.id);
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleSelectStudent(student.id)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
                       </td>
 
-                      {/* 2. ID / ROLL */}
+                      {/* 1. STUDENT AVATAR & NAME */}
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <Avatar
+                            name={`${student.first_name} ${student.last_name}`}
+                            size="md"
+                          />
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-900 truncate">
+                              {student.first_name} {student.last_name}
+                            </div>
+                            <div className="text-[11px] text-slate-400 truncate">{student.email}</div>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* 2. ROLL / ID */}
                       <td className="px-4 py-2.5 text-slate-700">
                         <div className="font-medium font-mono text-xs">{student.roll_number || student.student_code}</div>
                         {student.roll_number && student.student_code && student.roll_number !== student.student_code && (
@@ -808,73 +1059,92 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
 
                       {/* 3. CLASS */}
                       <td className="px-4 py-2.5 text-slate-600 font-medium">
-                        {student.class_name} {student.section ? `(${student.section})` : ''}
+                        <span className="inline-flex items-center gap-1.5">
+                          <span>{student.class_name}</span>
+                          {student.section && (
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-mono font-semibold">
+                              Sec {student.section}
+                            </span>
+                          )}
+                        </span>
                       </td>
 
                       {/* 4. FACE STATUS */}
                       <td className="px-4 py-2.5">
-                        {isEnrolled ? (
-                          <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium text-xs">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                            <span>Enrolled</span>
-                          </span>
-                        ) : isPartial ? (
-                          <span className="inline-flex items-center gap-1.5 text-amber-700 font-medium text-xs">
-                            <span className="w-2 h-2 rounded-full bg-amber-500" />
-                            <span>Pending</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 text-slate-500 font-medium text-xs">
-                            <span className="w-2 h-2 rounded-full bg-slate-300" />
-                            <span>Not Enrolled</span>
-                          </span>
-                        )}
+                        <StatusBadge
+                          status={student.enrollment_status || 'NOT_ENROLLED'}
+                          category="enrollment"
+                          size="sm"
+                        />
                       </td>
 
-                      {/* 5. ATTENDANCE */}
+                      {/* 5. ATTENDANCE RATE WITH PROGRESS BAR */}
                       <td className="px-4 py-2.5">
                         {hist ? (
                           hist.total_sessions === 0 ? (
                             <span className="text-slate-400 font-mono">—</span>
-                          ) : hist.attendance_rate_pct >= 85 ? (
-                            <span className="inline-flex items-center gap-1 font-bold text-emerald-600">
-                              {hist.attendance_rate_pct}%
-                            </span>
-                          ) : hist.attendance_rate_pct >= 75 ? (
-                            <span className="inline-flex items-center gap-1 font-bold text-amber-600">
-                              <span>{hist.attendance_rate_pct}%</span>
-                              <span className="text-amber-500 text-[10px]">⚠</span>
-                            </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 font-bold text-rose-600">
-                              <span>{hist.attendance_rate_pct}%</span>
-                              <span className="text-rose-500 text-[10px]">⚠</span>
-                            </span>
+                            <div className="space-y-1 max-w-[130px]">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className={`font-bold font-mono ${
+                                  hist.attendance_rate_pct >= 85
+                                    ? 'text-emerald-600'
+                                    : hist.attendance_rate_pct >= 75
+                                    ? 'text-amber-600'
+                                    : 'text-rose-600'
+                                }`}>
+                                  {hist.attendance_rate_pct}%
+                                </span>
+                                <span className="text-[10px] text-slate-400">
+                                  {hist.present_sessions}/{hist.total_sessions}
+                                </span>
+                              </div>
+                              <Progress
+                                value={hist.attendance_rate_pct}
+                                size="sm"
+                                variant="auto"
+                              />
+                            </div>
                           )
                         ) : (
                           <span className="text-slate-300 text-[10px]">...</span>
                         )}
                       </td>
 
-                      {/* 6. ACTIONS: [View] [Edit] [...] */}
+                      {/* 6. ACTIONS: [Capture / Re-enroll] [View] [...] */}
                       <td
                         className="px-4 py-2.5 text-right whitespace-nowrap student-action-menu-container"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <div className="inline-flex items-center gap-1">
+                        <div className="inline-flex items-center gap-1.5">
+                          {isEnrolled ? (
+                            <button
+                              type="button"
+                              onClick={() => openFaceEnrollmentModal(student)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold transition shadow-2xs"
+                              title="Re-enroll biometrics"
+                            >
+                              <RotateCcw className="w-3 h-3 text-slate-500" />
+                              <span>Re-enroll</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => openFaceEnrollmentModal(student)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition shadow-2xs"
+                              title="Enroll face biometrics"
+                            >
+                              <Camera className="w-3 h-3" />
+                              <span>Enroll Face</span>
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={() => openProfileDrawer(student)}
                             className="px-2 py-1 rounded text-[11px] font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
                           >
                             View
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openEditModal(student)}
-                            className="px-2 py-1 rounded text-[11px] font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
-                          >
-                            Edit
                           </button>
 
                           {/* [...] Menu Button */}
@@ -901,7 +1171,15 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                                   className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
                                 >
                                   <Camera className="w-3.5 h-3.5 text-blue-600" />
-                                  <span>Capture / Update Face</span>
+                                  <span>Guided Enrollment</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openQrEnrollModal(student)}
+                                  className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
+                                >
+                                  <Smartphone className="w-3.5 h-3.5 text-slate-500" />
+                                  <span>Phone QR Enroll</span>
                                 </button>
                                 <button
                                   type="button"
@@ -916,15 +1194,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                                   className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
                                 >
                                   <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                                  <span>View Attendance</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openQrEnrollModal(student)}
-                                  className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
-                                >
-                                  <Smartphone className="w-3.5 h-3.5 text-slate-500" />
-                                  <span>Phone QR Enroll</span>
+                                  <span>Attendance History</span>
                                 </button>
                                 <button
                                   type="button"
@@ -997,7 +1267,6 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {selectedProfileStudent && (
         <div className="fixed inset-0 z-50 overflow-hidden">
-          {/* Backdrop */}
           <div
             onClick={closeProfileDrawer}
             className="absolute inset-0 bg-slate-900/30 backdrop-blur-xs transition-opacity"
@@ -1024,10 +1293,10 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                 {/* Profile Identity Card */}
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-full bg-blue-100 border border-blue-200 text-blue-700 font-bold text-sm flex items-center justify-center shrink-0">
-                      {selectedProfileStudent.first_name[0]}
-                      {selectedProfileStudent.last_name[0]}
-                    </div>
+                    <Avatar
+                      name={`${selectedProfileStudent.first_name} ${selectedProfileStudent.last_name}`}
+                      size="lg"
+                    />
                     <div className="min-w-0">
                       <h3 className="text-sm font-bold text-slate-900 truncate">
                         {selectedProfileStudent.first_name} {selectedProfileStudent.last_name}
@@ -1053,27 +1322,37 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                   </div>
                 </div>
 
-                {/* Face Enrollment Status */}
-                <div className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-white shadow-xs">
-                  <div>
-                    <div className="font-semibold text-slate-800 text-xs">Face Enrollment</div>
-                    <div className="text-[11px] text-slate-500">InsightFace Biometrics</div>
+                {/* Face Enrollment Status with Re-enroll action */}
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold text-slate-900 text-xs">Face Biometrics</div>
+                      <div className="text-[11px] text-slate-500">Automated Camera Verification</div>
+                    </div>
+                    <StatusBadge
+                      status={selectedProfileStudent.enrollment_status || 'NOT_ENROLLED'}
+                      category="enrollment"
+                      size="sm"
+                    />
                   </div>
-                  {selectedProfileStudent.enrollment_status === 'ENROLLED' ? (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <span>Enrolled</span>
+
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-slate-500">
+                      {selectedProfileStudent.enrollment_status === 'ENROLLED'
+                        ? 'Biometrics active across all sessions'
+                        : 'Face sample required for automated attendance'}
                     </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                      <span className="w-2 h-2 rounded-full bg-slate-400" />
-                      <span>Not Enrolled</span>
-                    </span>
-                  )}
+                    <button
+                      onClick={() => openFaceEnrollmentModal(selectedProfileStudent)}
+                      className="px-2.5 py-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs transition"
+                    >
+                      {selectedProfileStudent.enrollment_status === 'ENROLLED' ? 'Re-enroll' : 'Enroll Now'}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Attendance Summary */}
-                <div className="p-3.5 rounded-lg border border-slate-200 bg-white space-y-2 shadow-xs">
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-white space-y-2.5 shadow-xs">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-slate-800 text-xs">Overall Attendance</span>
                     <span className="font-black text-sm text-slate-900">
@@ -1082,23 +1361,28 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                   </div>
 
                   {profileAttendance && (
-                    <div className="grid grid-cols-3 gap-2 pt-1 text-center">
-                      <div className="p-2 rounded bg-emerald-50 text-emerald-800">
-                        <div className="text-[10px] uppercase font-semibold">Present</div>
-                        <div className="font-bold text-xs mt-0.5">{profileAttendance.present_sessions}</div>
+                    <>
+                      <Progress value={profileAttendance.attendance_rate_pct} size="md" variant="auto" />
+
+                      <div className="grid grid-cols-3 gap-2 pt-2 text-center">
+                        <div className="p-2 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-100">
+                          <div className="text-[10px] uppercase font-semibold">Present</div>
+                          <div className="font-bold text-xs mt-0.5">{profileAttendance.present_sessions}</div>
+                        </div>
+                        <div className="p-2 rounded-lg bg-amber-50 text-amber-800 border border-amber-100">
+                          <div className="text-[10px] uppercase font-semibold">Late</div>
+                          <div className="font-bold text-xs mt-0.5">{profileAttendance.late_sessions}</div>
+                        </div>
+                        <div className="p-2 rounded-lg bg-rose-50 text-rose-800 border border-rose-100">
+                          <div className="text-[10px] uppercase font-semibold">Absent</div>
+                          <div className="font-bold text-xs mt-0.5">{profileAttendance.absent_sessions}</div>
+                        </div>
                       </div>
-                      <div className="p-2 rounded bg-amber-50 text-amber-800">
-                        <div className="text-[10px] uppercase font-semibold">Late</div>
-                        <div className="font-bold text-xs mt-0.5">{profileAttendance.late_sessions}</div>
-                      </div>
-                      <div className="p-2 rounded bg-rose-50 text-rose-800">
-                        <div className="text-[10px] uppercase font-semibold">Absent</div>
-                        <div className="font-bold text-xs mt-0.5">{profileAttendance.absent_sessions}</div>
-                      </div>
-                    </div>
+                    </>
                   )}
                 </div>
 
+                {/* Recent Attendance History Table */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
@@ -1128,35 +1412,22 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                         <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[10px] font-semibold">
                           <tr>
                             <th className="px-3 py-2">Date</th>
-                            <th className="px-3 py-2">Subject / Code</th>
+                            <th className="px-3 py-2">Subject / Class</th>
                             <th className="px-3 py-2 text-right">Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {profileAttendance.records.slice(0, 8).map((rec) => {
-                            const isPresent = rec.status === 'PRESENT' || rec.status === 'MANUAL_PRESENT';
-                            const isLate = rec.status === 'LATE';
-
                             return (
                               <tr key={rec.id} className="hover:bg-slate-50">
                                 <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
                                   {formatDateShort(rec.first_seen || rec.created_at)}
                                 </td>
                                 <td className="px-3 py-2 text-slate-800 font-medium truncate max-w-[130px]">
-                                  {rec.remarks && rec.remarks.startsWith('Class') ? rec.remarks : 'Attendance Session'}
+                                  {rec.remarks && rec.remarks.startsWith('Class') ? rec.remarks : 'Lecture'}
                                 </td>
                                 <td className="px-3 py-2 text-right">
-                                  <span
-                                    className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                                      isPresent
-                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                        : isLate
-                                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                        : 'bg-rose-50 text-rose-700 border border-rose-200'
-                                    }`}
-                                  >
-                                    {isPresent ? 'Present' : isLate ? 'Late' : 'Absent'}
-                                  </span>
+                                  <StatusBadge status={rec.status} category="attendance" size="sm" />
                                 </td>
                               </tr>
                             );
@@ -1177,7 +1448,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                 >
                   <Camera className="w-3.5 h-3.5" />
                   <span>
-                    {selectedProfileStudent.enrollment_status === 'ENROLLED' ? 'Update Face' : 'Capture Face'}
+                    {selectedProfileStudent.enrollment_status === 'ENROLLED' ? 'Re-enroll Face' : 'Enroll Face'}
                   </span>
                 </button>
 
@@ -1196,36 +1467,88 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       )}
 
       {/* ========================================================================= */}
-      {/* 6. SIMPLIFIED FACE ENROLLMENT MODAL */}
+      {/* 6. GUIDED 7-STEP MULTI-ANGLE FACE ENROLLMENT MODAL */}
       {/* ========================================================================= */}
       {isEnrollModalOpen && enrollStudent && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 select-none">
-          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-5 shadow-xl space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 select-none">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] flex flex-col">
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
-                <h3 className="font-bold text-slate-900 text-sm">Face Enrollment</h3>
-                <p className="text-xs text-slate-500">
-                  {enrollStudent.first_name} {enrollStudent.last_name} ({enrollStudent.roll_number || enrollStudent.student_code})
+                <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                  Guided Face Enrollment
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {enrollStudent.first_name} {enrollStudent.last_name} ({enrollStudent.roll_number || enrollStudent.student_code}) • Class {enrollStudent.class_name}
                 </p>
               </div>
-              <button onClick={closeFaceEnrollmentModal} className="text-slate-400 hover:text-slate-600 p-1">
+              <button
+                onClick={closeFaceEnrollmentModal}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Error banner */}
+            {/* Error Banner */}
             {enrollErrorMessage && (
-              <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+              <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                 <span>{enrollErrorMessage}</span>
               </div>
             )}
 
-            {/* Step: Camera Preview */}
+            {/* STEP 1: CAMERA CAPTURE (7-Step Guided Workflow) */}
             {enrollStep === 'camera' && (
-              <div className="space-y-3">
-                <div className="relative aspect-video bg-black rounded-lg overflow-hidden flex items-center justify-center border border-slate-800 shadow-inner">
+              <div className="space-y-3.5 flex-1 flex flex-col">
+                {/* Step Progress Dots & Indicator */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-blue-600">
+                      Step {currentAngleIndex + 1} of {ENROLLMENT_ANGLES.length}
+                    </span>
+                    <span className="text-slate-600 font-semibold">
+                      {ENROLLMENT_ANGLES[currentAngleIndex].name}
+                    </span>
+                  </div>
+
+                  {/* 7 Step Dots */}
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {ENROLLMENT_ANGLES.map((angle, idx) => {
+                      const isCaptured = !!capturedSamples[idx];
+                      const isCurrent = idx === currentAngleIndex;
+
+                      return (
+                        <button
+                          key={angle.id}
+                          type="button"
+                          onClick={() => setCurrentAngleIndex(idx)}
+                          className={`h-1.5 rounded-full transition-all ${
+                            isCaptured
+                              ? 'bg-emerald-500'
+                              : isCurrent
+                              ? 'bg-blue-600 ring-2 ring-blue-300 ring-offset-1'
+                              : 'bg-slate-200'
+                          }`}
+                          title={`${angle.name} ${isCaptured ? '(Captured)' : ''}`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Friendly Instructional Guidance Banner */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center space-y-0.5 shadow-2xs">
+                  <div className="text-xs sm:text-sm font-bold text-slate-900">
+                    {ENROLLMENT_ANGLES[currentAngleIndex].instruction}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {ENROLLMENT_ANGLES[currentAngleIndex].hint}
+                  </div>
+                </div>
+
+                {/* Video Feed with Oval Guide Reticle */}
+                <div className="relative aspect-video bg-black rounded-xl overflow-hidden flex items-center justify-center border border-slate-800 shadow-inner">
                   <video
                     ref={videoRef}
                     autoPlay
@@ -1238,13 +1561,24 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                   {/* Oval Face Guide Reticle */}
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <div
-                      className={`w-36 h-48 rounded-[50%] border-2 border-dashed transition-colors duration-200 ${
-                        faceQuality === 'GOOD' && facePosition === 'CENTERED'
-                          ? 'border-emerald-400 shadow-emerald-500/20 shadow-lg'
-                          : 'border-white/50'
+                      className={`w-40 h-52 sm:w-48 sm:h-64 rounded-[50%] border-2 transition-all duration-300 ${
+                        justCaptured
+                          ? 'border-emerald-400 bg-emerald-500/20 scale-105 shadow-emerald-500/50 shadow-2xl'
+                          : faceDetected && facePosition === 'Centered' && faceQuality === 'Good'
+                          ? 'border-emerald-400 shadow-emerald-500/30 shadow-lg'
+                          : 'border-white/50 border-dashed'
                       }`}
                     />
                   </div>
+
+                  {/* Capture Flash Overlay */}
+                  {justCaptured && (
+                    <div className="absolute inset-0 bg-emerald-500/20 backdrop-blur-2xs flex items-center justify-center transition-opacity animate-in fade-in-50">
+                      <div className="w-14 h-14 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-xl animate-bounce">
+                        <Check className="w-8 h-8" />
+                      </div>
+                    </div>
+                  )}
 
                   {cameraError && (
                     <div className="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center p-4 text-center text-rose-400 text-xs space-y-2">
@@ -1260,90 +1594,218 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                   )}
                 </div>
 
-                {/* 3 Simple Quality Status Pills */}
-                <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
-                  <div
-                    className={`p-2 rounded-lg border font-medium transition ${
-                      faceQuality === 'GOOD'
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-slate-50 border-slate-200 text-slate-500'
-                    }`}
-                  >
-                    Face Quality: <strong>{faceQuality === 'GOOD' ? 'Good' : 'Checking'}</strong>
+                {/* Clean Quality & Centering Indicators Bar (Not squished pills) */}
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  {/* Indicator 1: Face Detected */}
+                  <div className="p-2 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center gap-1.5">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        faceDetected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'
+                      }`}
+                    />
+                    <span className="text-slate-600 font-medium">
+                      Face: <strong className="text-slate-900">{faceDetected ? 'Detected' : 'Searching'}</strong>
+                    </span>
                   </div>
 
-                  <div
-                    className={`p-2 rounded-lg border font-medium transition ${
-                      facePosition === 'CENTERED'
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-slate-50 border-slate-200 text-slate-500'
-                    }`}
-                  >
-                    Position: <strong>{facePosition === 'CENTERED' ? 'Centered' : 'Align Face'}</strong>
+                  {/* Indicator 2: Position */}
+                  <div className="p-2 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center gap-1.5">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        facePosition === 'Centered' ? 'bg-emerald-500' : 'bg-slate-400'
+                      }`}
+                    />
+                    <span className="text-slate-600 font-medium">
+                      Position: <strong className="text-slate-900">{facePosition}</strong>
+                    </span>
                   </div>
 
-                  <div
-                    className={`p-2 rounded-lg border font-medium transition ${
-                      faceLiveness === 'VERIFIED'
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-slate-50 border-slate-200 text-slate-500'
-                    }`}
-                  >
-                    Liveness: <strong>{faceLiveness === 'VERIFIED' ? 'Verified' : 'Checking'}</strong>
+                  {/* Indicator 3: Lighting */}
+                  <div className="p-2 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center gap-1.5">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        faceQuality === 'Good'
+                          ? 'bg-emerald-500'
+                          : faceQuality === 'Too Dark'
+                          ? 'bg-rose-500'
+                          : 'bg-amber-400'
+                      }`}
+                    />
+                    <span className="text-slate-600 font-medium">
+                      Lighting: <strong className="text-slate-900">{faceQuality}</strong>
+                    </span>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-2">
+                {/* Captured Angle Thumbnail Strip */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px] text-slate-500">
+                    <span>Captured Angles (click to re-take):</span>
+                    <span>{Object.keys(capturedSamples).length} of 7 completed</span>
+                  </div>
+
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {ENROLLMENT_ANGLES.map((angle, idx) => {
+                      const sample = capturedSamples[idx];
+                      const isCurrent = idx === currentAngleIndex;
+
+                      return (
+                        <button
+                          key={angle.id}
+                          type="button"
+                          onClick={() => handleRetakeAngle(idx)}
+                          className={`group relative rounded-lg border overflow-hidden p-1 flex flex-col items-center justify-center text-center transition aspect-square ${
+                            isCurrent
+                              ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-400'
+                              : sample
+                              ? 'border-emerald-300 bg-emerald-50/40 hover:border-emerald-400'
+                              : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                          }`}
+                        >
+                          {sample ? (
+                            <>
+                              <img
+                                src={sample.dataUrl}
+                                alt={angle.name}
+                                className="w-full h-full object-cover rounded"
+                              />
+                              <div className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-xs">
+                                <Check className="w-2.5 h-2.5" />
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center p-1 text-[10px] text-slate-400 leading-tight">
+                              <span className="font-semibold">{idx + 1}</span>
+                              <span className="text-[9px] truncate w-full">{angle.name.split(' ')[0]}</span>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Primary Action Controls */}
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
                   <button
                     type="button"
                     onClick={() => {
                       closeFaceEnrollmentModal();
                       openQrEnrollModal(enrollStudent);
                     }}
-                    className="text-[11px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                    className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1.5"
                   >
                     <Smartphone className="w-3.5 h-3.5" />
                     <span>Enroll via Phone QR</span>
                   </button>
 
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSkipAngle}
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold transition"
+                    >
+                      Skip Angle
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCaptureCurrentAngle}
+                      disabled={isCapturingSample || !cameraActive}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50"
+                    >
+                      {isCapturingSample ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Saving Sample...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>Capture {ENROLLMENT_ANGLES[currentAngleIndex].name}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 2: SUMMARY CARD REVIEW */}
+            {enrollStep === 'summary' && (
+              <div className="space-y-4 py-2">
+                <div className="text-center space-y-1">
+                  <div className="w-11 h-11 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center mx-auto shadow-2xs">
+                    <CheckCircle2 className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-base font-bold text-slate-900">Multi-Angle Enrollment Complete</h4>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    All 7 facial angles were captured and embedded into the student profile.
+                  </p>
+                </div>
+
+                {/* 7 Captured Thumbnails Grid */}
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                  {ENROLLMENT_ANGLES.map((angle, idx) => {
+                    const sample = capturedSamples[idx];
+
+                    return (
+                      <div key={angle.id} className="space-y-1 text-center">
+                        <div className="aspect-square bg-slate-200 rounded-lg overflow-hidden border border-slate-300 relative shadow-2xs">
+                          {sample ? (
+                            <img src={sample.dataUrl} alt={angle.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px]">
+                              Skipped
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-[10px] font-semibold text-slate-700 truncate">{angle.name.split(' ')[0]}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                   <button
                     type="button"
-                    onClick={handleCaptureFace}
-                    disabled={isCapturingSample || !cameraActive}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50"
+                    onClick={() => {
+                      setEnrollStep('camera');
+                      setCurrentAngleIndex(0);
+                    }}
+                    className="px-3.5 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition"
                   >
-                    {isCapturingSample ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Enrolling Face...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Camera className="w-3.5 h-3.5" />
-                        <span>Capture Face</span>
-                      </>
-                    )}
+                    Re-capture Angles
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCompleteEnrollment}
+                    className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
+                  >
+                    <span>Complete Enrollment</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Step: Success State */}
+            {/* STEP 3: SUCCESS STATE */}
             {enrollStep === 'success' && (
-              <div className="py-6 text-center space-y-4">
-                <div className="w-12 h-12 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 mx-auto">
-                  <Check className="w-6 h-6" />
+              <div className="py-8 text-center space-y-4">
+                <div className="w-14 h-14 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 mx-auto shadow-xs">
+                  <Check className="w-7 h-7" />
                 </div>
                 <div>
-                  <h4 className="text-base font-bold text-slate-900">Face enrolled successfully</h4>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {enrollStudent.first_name} is now registered for automated AI face attendance.
+                  <h4 className="text-base font-bold text-slate-900">Student Enrolled Successfully</h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    {enrollStudent.first_name} is now registered with active facial biometrics for automated classroom attendance.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={closeFaceEnrollmentModal}
-                  className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
+                  className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
                 >
                   Done
                 </button>
@@ -1358,7 +1820,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-xl max-w-lg w-full p-5 sm:p-6 shadow-xl space-y-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-slate-900 text-sm">Register Student</h3>
               <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1">
@@ -1478,7 +1940,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                   disabled={formSubmitting}
                   className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs disabled:opacity-50"
                 >
-                  {formSubmitting ? 'Registering...' : 'Register & Capture Face'}
+                  Register & Continue
                 </button>
               </div>
             </form>
@@ -1491,7 +1953,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {isEditModalOpen && activeStudent && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-xl max-w-lg w-full p-5 sm:p-6 shadow-xl space-y-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-slate-900 text-sm">Edit Student</h3>
               <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1">
@@ -1579,18 +2041,18 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       )}
 
       {/* ========================================================================= */}
-      {/* 9. MODAL: DELETE CONFIRMATION (DESTRUCTIVE IN MENU) */}
+      {/* 9. MODAL: DELETE CONFIRMATION */}
       {/* ========================================================================= */}
       {isDeleteModalOpen && activeStudent && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-xl max-w-sm w-full p-5 shadow-xl text-center space-y-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-sm w-full p-5 shadow-xl text-center space-y-4">
             <div className="w-10 h-10 rounded-full bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 mx-auto">
               <AlertTriangle className="w-5 h-5" />
             </div>
             <div>
               <h3 className="font-bold text-slate-900 text-sm">Delete Student</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Are you sure you want to delete {activeStudent.first_name} {activeStudent.last_name} ({activeStudent.roll_number || activeStudent.student_code})? This action cannot be undone.
+                Are you sure you want to delete {activeStudent.first_name} {activeStudent.last_name} ({activeStudent.roll_number || activeStudent.student_code})? This will also remove biometric vectors.
               </p>
             </div>
             <div className="flex items-center justify-center gap-2 pt-2">
@@ -1617,36 +2079,80 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {isQrModalOpen && activeStudent && qrCodeUrl && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-xl max-w-sm w-full p-5 shadow-xl text-center space-y-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-sm w-full p-5 shadow-2xl text-center space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-slate-900 text-sm">Mobile Face Enrollment</h3>
-              <button onClick={() => { setIsQrModalOpen(false); loadData(); }} className="text-slate-400 hover:text-slate-600 p-1">
+              <button
+                onClick={() => {
+                  setIsQrModalOpen(false);
+                  loadData();
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 inline-block shadow-xs">
-              <img src={qrCodeUrl} alt="QR Code" className="w-44 h-44 mx-auto rounded" />
+            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 inline-block shadow-2xs">
+              <img src={qrCodeUrl} alt="QR Code" className="w-48 h-48 mx-auto rounded-lg" />
             </div>
 
-            <div className="space-y-1">
-              <h4 className="text-xs font-bold text-slate-900">
-                {activeStudent.first_name} {activeStudent.last_name}
-              </h4>
-              <p className="text-[11px] text-slate-500">
-                Scan this QR code with a mobile camera to enroll face biometrics using phone hardware.
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-blue-600 animate-ping" />
+                <span className="text-xs font-bold text-slate-900">
+                  {activeStudent.first_name} {activeStudent.last_name}
+                </span>
+                <span className="text-[11px] text-slate-400 font-mono">
+                  ({activeStudent.roll_number || activeStudent.student_code})
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
+                Scan this QR code with the student&apos;s phone to complete multi-angle face enrollment directly on their device.
               </p>
             </div>
 
-            <div className="text-[10px] font-mono text-slate-400 bg-slate-50 p-2 rounded truncate select-all">
-              {mobileEnrollLink}
+            {/* Expiration Badge */}
+            <div className="flex items-center justify-center">
+              <Badge variant="blue" size="sm">
+                ⏱ Link active for 15 minutes
+              </Badge>
+            </div>
+
+            {/* Link Copy Bar */}
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg p-1.5">
+              <input
+                type="text"
+                readOnly
+                value={mobileEnrollLink}
+                className="bg-transparent text-[11px] text-slate-600 font-mono flex-1 outline-none truncate px-1"
+              />
+              <button
+                onClick={handleCopyQrLink}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition"
+              >
+                {isCopiedQr ? (
+                  <>
+                    <Check className="w-3 h-3 text-emerald-600" />
+                    <span className="text-emerald-700">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3 h-3" />
+                    <span>Copy</span>
+                  </>
+                )}
+              </button>
             </div>
 
             <button
-              onClick={() => { setIsQrModalOpen(false); loadData(); }}
-              className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs"
+              onClick={() => {
+                setIsQrModalOpen(false);
+                loadData();
+              }}
+              className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
             >
-              Done & Refresh
+              Done & Refresh Directory
             </button>
           </div>
         </div>

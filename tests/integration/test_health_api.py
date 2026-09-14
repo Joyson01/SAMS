@@ -6,7 +6,7 @@ async def test_root_endpoint(client):
     response = await client.get("/")
     assert response.status_code == 200
     data = response.json()
-    assert "SAMS" in data["name"]
+    assert ("AttedDEL" in data["name"] or "SAMS" in data["name"])
     assert data["version"] == "1.0.0"
     assert "/api/v1/health" in data["health_url"]
 

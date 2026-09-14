@@ -59,7 +59,7 @@ const DEFAULT_AI_CONFIG: AIRecognitionConfig = {
 };
 
 export const SettingsPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'ai' | 'general' | 'diagnostics'>('ai');
+  const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'diagnostics'>('general');
   const [institutionName, setInstitutionName] = useState<string>('Campus University');
   const [autoMarkAttendance, setAutoMarkAttendance] = useState<boolean>(true);
   const [aiConfig, setAiConfig] = useState<AIRecognitionConfig>(DEFAULT_AI_CONFIG);
@@ -100,11 +100,11 @@ export const SettingsPage: React.FC = () => {
     try {
       const res = await apiClient.put('/recognition/config', aiConfig);
       setAiConfig(res.data);
-      setSavedMessage('AI Recognition & Biometric Accuracy parameters updated successfully.');
+      setSavedMessage('Biometric accuracy & verification parameters saved successfully.');
       setTimeout(() => setSavedMessage(null), 3500);
     } catch (err) {
       console.error('Failed to update AI config:', err);
-      alert('Could not update AI recognition configuration.');
+      alert('Could not update recognition configuration.');
     } finally {
       setSaving(false);
     }
@@ -119,23 +119,14 @@ export const SettingsPage: React.FC = () => {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Settings & Accuracy Configuration</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Fine-tune AI face detection, ArcFace recognition thresholds, liveness, and temporal verification.
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Settings & Preferences</h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+            Manage institutional configurations, biometric verification thresholds, and infrastructure diagnostics.
           </p>
         </div>
 
         {/* Tab Selector */}
         <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
-          <button
-            onClick={() => setActiveTab('ai')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition ${
-              activeTab === 'ai' ? 'bg-white text-blue-700 shadow-sm font-bold' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            <span>AI Recognition</span>
-          </button>
           <button
             onClick={() => setActiveTab('general')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition ${
@@ -144,6 +135,15 @@ export const SettingsPage: React.FC = () => {
           >
             <Layers className="w-3.5 h-3.5" />
             <span>General</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('ai')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition ${
+              activeTab === 'ai' ? 'bg-white text-blue-700 shadow-sm font-bold' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Accuracy & Biometrics</span>
           </button>
           <button
             onClick={() => setActiveTab('diagnostics')}
@@ -576,8 +576,8 @@ export const SettingsPage: React.FC = () => {
                 <Cpu className="w-4 h-4 text-slate-400" />
                 <span>AI Vision Pipeline</span>
               </div>
-              <div className="text-base font-bold text-slate-900">SCRFD + ArcFace</div>
-              <p className="text-[11px] text-emerald-600 font-mono font-bold">512-dim ONNX Active</p>
+              <div className="text-base font-bold text-slate-900">Deep Biometric Vision Engine</div>
+              <p className="text-[11px] text-emerald-600 font-mono font-bold">512-d Biometric Model Active</p>
             </div>
           </div>
         </div>

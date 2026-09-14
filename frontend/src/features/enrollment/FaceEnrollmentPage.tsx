@@ -317,7 +317,7 @@ export const FaceEnrollmentPage: React.FC<FaceEnrollmentPageProps> = ({
     if (!videoRef.current || !captureCanvasRef.current || !selectedStudentId || capturing || isComplete) return;
 
     setCapturing(true);
-    setLiveGuidance('Verifying & generating 512-d ArcFace embeddings...');
+    setLiveGuidance('Verifying & generating facial biometrics...');
     setGuidanceType('neutral');
 
     const video = videoRef.current;
@@ -644,7 +644,7 @@ export const FaceEnrollmentPage: React.FC<FaceEnrollmentPageProps> = ({
                 {capturing ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Extracting 512-d ArcFace Embeddings...</span>
+                    <span>Processing Facial Biometrics...</span>
                   </>
                 ) : (
                   <>

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# JOJIPA-SAMS — Smart Attendance Management System
+# AttedDEL — Smart Attendance Management System
 # Service Shutdown Script
 # ==============================================================================
 set -euo pipefail
@@ -13,7 +13,7 @@ BACKEND_PID_FILE="${RUN_DIR}/backend.pid"
 FRONTEND_PID_FILE="${RUN_DIR}/frontend.pid"
 
 echo "============================================================"
-echo "          JOJIPA-SAMS — Stopping All Services               "
+echo "           AttedDEL — Stopping All Services                 "
 echo "============================================================"
 echo ""
 

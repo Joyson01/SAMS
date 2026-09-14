@@ -13,7 +13,7 @@ if str(_ROOT) not in sys.path:
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.app.api.v1.router import api_router
@@ -234,9 +234,19 @@ app.mount("/outputs", StaticFiles(directory=str(_OUTPUTS_DIR)), name="outputs")
 app.mount("/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
 app.mount("/processed", StaticFiles(directory=str(_PROCESSED_DIR)), name="processed")
 
+# Mount Production Frontend Dist if Available
+_FRONTEND_DIST = _ROOT / "frontend" / "dist"
+if _FRONTEND_DIST.exists() and (_FRONTEND_DIST / "index.html").exists():
+    _ASSETS_DIR = _FRONTEND_DIST / "assets"
+    if _ASSETS_DIR.exists():
+        app.mount("/assets", StaticFiles(directory=str(_ASSETS_DIR)), name="frontend-assets")
+
 
 @app.get("/", tags=["Root"])
-async def root():
+async def root(request: Request):
+    accept = request.headers.get("accept", "")
+    if settings.ENVIRONMENT != "testing" and "text/html" in accept and _FRONTEND_DIST.exists() and (_FRONTEND_DIST / "index.html").exists():
+        return FileResponse(str(_FRONTEND_DIST / "index.html"))
     return {
         "name": settings.PROJECT_NAME,
         "version": settings.VERSION,
@@ -275,6 +285,18 @@ async def root_health():
             "latency_ms": latency_ms,
         },
     }
+
+
+# Production Single Page Application (SPA) Client-Side Route Fallback
+if _FRONTEND_DIST.exists() and (_FRONTEND_DIST / "index.html").exists():
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa_frontend(full_path: str):
+        if full_path.startswith(("api", "outputs", "uploads", "processed", "health", "docs", "redoc", "openapi.json")):
+            raise HTTPException(status_code=404, detail="Endpoint not found")
+        target_file = _FRONTEND_DIST / full_path
+        if target_file.is_file():
+            return FileResponse(str(target_file))
+        return FileResponse(str(_FRONTEND_DIST / "index.html"))
 
 
 if __name__ == "__main__":

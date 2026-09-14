@@ -22,6 +22,9 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
+  // Live attendance uses a broader container to prioritize the camera + roster split
+  const isLiveView = activeTab === 'live';
+
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans">
       {/* Sidebar (Desktop persistent + Mobile overlay drawer) */}
@@ -45,7 +48,13 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
           offlineCameraCount={offlineCameraCount}
           onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
         />
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 max-w-7xl w-full mx-auto">
+        <main
+          className={`flex-1 overflow-y-auto w-full mx-auto ${
+            isLiveView
+              ? 'p-4 sm:p-6 max-w-[1720px]'
+              : 'p-4 sm:p-6 md:p-8 max-w-7xl'
+          }`}
+        >
           {children}
         </main>
       </div>

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# JOJIPA-SAMS — Smart Attendance Management System
+# AttedDEL — Smart Attendance Management System
 # Service Health & Telemetry Status Script
 # ==============================================================================
 set -euo pipefail
@@ -13,7 +13,7 @@ BACKEND_PID_FILE="${RUN_DIR}/backend.pid"
 FRONTEND_PID_FILE="${RUN_DIR}/frontend.pid"
 
 echo "============================================================"
-echo "           JOJIPA-SAMS — System Service Status              "
+echo "            AttedDEL — System Service Status                "
 echo "============================================================"
 echo ""
 

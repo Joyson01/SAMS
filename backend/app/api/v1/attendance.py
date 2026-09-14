@@ -11,6 +11,7 @@ from backend.app.schemas.attendance import (
     BatchAttendanceMarkPayload,
     SessionCreate,
     SessionResponse,
+    SessionRosterResponse,
     SessionUpdate,
     StudentAttendanceSummary,
 )
@@ -201,6 +202,19 @@ async def get_session_presence(
 
 
 @router.get(
+    "/sessions/{session_id}/roster",
+    response_model=SessionRosterResponse,
+    summary="Get Complete Live Class Roster for Session",
+    description="Returns the complete enrolled class roster merged with real-time attendance and camera presence tracking states.",
+)
+async def get_session_roster(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> SessionRosterResponse:
+    return await AttendanceService.get_session_roster(db, session_id)
+
+
+@router.get(
     "/students/{student_id}",
     response_model=StudentAttendanceSummary,
     summary="Get Student Attendance History",
@@ -267,6 +281,12 @@ async def recognize_frame_or_image_attendance(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Attendance session '{target_session_id}' not found.",
+        )
+
+    if sess_obj.status in ["COMPLETED", "CANCELLED"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Attendance session '{target_session_id}' has already been {sess_obj.status} and is locked against further recognition.",
         )
 
     # 2. Acquire Image Buffer from Upload, frame_url, or Camera
