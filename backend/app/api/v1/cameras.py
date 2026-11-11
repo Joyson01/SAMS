@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 import cv2
 from fastapi import (
+from backend.app.core.security import get_current_user
     APIRouter,
     Body,
     Depends,
@@ -46,7 +47,7 @@ router = APIRouter(prefix="/cameras", tags=["Camera Management"])
     status_code=status.HTTP_201_CREATED,
     summary="Register Camera",
     description="Registers a new camera device (Hardware Webcam, Mobile, CCTV / RTSP, or Video File).",
-)
+, dependencies=[Depends(get_current_user)])
 async def create_camera(
     camera_in: CameraCreate,
     db: AsyncSession = Depends(get_db),
@@ -59,7 +60,7 @@ async def create_camera(
     response_model=List[CameraResponse],
     summary="List Cameras",
     description="Lists all registered cameras with filtering by location, active status, or assigned class.",
-)
+, dependencies=[Depends(get_current_user)])
 async def list_cameras(
     location: Optional[str] = Query(None, description="Filter by location/room"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
@@ -74,7 +75,7 @@ async def list_cameras(
     response_model=ONVIFDiscoveryResponse,
     summary="Discover ONVIF IP Cameras",
     description="Probes the local area network subnet for discoverable ONVIF IP cameras using WS-Discovery.",
-)
+, dependencies=[Depends(get_current_user)])
 async def discover_onvif(
     timeout: float = Query(1.5, ge=0.5, le=5.0, description="Probe timeout in seconds"),
 ) -> ONVIFDiscoveryResponse:
@@ -86,13 +87,13 @@ async def discover_onvif(
     response_model=MobilePairingResponse,
     summary="Generate Mobile Camera Pairing Token (POST)",
     description="Generates or renews a QR pairing session for smartphone video streaming.",
-)
+, dependencies=[Depends(get_current_user)])
 @router.get(
     "/mobile-pairing",
     response_model=MobilePairingResponse,
     summary="Generate Mobile Camera Pairing Token (GET)",
     description="Generates or renews a QR pairing session for smartphone video streaming.",
-)
+, dependencies=[Depends(get_current_user)])
 async def create_mobile_pairing(
     camera_id: Optional[str] = Query(None, description="Existing camera ID to renew pairing for"),
     camera_name: str = Query("Mobile Phone Camera", description="Display name for newly created mobile camera"),
@@ -141,7 +142,7 @@ async def get_pairing_session(
     "/{camera_id}",
     response_model=CameraResponse,
     summary="Get Camera Details",
-)
+, dependencies=[Depends(get_current_user)])
 async def get_camera(
     camera_id: str,
     db: AsyncSession = Depends(get_db),
@@ -153,7 +154,7 @@ async def get_camera(
     "/{camera_id}",
     response_model=CameraResponse,
     summary="Update Camera",
-)
+, dependencies=[Depends(get_current_user)])
 async def update_camera(
     camera_id: str,
     update_in: CameraUpdate,
@@ -166,7 +167,7 @@ async def update_camera(
     "/{camera_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete Camera",
-)
+, dependencies=[Depends(get_current_user)])
 async def delete_camera(
     camera_id: str,
     db: AsyncSession = Depends(get_db),
@@ -180,13 +181,13 @@ async def delete_camera(
     response_model=CameraTestResult,
     summary="Test Registered Camera Feed (GET)",
     description="Runs a real diagnostic test on a registered camera by its ID.",
-)
+, dependencies=[Depends(get_current_user)])
 @router.post(
     "/{camera_id}/test",
     response_model=CameraTestResult,
     summary="Test Registered Camera Feed (POST)",
     description="Runs a real diagnostic test on a registered camera by its ID.",
-)
+, dependencies=[Depends(get_current_user)])
 async def test_registered_camera(
     camera_id: str,
     db: AsyncSession = Depends(get_db),
@@ -207,7 +208,7 @@ class CameraTestInput(BaseModel):
     response_model=CameraTestResult,
     summary="Test Camera Connectivity",
     description="Performs an immediate real camera handshake test and returns measured latency, FPS, resolution, and detector validation.",
-)
+, dependencies=[Depends(get_current_user)])
 async def test_connection(
     payload: Optional[CameraTestInput] = Body(default=None),
 ) -> CameraTestResult:
@@ -220,7 +221,7 @@ async def test_connection(
     "/{camera_id}/start",
     summary="Start Camera Worker",
     description="Starts the background RTSP capture worker for continuous frame ingestion.",
-)
+, dependencies=[Depends(get_current_user)])
 async def start_camera_worker(
     camera_id: str,
     db: AsyncSession = Depends(get_db),
@@ -236,7 +237,7 @@ async def start_camera_worker(
     "/{camera_id}/stop",
     summary="Stop Camera Worker",
     description="Stops background RTSP capture worker.",
-)
+, dependencies=[Depends(get_current_user)])
 async def stop_camera_worker(camera_id: str):
     CameraService.stop_camera_worker(camera_id)
     return {"status": "stopped", "camera_id": camera_id}
@@ -246,12 +247,12 @@ async def stop_camera_worker(camera_id: str):
     "/{camera_id}/frame",
     summary="Get Camera Latest Frame",
     description="Returns the latest decoded image frame as a JPEG image for browser preview.",
-)
+, dependencies=[Depends(get_current_user)])
 @router.get(
     "/{camera_id}/preview",
     summary="Get Camera Latest Frame Snapshot",
     description="Returns the latest decoded image frame as a JPEG buffer for web preview.",
-)
+, dependencies=[Depends(get_current_user)])
 async def get_camera_frame(
     camera_id: str,
     db: AsyncSession = Depends(get_db),
@@ -278,7 +279,7 @@ async def get_camera_frame(
     "/{camera_id}/capture",
     summary="Capture Frame From Camera",
     description="Captures the latest high-resolution frame from the camera stream, saves it to outputs/, and returns the image URL.",
-)
+, dependencies=[Depends(get_current_user)])
 async def capture_camera_frame_endpoint(
     camera_id: str,
     db: AsyncSession = Depends(get_db),
@@ -321,7 +322,7 @@ async def capture_camera_frame_endpoint(
     "/{camera_id}/mjpeg",
     summary="Get Live MJPEG Video Stream",
     description="Streams real-time multipart/x-mixed-replace JPEG frames for live browser CCTV/RTSP viewing.",
-)
+, dependencies=[Depends(get_current_user)])
 async def get_camera_mjpeg_stream(
     camera_id: str,
     db: AsyncSession = Depends(get_db),
