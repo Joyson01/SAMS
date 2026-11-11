@@ -1,6 +1,30 @@
 # AttedDEL
 
-### Smart Attendance Management System
+### Authentication & Session Security
+
+The API uses signed JWT bearer access tokens and server-side revocable refresh sessions.
+
+- `POST /api/v1/auth/login` accepts `username_or_email` and `password`, then returns an access token, refresh token, expiry duration, and user profile.
+- Send the access token on protected API calls as `Authorization: Bearer <access_token>`.
+- `POST /api/v1/auth/refresh` accepts `{"refresh_token":"..." }`. It revokes the old session and returns a new access/refresh token pair.
+- `POST /api/v1/auth/logout` revokes the current session. The access token becomes invalid immediately.
+- `GET /api/v1/auth/me` returns the authenticated user profile.
+- Public registration is restricted to the `STUDENT` role. Only an authenticated `ADMIN` can create accounts with elevated roles.
+- Student, academic, recognition, attendance, reporting, dashboard, sync, and audit APIs require authentication. Audit logs require the `ADMIN` role. Health and temporary camera-pairing endpoints remain available for their intended unauthenticated workflows.
+
+### Required deployment configuration
+
+Set a unique random `SECRET_KEY` of at least 32 characters in the backend environment. Never commit production secrets. For example:
+
+```bash
+openssl rand -hex 32
+```
+
+Configure `SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_MINUTES` (default 480), and `REFRESH_TOKEN_EXPIRE_DAYS` (default 7) in the deployment environment. Production startup rejects the built-in development secret. The `auth_sessions` table is created with the normal SQLAlchemy schema initialization; deployments using managed migrations should add that table through their migration process.
+
+The frontend exports `login`, `getCurrentUser`, and `logout` from `src/services/authApi.ts`. Its Axios client attaches the access token, rotates an expired token once through the refresh endpoint, and stores tokens in tab-scoped `sessionStorage`. This is a client-side convenience, not an XSS defense: deploy with HTTPS, apply a strict Content Security Policy, and avoid rendering untrusted HTML.
+
+## Smart Attendance Management System
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg)](https://fastapi.tiangolo.com/)
