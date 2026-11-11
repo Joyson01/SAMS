@@ -18,7 +18,7 @@ from backend.app.schemas.attendance import (
 )
 from backend.app.services.attendance_service import AttendanceService
 
-router = APIRouter(prefix="/attendance", tags=["Attendance Management"])
+router = APIRouter(prefix="/attendance", tags=["Attendance Management"], dependencies=[Depends(get_current_user)])
 
 
 @router.post(
