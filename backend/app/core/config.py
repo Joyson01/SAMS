@@ -1,5 +1,5 @@
-import os
 from typing import Any, List
+from pydantic import ValidationInfo
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -39,10 +39,10 @@ class Settings(BaseSettings):
 
     @field_validator("SECRET_KEY")
     @classmethod
-    def validate_secret_key(cls, value: str) -> str:
+    def validate_secret_key(cls, value: str, info: ValidationInfo) -> str:
         if len(value) < 32:
             raise ValueError("SECRET_KEY must contain at least 32 characters.")
-        if value == "development-only-change-me-before-deploying" and os.getenv("ENVIRONMENT", "development").lower() in {"production", "prod"}:
+        if value == "development-only-change-me-before-deploying" and str(info.data.get("ENVIRONMENT", "development")).lower() in {"production", "prod"}:
             raise ValueError("Set a unique SECRET_KEY before running in production.")
         return value
 
