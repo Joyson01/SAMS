@@ -9,8 +9,8 @@ The API uses signed JWT bearer access tokens and server-side revocable refresh s
 - `POST /api/v1/auth/refresh` accepts `{"refresh_token":"..." }`. It revokes the old session and returns a new access/refresh token pair.
 - `POST /api/v1/auth/logout` revokes the current session. The access token becomes invalid immediately.
 - `GET /api/v1/auth/me` returns the authenticated user profile.
-- Public registration is restricted to the `STUDENT` role. Only an authenticated `ADMIN` can create accounts with elevated roles.
-- Student, academic, recognition, attendance, reporting, dashboard, sync, and audit APIs require authentication. Audit logs require the `ADMIN` role. Health and temporary camera-pairing endpoints remain available for their intended unauthenticated workflows.
+- Public registration is restricted to the `STUDENT` role. Only an authenticated `ADMIN` can create accounts with elevated roles. For the first administrator, create and verify a bootstrap account, then promote it through a controlled database operation (for example, `UPDATE users SET role = 'ADMIN' WHERE username = '<verified-bootstrap-user>';`). Do not enable public administrator registration.
+- Student, academic, recognition, attendance, reporting, dashboard, sync, and audit APIs require authentication. Audit logs require the `ADMIN` role. Health checks and temporary camera-pairing validation/frame-ingestion handshakes remain available for their intended token-based unauthenticated workflows; camera administration, discovery, preview, and stream endpoints require a bearer token.
 
 ### Required deployment configuration
 
