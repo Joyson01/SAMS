@@ -1,5 +1,5 @@
 import React, { FormEvent, useState } from 'react';
-import { login } from '../services/authApi';
+import { login } from '../../services/authApi';
 
 interface AuthPageProps {
   onLogin: () => void;
