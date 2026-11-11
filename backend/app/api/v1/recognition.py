@@ -11,7 +11,7 @@ from backend.app.schemas.recognition import (
 )
 from backend.app.services.recognition_service import RecognitionService
 
-router = APIRouter(prefix="/recognition", tags=["Face Recognition"])
+router = APIRouter(prefix="/recognition", tags=["Face Recognition"], dependencies=[Depends(get_current_user)])
 
 
 @router.post(
