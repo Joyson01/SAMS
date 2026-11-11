@@ -1,6 +1,7 @@
 from datetime import date
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from backend.app.core.security import get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
