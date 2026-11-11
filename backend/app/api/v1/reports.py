@@ -8,7 +8,7 @@ from backend.app.database.session import get_db
 from backend.app.schemas.reports import InstitutionAnalyticsResponse
 from backend.app.services.report_service import ReportService
 
-router = APIRouter(prefix="/reports", tags=["Reporting & Analytics"])
+router = APIRouter(prefix="/reports", tags=["Reporting & Analytics"], dependencies=[Depends(get_current_user)])
 
 
 @router.get(
