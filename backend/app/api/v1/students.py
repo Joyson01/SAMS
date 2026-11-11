@@ -1,5 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
+from backend.app.core.security import get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
@@ -12,7 +13,7 @@ from backend.app.schemas.student import (
 )
 from backend.app.services.student_service import StudentService
 
-router = APIRouter(prefix="/students", tags=["Student Management"])
+router = APIRouter(prefix="/students", tags=["Student Management"], dependencies=[Depends(get_current_user)])
 
 
 @router.get(

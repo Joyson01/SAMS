@@ -1,6 +1,6 @@
-import os
-from typing import Any, List, Union
-from pydantic import AnyHttpUrl, field_validator
+from typing import Any, List
+from pydantic import ValidationInfo
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,10 +31,20 @@ class Settings(BaseSettings):
     DATABASE_FALLBACK_SQLITE: bool = True
     SQLITE_FALLBACK_URL: str = "sqlite+aiosqlite:///./data/sams_dev.db"
 
-    # Security & Tokens
-    SECRET_KEY: str = "sams-super-secret-jwt-key-for-development-change-in-production-2026"
+    # Security & Tokens. Set SECRET_KEY to a unique random value in every deployment.
+    SECRET_KEY: str = "development-only-change-me-before-deploying"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, value: str, info: ValidationInfo) -> str:
+        if len(value) < 32:
+            raise ValueError("SECRET_KEY must contain at least 32 characters.")
+        if value == "development-only-change-me-before-deploying" and str(info.data.get("ENVIRONMENT", "development")).lower() in {"production", "prod"}:
+            raise ValueError("Set a unique SECRET_KEY before running in production.")
+        return value
 
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = [
@@ -47,7 +57,7 @@ class Settings(BaseSettings):
 
     # Logging
     LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "text"  # 'text' or 'json'
+    LOG_FORMAT: str = "text"
 
     # Model Configuration
     MODEL_STORAGE_DIR: str = "./ai_engine/models"

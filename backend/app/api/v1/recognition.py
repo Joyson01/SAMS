@@ -1,5 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from backend.app.core.security import get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
@@ -10,7 +11,7 @@ from backend.app.schemas.recognition import (
 )
 from backend.app.services.recognition_service import RecognitionService
 
-router = APIRouter(prefix="/recognition", tags=["Face Recognition"])
+router = APIRouter(prefix="/recognition", tags=["Face Recognition"], dependencies=[Depends(get_current_user)])
 
 
 @router.post(

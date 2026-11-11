@@ -68,6 +68,19 @@ class User(Base):
     audit_logs = relationship("AuditLog", back_populates="user")
 
 
+
+class AuthSession(Base):
+    """Server-side refresh-session record; revocation invalidates refresh and access JWTs."""
+
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[str] = mapped_column(GUID, primary_key=True, default=generate_uuid)
+    user_id: Mapped[str] = mapped_column(GUID, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class Student(Base):
     __tablename__ = "students"
 
