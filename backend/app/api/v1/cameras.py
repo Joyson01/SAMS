@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 from typing import List, Optional
 import cv2
 from fastapi import (
-from backend.app.core.security import get_current_user
     APIRouter,
     Body,
     Depends,
@@ -17,6 +16,7 @@ from backend.app.core.security import get_current_user
     WebSocketDisconnect,
     status,
 )
+from backend.app.core.security import get_current_user
 from fastapi.responses import StreamingResponse
 import numpy as np
 from pydantic import BaseModel
