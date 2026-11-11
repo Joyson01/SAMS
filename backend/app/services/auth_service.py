@@ -3,6 +3,7 @@ import uuid
 from fastapi import HTTPException, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from backend.app.core.security import decode_access_token
 
 from backend.app.core.config import settings
 from backend.app.core.logging import logger
@@ -106,9 +107,7 @@ class AuthService:
         from backend.app.core.security import _resolve_user
 
         user = await _resolve_user(refresh_token, db, "refresh")
-        payload = __import__("jwt").decode(
-            refresh_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
-        )
+        payload = decode_access_token(refresh_token)
         old_session = await db.get(AuthSession, payload["sid"])
         if old_session is None:
             raise HTTPException(status_code=401, detail="Session not found.")
