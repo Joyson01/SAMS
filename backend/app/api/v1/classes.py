@@ -18,7 +18,7 @@ from backend.app.schemas.timetable import (
 )
 from backend.app.services.class_service import ClassService
 
-router = APIRouter(prefix="/classes", tags=["Classes & Sections"])
+router = APIRouter(prefix="/classes", tags=["Classes & Sections"], dependencies=[Depends(get_current_user)])
 
 
 @router.post(
