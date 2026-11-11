@@ -1,6 +1,7 @@
 from datetime import date
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, status
+from backend.app.core.security import get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.exceptions import SAMSException
