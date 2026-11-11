@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
+from backend.app.core.security import get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
