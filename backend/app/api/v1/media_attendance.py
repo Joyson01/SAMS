@@ -26,7 +26,7 @@ from backend.app.services.media_processing_service import (
     HIGH_CONFIDENCE,
 )
 
-router = APIRouter(prefix="/media-attendance", tags=["Media Attendance"])
+router = APIRouter(prefix="/media-attendance", tags=["Media Attendance"], dependencies=[Depends(get_current_user)])
 
 
 @router.get(
