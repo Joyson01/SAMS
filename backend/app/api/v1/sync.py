@@ -13,7 +13,7 @@ from backend.app.schemas.sync import (
 )
 from backend.app.services.sync_service import SyncService
 
-router = APIRouter(prefix="/sync", tags=["Offline Edge Synchronization"])
+router = APIRouter(prefix="/sync", tags=["Offline Edge Synchronization"], dependencies=[Depends(get_current_user)])
 
 
 @router.get(
