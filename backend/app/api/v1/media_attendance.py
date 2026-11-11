@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from backend.app.core.security import get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.logging import logger
