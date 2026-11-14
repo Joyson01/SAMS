@@ -1,7 +1,7 @@
 from datetime import date
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from backend.app.core.security import get_current_user
+from backend.app.core.security import require_roles
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
@@ -18,7 +18,7 @@ from backend.app.schemas.attendance import (
 )
 from backend.app.services.attendance_service import AttendanceService
 
-router = APIRouter(prefix="/attendance", tags=["Attendance Management"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/attendance", tags=["Attendance Management"], dependencies=[Depends(require_roles("ADMIN", "FACULTY", "OPERATOR"))])
 
 
 @router.post(

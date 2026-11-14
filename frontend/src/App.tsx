@@ -3,6 +3,7 @@ import { DashboardLayout } from './layouts/DashboardLayout';
 import { DashboardOverview } from './pages/DashboardOverview';
 import { StudentListPage } from './features/students/StudentListPage';
 import { FaceEnrollmentPage } from './features/enrollment/FaceEnrollmentPage';
+import { PairedAttendancePage, PhoneAttendancePage } from './features/attendance/PhoneAttendancePage';
 import { AttendancePage } from './features/attendance/AttendancePage';
 import { LiveDashboardPage } from './features/live/LiveDashboardPage';
 import { MediaAttendancePage } from './features/media/MediaAttendancePage';
@@ -26,6 +27,8 @@ import { getCurrentUser, logout } from './services/authApi';
 
 export const App: React.FC = () => {
   const pathname = window.location.pathname;
+
+  if (pathname === '/attendance-capture') return <PairedAttendancePage />;
 
   // Standalone Mobile & Diagnostic Routes
   if (pathname.startsWith('/mobile-camera')) {
@@ -127,9 +130,14 @@ export const App: React.FC = () => {
     }
   };
 
+  if (pathname === '/phone-attendance') {
+    return <PhoneAttendancePage onLogout={handleLogout} />;
+  }
+
   return (
     <ErrorBoundary fallbackTitle="Application Error" fallbackMessage="An error occurred in the workspace layout.">
-      <div className="fixed right-4 top-4 z-50">
+      <div className="fixed right-4 top-4 z-50 flex gap-2">
+        <a href="/phone-attendance" className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white">Take attendance</a>
         <button type="button" onClick={handleLogout} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow hover:bg-slate-50">
           Sign out
         </button>

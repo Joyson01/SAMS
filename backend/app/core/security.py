@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 import bcrypt
 import jwt
-from fastapi import Depends, HTTPException, Security, status
+from fastapi import Depends, HTTPException, Security, WebSocket, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -128,3 +128,13 @@ def require_roles(*allowed_roles: str):
             )
         return current_user
     return role_checker
+
+
+async def authenticate_staff_socket(websocket: WebSocket, db: AsyncSession) -> None:
+    """Require a staff bearer token without placing it in the WebSocket URL."""
+    protocols = websocket.scope.get("subprotocols", [])
+    if len(protocols) != 2 or protocols[0] != "sams-auth":
+        raise _unauthorized("Staff authentication required.")
+    user = await _resolve_user(protocols[1], db)
+    if user.role not in {"ADMIN", "FACULTY", "OPERATOR"}:
+        raise HTTPException(403, "A staff account is required.")

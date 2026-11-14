@@ -30,7 +30,7 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   }
 
   const accessToken = getAccessToken();
-  if (accessToken) {
+  if (accessToken && !config.headers.has('X-Attendance-Pairing')) {
     config.headers.Authorization = `Bearer ${accessToken}`;
   }
   return config;
@@ -43,6 +43,7 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     const original = error.config as (InternalAxiosRequestConfig & { _authRetry?: boolean }) | undefined;
     if (error.response?.status !== 401 || !original || original._authRetry ||
+        original.headers.has('X-Attendance-Pairing') ||
         original.url?.includes('/auth/login') || original.url?.includes('/auth/refresh') ||
         original.url?.includes('/auth/logout')) {
       return Promise.reject(error);

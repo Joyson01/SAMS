@@ -1,7 +1,7 @@
 from datetime import date, datetime, time, timedelta, timezone
 import os
 from typing import Any, Dict, List, Optional, Tuple
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -291,9 +291,13 @@ class AttendanceService:
     @classmethod
     async def start_session(cls, db: AsyncSession, session_id: str) -> SessionResponse:
         """Starts an attendance session, setting its status to ACTIVE."""
+        await cls.lock_session(db, session_id)
         session = await db.get(AttendanceSession, session_id)
         if not session:
             raise SessionNotFoundError(session_id)
+
+        if session.status in {"COMPLETED", "CANCELLED"}:
+            raise SessionNotActiveError(session_id, session.status)
 
         session.status = "ACTIVE"
         await db.commit()
@@ -301,9 +305,20 @@ class AttendanceService:
         logger.info(f"Started attendance session: {session.session_code}")
         return await cls.get_session_by_id(db, session_id)
 
+    @staticmethod
+    async def lock_session(db: AsyncSession, session_id: str) -> None:
+        # A write lock also works on SQLite, where SELECT FOR UPDATE is ignored.
+        await db.execute(
+            update(AttendanceSession)
+            .where(AttendanceSession.id == session_id)
+            .values(status=AttendanceSession.status, updated_at=AttendanceSession.updated_at)
+            .execution_options(synchronize_session=False)
+        )
+
     @classmethod
     async def close_session(cls, db: AsyncSession, session_id: str, auto_mark_absent: bool = True) -> SessionResponse:
         """Closes an attendance session (COMPLETED) and auto-marks remaining class students as ABSENT."""
+        await cls.lock_session(db, session_id)
         session = await db.get(AttendanceSession, session_id)
         if not session:
             raise SessionNotFoundError(session_id)
@@ -539,6 +554,7 @@ class AttendanceService:
         user_id: Optional[str] = None,
     ) -> AttendanceRecordResponse:
         """Directly marks manual attendance for a student (e.g. excused absence or manual roll-call)."""
+        await cls.lock_session(db, session_id)
         session = await db.get(AttendanceSession, session_id)
         if not session:
             raise SessionNotFoundError(session_id)

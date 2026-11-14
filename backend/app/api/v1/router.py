@@ -8,6 +8,7 @@ from backend.app.api.v1 import (
     dashboard,
     health,
     media_attendance,
+    phone_attendance,
     recognition,
     reports,
     stream,
@@ -27,6 +28,7 @@ api_router.include_router(subjects.router)
 api_router.include_router(classes.router)
 api_router.include_router(recognition.router)
 api_router.include_router(attendance.router)
+api_router.include_router(phone_attendance.router)
 api_router.include_router(media_attendance.router)
 api_router.include_router(reports.router)
 api_router.include_router(cameras.router)

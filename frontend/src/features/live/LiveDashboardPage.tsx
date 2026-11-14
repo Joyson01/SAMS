@@ -1,3 +1,4 @@
+import { getAccessToken } from '../../services/api';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Play,
@@ -554,7 +555,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
         const wsUrl = `${protocol}//${host}/api/v1/cameras/${selectedCamera.id}/laptop-stream`;
 
         try {
-          const ws = new WebSocket(wsUrl);
+          const ws = new WebSocket(wsUrl, ['sams-auth', getAccessToken() || 'missing']);
           ws.binaryType = 'blob';
 
           ws.onmessage = (event) => {

@@ -99,7 +99,6 @@ class FaceRecognitionService:
     def __new__(cls) -> "FaceRecognitionService":
         if cls._instance is None:
             cls._instance = super(FaceRecognitionService, cls).__new__(cls)
-            cls._instance._initialize_engine()
         return cls._instance
 
     def _initialize_engine(self) -> None:
@@ -246,6 +245,7 @@ class FaceRecognitionService:
         min_detection_confidence: float = 0.50,
         eligible_student_ids: Optional[List[str]] = None,
         return_embedding: bool = False,
+        roster_gallery: Optional[Dict[str, np.ndarray]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Detects faces in a single OpenCV BGR frame using canonical pipeline and matches against enrolled students.
@@ -254,10 +254,10 @@ class FaceRecognitionService:
         if frame is None or frame.size == 0:
             return []
 
-        global_embeddings = self.load_embeddings()
+        global_embeddings = self.load_embeddings() if roster_gallery is None else {}
         
-        roster_embeddings = global_embeddings
-        if eligible_student_ids is not None:
+        roster_embeddings = global_embeddings if roster_gallery is None else roster_gallery
+        if roster_gallery is None and eligible_student_ids is not None:
             roster_embeddings = {
                 s_id: emb for s_id, emb in global_embeddings.items()
                 if s_id in eligible_student_ids
@@ -302,7 +302,7 @@ class FaceRecognitionService:
                     threshold=threshold,
                 )
                 
-                if best_student_id is None and eligible_student_ids is not None:
+                if best_student_id is None and roster_gallery is None and eligible_student_ids is not None:
                     # Fallback to global
                     best_student_id, similarity = self.compare_embedding(
                         query_embedding=face_emb,
@@ -444,6 +444,7 @@ def recognize_frame(
     min_face_size: int = 60,
     min_detection_confidence: float = 0.50,
     eligible_student_ids: Optional[List[str]] = None,
+    roster_gallery: Optional[Dict[str, np.ndarray]] = None,
 ) -> List[Dict[str, Any]]:
     return face_recognition_service.recognize_frame(
         frame=frame,
@@ -451,6 +452,7 @@ def recognize_frame(
         min_face_size=min_face_size,
         min_detection_confidence=min_detection_confidence,
         eligible_student_ids=eligible_student_ids,
+        roster_gallery=roster_gallery,
     )
 
 

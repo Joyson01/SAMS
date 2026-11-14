@@ -5,6 +5,7 @@ import time
 import urllib.request
 from typing import List, Optional, Tuple, Union
 import cv2
+import numpy as np
 import socket
 from urllib.parse import urlparse
 

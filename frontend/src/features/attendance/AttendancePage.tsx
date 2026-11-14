@@ -11,7 +11,6 @@ import {
   MoreVertical,
   Upload,
   CheckCircle2,
-  Eye,
 } from 'lucide-react';
 import {
   fetchSessions,
@@ -575,14 +574,10 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1.5">
                       {isLive ? (
-                        <Button
-                          onClick={() => onNavigate && onNavigate('live')}
-                          variant="primary"
-                          size="sm"
-                          icon={<Eye className="w-3.5 h-3.5" />}
-                        >
-                          Open Live
-                        </Button>
+                        <a className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white"
+                          href={`/phone-attendance?session=${encodeURIComponent(sess.id)}`}>
+                          Open attendance
+                        </a>
                       ) : isScheduled ? (
                         <Button
                           onClick={() => handleStart(sess.id)}

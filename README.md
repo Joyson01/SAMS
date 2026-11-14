@@ -24,6 +24,10 @@ Configure `SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_MINUTES` (default 480), and `REFRES
 
 The frontend exports `login`, `getCurrentUser`, and `logout` from `src/services/authApi.ts`. Its Axios client attaches the access token, rotates an expired token once through the refresh endpoint, and stores tokens in tab-scoped `sessionStorage`. This is a client-side convenience, not an XSS defense: deploy with HTTPS, apply a strict Content Security Policy, and avoid rendering untrusted HTML.
 
+## Phone attendance pilot
+
+Open **Take attendance** to take a class photo or scan live from a phone. Use **Pair phone** to capture on the phone and review on the laptop. See the [phone attendance pilot guide](docs/PHONE_ATTENDANCE.md) for setup and testing.
+
 ## Smart Attendance Management System
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)

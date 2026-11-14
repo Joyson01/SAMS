@@ -12,6 +12,8 @@ export const fetchSessions = async (filters?: {
   subject_id?: string;
   status?: string;
   scheduled_date?: string;
+  page?: number;
+  page_size?: number;
 }): Promise<AttendanceSession[]> => {
   const response = await apiClient.get<AttendanceSession[]>('/attendance/sessions', {
     params: filters,

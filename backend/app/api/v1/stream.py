@@ -4,12 +4,13 @@ import time
 from typing import Dict, List, Optional
 import cv2
 import numpy as np
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_engine.base import DecisionState
 from ai_engine.pipeline.video_pipeline import VideoRecognitionPipeline
 from backend.app.core.logging import logger
+from backend.app.core.security import authenticate_staff_socket
 from backend.app.database.session import AsyncSessionLocal
 from backend.app.schemas.attendance import AttendanceMarkPayload
 from backend.app.services.attendance_service import AttendanceService
@@ -48,7 +49,13 @@ async def websocket_live_stream(
     session_id: str,
 ):
     """Real-time bi-directional WebSocket streaming camera frames and returning bounding boxes, telemetry, and automated attendance marking."""
-    await websocket.accept()
+    try:
+        async with AsyncSessionLocal() as db:
+            await authenticate_staff_socket(websocket, db)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
+    await websocket.accept(subprotocol="sams-auth")
     logger.info(f"WebSocket client connected to live stream for session '{session_id}'")
 
     pipeline = await get_or_create_video_pipeline(session_id)
