@@ -1,3 +1,4 @@
+import { PhotoAttendancePanel } from '../../components/PhotoAttendancePanel';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Calendar,
@@ -11,7 +12,6 @@ import {
   MoreVertical,
   Upload,
   CheckCircle2,
-  Eye,
 } from 'lucide-react';
 import {
   fetchSessions,
@@ -21,7 +21,6 @@ import {
   closeSession,
   fetchSessionRecords,
   overrideRecord,
-  recognizeImageAttendance,
 } from '../../services/attendanceApi';
 import { fetchSubjects, fetchClasses, fetchClassTimetable } from '../../services/subjectApi';
 import { fetchCameras } from '../../services/cameraApi';
@@ -133,8 +132,8 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
   const [creatingSession, setCreatingSession] = useState<boolean>(false);
 
   // Multi-Photo Upload State
-  const [uploadingPhotos, setUploadingPhotos] = useState<boolean>(false);
-  const [uploadProgress, setUploadProgress] = useState<string>('');
+  const [uploadingPhotos] = useState<boolean>(false);
+  const [uploadProgress] = useState<string>('');
 
   // Row Menu Popover
   const [activeMenuSessionId, setActiveMenuSessionId] = useState<string | null>(null);
@@ -331,26 +330,9 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
 
   // Photo Upload Handler
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0 || !selectedSessionId) return;
-    const files = Array.from(e.target.files);
-
-    setUploadingPhotos(true);
-    let successCount = 0;
-    try {
-      for (let i = 0; i < files.length; i++) {
-        setUploadProgress(`Processing photo ${i + 1} of ${files.length}...`);
-        await recognizeImageAttendance(selectedSessionId, files[i]);
-        successCount++;
-      }
-      alert(`Successfully processed ${successCount} classroom photo(s). Roster updated.`);
-      await loadSessionDetails(selectedSessionId);
-    } catch (err: any) {
-      alert(formatApiErrorMessage(err, 'Error processing one or more photos.'));
-    } finally {
-      setUploadingPhotos(false);
-      setUploadProgress('');
-      if (e.target) e.target.value = '';
-    }
+    if (!selectedSessionId || !e.target.files) return;
+    window.dispatchEvent(new CustomEvent('photo-review-files', {detail: {sessionId:selectedSessionId,files:Array.from(e.target.files)}}));
+    e.target.value = '';
   };
 
   // Manual Override Record Submit
@@ -575,14 +557,10 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1.5">
                       {isLive ? (
-                        <Button
-                          onClick={() => onNavigate && onNavigate('live')}
-                          variant="primary"
-                          size="sm"
-                          icon={<Eye className="w-3.5 h-3.5" />}
-                        >
-                          Open Live
-                        </Button>
+                        <a className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white"
+                          href={`/phone-attendance?session=${encodeURIComponent(sess.id)}`}>
+                          Open attendance
+                        </a>
                       ) : isScheduled ? (
                         <Button
                           onClick={() => handleStart(sess.id)}
@@ -705,6 +683,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
       >
         {selectedSession && (
           <div className="space-y-5">
+            <PhotoAttendancePanel key={selectedSessionId} sessionId={selectedSessionId || ""} active={selectedSession.id === selectedSessionId && selectedSession.status === 'ACTIVE'} onConfirmed={() => loadSessionDetails(selectedSession.id)} />
             {/* KPI Summary Strip */}
             <div className="grid grid-cols-4 gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200 text-center text-xs">
               <div>

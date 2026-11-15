@@ -3,9 +3,16 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_reports_api_endpoints(client):
-    # 1. Query Analytics endpoint
+async def test_reports_api_unauthorized(client):
+    """Verifies that unauthenticated access to reports endpoints is rejected."""
     resp = await client.get("/api/v1/reports/analytics")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_reports_api_endpoints(staff_client):
+    # 1. Query Analytics endpoint
+    resp = await staff_client.get("/api/v1/reports/analytics")
     assert resp.status_code == 200
     data = resp.json()
     assert "overall_attendance_rate_pct" in data
@@ -15,7 +22,7 @@ async def test_reports_api_endpoints(client):
     assert "daily_trends" in data
 
     # 2. Query CSV Export endpoint
-    csv_resp = await client.get("/api/v1/reports/export/csv")
+    csv_resp = await staff_client.get("/api/v1/reports/export/csv")
     assert csv_resp.status_code == 200
     assert "text/csv" in csv_resp.headers["content-type"]
     assert "attachment; filename=" in csv_resp.headers["content-disposition"]

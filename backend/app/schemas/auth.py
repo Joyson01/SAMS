@@ -1,27 +1,31 @@
 from datetime import datetime
-from typing import Optional
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class UserRegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=64)
     email: EmailStr
-    password: str = Field(..., min_length=6, max_length=128)
+    password: str = Field(..., min_length=8, max_length=128)
     full_name: str = Field(..., min_length=2, max_length=128)
-    role: str = Field("FACULTY", description="ADMIN, FACULTY, OPERATOR, STUDENT")
+    role: str = Field("STUDENT", description="Requested role; elevated roles require an administrator.")
 
     @field_validator("role")
     @classmethod
-    def validate_role(cls, v: str) -> str:
+    def validate_role(cls, value: str) -> str:
         valid = {"ADMIN", "FACULTY", "OPERATOR", "STUDENT"}
-        if v.upper() not in valid:
-            raise ValueError(f"Invalid role '{v}'. Allowed: {sorted(valid)}")
-        return v.upper()
+        normalized = value.upper()
+        if normalized not in valid:
+            raise ValueError(f"Invalid role. Allowed: {sorted(valid)}")
+        return normalized
 
 
 class UserLoginRequest(BaseModel):
-    username_or_email: str = Field(...)
-    password: str = Field(...)
+    username_or_email: str
+    password: str
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=1)
 
 
 class UserResponse(BaseModel):
@@ -38,7 +42,7 @@ class UserResponse(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
     expires_in_seconds: int
     user: UserResponse
-

@@ -1,6 +1,7 @@
 from datetime import date
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, status
+from backend.app.core.security import get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.exceptions import SAMSException
@@ -17,7 +18,7 @@ from backend.app.schemas.timetable import (
 )
 from backend.app.services.class_service import ClassService
 
-router = APIRouter(prefix="/classes", tags=["Classes & Sections"])
+router = APIRouter(prefix="/classes", tags=["Classes & Sections"], dependencies=[Depends(get_current_user)])
 
 
 @router.post(

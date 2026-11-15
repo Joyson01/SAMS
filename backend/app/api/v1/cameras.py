@@ -16,15 +16,15 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
+from backend.app.core.security import authenticate_staff_socket, get_current_user
 from fastapi.responses import StreamingResponse
 import numpy as np
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.database.session import get_db
+from backend.app.database.session import AsyncSessionLocal, get_db
 from backend.app.models.entities import Camera
-from backend.app.schemas.attendance import AttendanceMarkPayload
 from backend.app.schemas.camera import (
     CameraCreate,
     CameraResponse,
@@ -33,9 +33,7 @@ from backend.app.schemas.camera import (
     MobilePairingResponse,
     ONVIFDiscoveryResponse,
 )
-from backend.app.services.attendance_service import AttendanceService
 from backend.app.services.camera_service import CameraNotFoundError, CameraService
-from backend.app.services.recognition_service import RecognitionService, get_pipeline
 
 router = APIRouter(prefix="/cameras", tags=["Camera Management"])
 
@@ -46,6 +44,7 @@ router = APIRouter(prefix="/cameras", tags=["Camera Management"])
     status_code=status.HTTP_201_CREATED,
     summary="Register Camera",
     description="Registers a new camera device (Hardware Webcam, Mobile, CCTV / RTSP, or Video File).",
+    dependencies=[Depends(get_current_user)],
 )
 async def create_camera(
     camera_in: CameraCreate,
@@ -59,6 +58,7 @@ async def create_camera(
     response_model=List[CameraResponse],
     summary="List Cameras",
     description="Lists all registered cameras with filtering by location, active status, or assigned class.",
+    dependencies=[Depends(get_current_user)],
 )
 async def list_cameras(
     location: Optional[str] = Query(None, description="Filter by location/room"),
@@ -74,6 +74,7 @@ async def list_cameras(
     response_model=ONVIFDiscoveryResponse,
     summary="Discover ONVIF IP Cameras",
     description="Probes the local area network subnet for discoverable ONVIF IP cameras using WS-Discovery.",
+    dependencies=[Depends(get_current_user)],
 )
 async def discover_onvif(
     timeout: float = Query(1.5, ge=0.5, le=5.0, description="Probe timeout in seconds"),
@@ -86,12 +87,14 @@ async def discover_onvif(
     response_model=MobilePairingResponse,
     summary="Generate Mobile Camera Pairing Token (POST)",
     description="Generates or renews a QR pairing session for smartphone video streaming.",
+    dependencies=[Depends(get_current_user)],
 )
 @router.get(
     "/mobile-pairing",
     response_model=MobilePairingResponse,
     summary="Generate Mobile Camera Pairing Token (GET)",
     description="Generates or renews a QR pairing session for smartphone video streaming.",
+    dependencies=[Depends(get_current_user)],
 )
 async def create_mobile_pairing(
     camera_id: Optional[str] = Query(None, description="Existing camera ID to renew pairing for"),
@@ -141,6 +144,7 @@ async def get_pairing_session(
     "/{camera_id}",
     response_model=CameraResponse,
     summary="Get Camera Details",
+    dependencies=[Depends(get_current_user)],
 )
 async def get_camera(
     camera_id: str,
@@ -153,6 +157,7 @@ async def get_camera(
     "/{camera_id}",
     response_model=CameraResponse,
     summary="Update Camera",
+    dependencies=[Depends(get_current_user)],
 )
 async def update_camera(
     camera_id: str,
@@ -166,6 +171,7 @@ async def update_camera(
     "/{camera_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete Camera",
+    dependencies=[Depends(get_current_user)],
 )
 async def delete_camera(
     camera_id: str,
@@ -180,12 +186,14 @@ async def delete_camera(
     response_model=CameraTestResult,
     summary="Test Registered Camera Feed (GET)",
     description="Runs a real diagnostic test on a registered camera by its ID.",
+    dependencies=[Depends(get_current_user)],
 )
 @router.post(
     "/{camera_id}/test",
     response_model=CameraTestResult,
     summary="Test Registered Camera Feed (POST)",
     description="Runs a real diagnostic test on a registered camera by its ID.",
+    dependencies=[Depends(get_current_user)],
 )
 async def test_registered_camera(
     camera_id: str,
@@ -207,6 +215,7 @@ class CameraTestInput(BaseModel):
     response_model=CameraTestResult,
     summary="Test Camera Connectivity",
     description="Performs an immediate real camera handshake test and returns measured latency, FPS, resolution, and detector validation.",
+    dependencies=[Depends(get_current_user)],
 )
 async def test_connection(
     payload: Optional[CameraTestInput] = Body(default=None),
@@ -220,6 +229,7 @@ async def test_connection(
     "/{camera_id}/start",
     summary="Start Camera Worker",
     description="Starts the background RTSP capture worker for continuous frame ingestion.",
+    dependencies=[Depends(get_current_user)],
 )
 async def start_camera_worker(
     camera_id: str,
@@ -236,6 +246,7 @@ async def start_camera_worker(
     "/{camera_id}/stop",
     summary="Stop Camera Worker",
     description="Stops background RTSP capture worker.",
+    dependencies=[Depends(get_current_user)],
 )
 async def stop_camera_worker(camera_id: str):
     CameraService.stop_camera_worker(camera_id)
@@ -246,11 +257,13 @@ async def stop_camera_worker(camera_id: str):
     "/{camera_id}/frame",
     summary="Get Camera Latest Frame",
     description="Returns the latest decoded image frame as a JPEG image for browser preview.",
+    dependencies=[Depends(get_current_user)],
 )
 @router.get(
     "/{camera_id}/preview",
     summary="Get Camera Latest Frame Snapshot",
     description="Returns the latest decoded image frame as a JPEG buffer for web preview.",
+    dependencies=[Depends(get_current_user)],
 )
 async def get_camera_frame(
     camera_id: str,
@@ -278,6 +291,7 @@ async def get_camera_frame(
     "/{camera_id}/capture",
     summary="Capture Frame From Camera",
     description="Captures the latest high-resolution frame from the camera stream, saves it to outputs/, and returns the image URL.",
+    dependencies=[Depends(get_current_user)],
 )
 async def capture_camera_frame_endpoint(
     camera_id: str,
@@ -321,6 +335,7 @@ async def capture_camera_frame_endpoint(
     "/{camera_id}/mjpeg",
     summary="Get Live MJPEG Video Stream",
     description="Streams real-time multipart/x-mixed-replace JPEG frames for live browser CCTV/RTSP viewing.",
+    dependencies=[Depends(get_current_user)],
 )
 async def get_camera_mjpeg_stream(
     camera_id: str,
@@ -364,96 +379,22 @@ async def mobile_camera_websocket_uplink(
 ):
     """Real-time binary frame ingestion transport over WebSocket from phone browser."""
     await websocket.accept()
-    from backend.app.database.session import AsyncSessionLocal
-    from backend.app.services.recognition_service import RecognitionService, _get_or_create_stream_state
     import json
 
     # Validate pairing and set camera streaming
     async with AsyncSessionLocal() as db:
-        if token:
-            valid = await CameraService.validate_pairing_session(db, token)
-            if not valid:
-                await websocket.send_text(json.dumps({"type": "error", "message": "Invalid or expired token"}))
-                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-                return
-        camera = await db.get(Camera, camera_id)
-        if camera:
-            camera.status = "STREAMING"
-            await db.commit()
+        valid = await CameraService.validate_pairing_session(db, token) if token else None
+        if not valid or valid[0].id != camera_id or session_id:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "Use a valid camera pairing link. For attendance, pair from the open session.",
+            }))
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+        valid[0].status = "STREAMING"
+        await db.commit()
 
-    # Create tracked stream state for this connection (enables identity cache + temporal verification)
-    stream_state = _get_or_create_stream_state(session_id, camera_id)
-
-    # Long-lived DB session for heartbeat & ingestion (B6+C3 fix)
     db_session = AsyncSessionLocal()
-    frame_queue: asyncio.Queue = asyncio.Queue(maxsize=1)
-    is_running = True
-    worker_task: Optional[asyncio.Task] = None
-
-    async def _recognition_worker():
-        while is_running:
-            try:
-                img = await frame_queue.get()
-            except asyncio.CancelledError:
-                break
-
-            try:
-                pipeline = get_pipeline()
-                if pipeline.matcher.total_templates == 0:
-                    async with AsyncSessionLocal() as sync_db:
-                        await RecognitionService.sync_gallery_from_db(sync_db)
-
-                # Use process_tracked_frame with identity cache — ~10x fewer ArcFace calls
-                results, _ = await asyncio.to_thread(
-                    pipeline.process_tracked_frame,
-                    image=img,
-                    stream_state=stream_state,
-                    run_quality_check=True,
-                    run_liveness_check=False,
-                    top_k=3,
-                )
-
-                pending_matches = [
-                    r for r in results if r.decision.value == "KNOWN" and r.best_match
-                ]
-                if pending_matches:
-                    try:
-                        async with AsyncSessionLocal() as mark_db:
-                            for r in pending_matches:
-                                try:
-                                    await AttendanceService.mark_attendance(
-                                        db=mark_db,
-                                        session_id=session_id,
-                                        payload=AttendanceMarkPayload(
-                                            student_id=r.best_match.student_id,
-                                            camera_id=camera_id,
-                                            confidence=r.best_match.similarity,
-                                            liveness_score=r.liveness_score,
-                                            track_id=r.track_id,
-                                            remarks=f"Mobile camera ({r.best_match.confidence_pct:.1f}%)",
-                                        ),
-                                    )
-                                except Exception:
-                                    pass
-                            await mark_db.commit()
-                    except Exception as e:
-                        logger.error(f"Mobile attendance batch marking error: {e}")
-
-                await websocket.send_text(
-                    json.dumps({
-                        "type": "telemetry",
-                        "faces_detected": len(results),
-                        "recognized": [r.best_match.name for r in results if r.best_match and r.decision.value == "KNOWN"],
-                    })
-                )
-            except Exception as e:
-                logger.debug(f"Mobile recognition worker iteration exception: {e}")
-            finally:
-                frame_queue.task_done()
-
-    if session_id:
-        worker_task = asyncio.create_task(_recognition_worker())
-
     try:
         while True:
             # Receive binary frame payload (JPEG buffer)
@@ -468,28 +409,9 @@ async def mobile_camera_websocket_uplink(
             # Broadcast frame to connected desktop viewers in real time
             await CameraService.broadcast_frame(camera_id, frame_bytes)
 
-            # If session is active, push to bounded recognition queue (drop stale frame if busy)
-            if session_id:
-                try:
-                    frame_queue.get_nowait()
-                    frame_queue.task_done()
-                except asyncio.QueueEmpty:
-                    pass
-                await frame_queue.put(image)
-
-    except (WebSocketDisconnect, Exception):
+    except WebSocketDisconnect:
         pass
     finally:
-        is_running = False
-        if worker_task:
-            worker_task.cancel()
-            try:
-                await worker_task
-            except asyncio.CancelledError:
-                pass
-
-        # Cleanup stream state and DB session
-        RecognitionService.reset_stream_state(session_id=session_id, camera_id=camera_id)
         try:
             await db_session.commit()
         except Exception:
@@ -505,7 +427,13 @@ async def laptop_camera_websocket_downlink(
     camera_id: str,
 ):
     """Real-time binary frame stream delivery over WebSocket to laptop Live Attendance/Preview."""
-    await websocket.accept()
+    try:
+        async with AsyncSessionLocal() as db:
+            await authenticate_staff_socket(websocket, db)
+    except HTTPException:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    await websocket.accept(subprotocol="sams-auth")
     CameraService.add_subscriber(camera_id, websocket)
 
     # If cached frame exists, send immediately
@@ -533,7 +461,7 @@ async def laptop_camera_websocket_downlink(
 @router.post(
     "/mobile-frame",
     summary="Process Mobile Camera Frame",
-    description="Receives frame captures from a paired mobile phone camera, updates camera health timestamps, and runs the recognition pipeline.",
+    description="Receives frames from a paired mobile phone camera for preview.",
 )
 async def process_mobile_frame(
     camera_id: str = Form(..., description="Paired camera identifier"),
@@ -542,8 +470,12 @@ async def process_mobile_frame(
     file: UploadFile = File(..., description="JPEG frame buffer"),
     db: AsyncSession = Depends(get_db),
 ):
-    if file is None:
-        raise HTTPException(status_code=400, detail="No video frame payload uploaded.")
+    valid = await CameraService.validate_pairing_session(db, token) if token else None
+    if not valid or valid[0].id != camera_id or session_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Use a valid camera pairing link. For attendance, pair from the open session.",
+        )
 
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
@@ -557,60 +489,4 @@ async def process_mobile_frame(
     # Also broadcast frame to connected laptop viewers
     await CameraService.broadcast_frame(camera_id, contents)
 
-    pipeline = get_pipeline()
-    if pipeline.matcher.total_templates == 0:
-        await RecognitionService.sync_gallery_from_db(db)
-
-    # Use tracked pipeline for identity cache benefits even on HTTP endpoint
-    from backend.app.services.recognition_service import _get_or_create_stream_state
-    stream_state = _get_or_create_stream_state(session_id, camera_id)
-    results, _ = await asyncio.to_thread(
-        pipeline.process_tracked_frame,
-        image=image,
-        stream_state=stream_state,
-        run_quality_check=True,
-        run_liveness_check=False,
-        top_k=3,
-    )
-
-    attendance_events = []
-    for r in results:
-        if r.decision.value == "KNOWN" and r.best_match and session_id:
-            try:
-                rec = await AttendanceService.mark_attendance(
-                    db=db,
-                    session_id=session_id,
-                    payload=AttendanceMarkPayload(
-                        student_id=r.best_match.student_id,
-                        camera_id=camera_id,
-                        confidence=r.best_match.similarity,
-                        liveness_score=r.liveness_score,
-                        remarks=f"Mobile camera ({r.best_match.confidence_pct:.1f}%)",
-                    ),
-                )
-                attendance_events.append({
-                    "student_name": r.best_match.name,
-                    "student_code": r.best_match.student_code,
-                    "record_id": rec.id,
-                    "status": rec.status,
-                })
-            except Exception:
-                pass
-
-    return {
-        "camera_id": camera_id,
-        "faces_detected": len(results),
-        "results": [
-            {
-                "decision": r.decision.value,
-                "confidence": r.best_match.confidence_pct if r.best_match else 0.0,
-                "name": r.best_match.name if r.best_match else "UNKNOWN",
-                "student_code": r.best_match.student_code if r.best_match else None,
-                "is_live": r.is_live,
-                "bbox": r.bbox.to_list() if r.bbox else None,
-            }
-            for r in results
-        ],
-        "attendance_marked": attendance_events,
-    }
-
+    return {"camera_id": camera_id, "faces_detected": 0, "results": [], "attendance_marked": []}

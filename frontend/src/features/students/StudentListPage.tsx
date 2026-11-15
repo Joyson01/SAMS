@@ -1,3 +1,4 @@
+import { StudentBatchSelect } from '../../components/StudentBatchSelect';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Users,
@@ -626,6 +627,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       email: '',
       department: 'Computer Science',
       class_name: 'CSE-4A',
+      batch_id: null,
       section: 'A',
       status: 'ACTIVE',
     });
@@ -643,6 +645,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       email: student.email,
       department: student.department || 'Computer Science',
       class_name: student.class_name,
+      batch_id: student.batch_id,
       section: student.section,
       status: student.status,
     });
@@ -1913,6 +1916,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                     placeholder="CSE-4A"
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
+                  <StudentBatchSelect className={formData.class_name} value={formData.batch_id} onChange={batch_id => setFormData(prev => ({...prev,batch_id}))} />
                 </div>
                 <div className="space-y-1">
                   <label className="font-semibold text-slate-700">Section</label>
@@ -2006,6 +2010,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                     onChange={handleFormChange}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
+                  <StudentBatchSelect className={formData.class_name} value={formData.batch_id} onChange={batch_id => setFormData(prev => ({...prev,batch_id}))} />
                 </div>
                 <div className="space-y-1">
                   <label className="font-semibold text-slate-700">Section</label>

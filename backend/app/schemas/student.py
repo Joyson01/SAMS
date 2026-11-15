@@ -28,6 +28,7 @@ class FaceProfileResponse(BaseModel):
 
 
 class StudentBase(BaseModel):
+    batch_id: Optional[str] = None
     student_code: str = Field(
         ...,
         min_length=2,
@@ -115,6 +116,7 @@ class StudentCreate(StudentBase):
 
 
 class StudentUpdate(BaseModel):
+    batch_id: Optional[str] = None
     """Schema for updating an existing student (all fields optional)."""
     student_code: Optional[str] = Field(None, min_length=2, max_length=32)
     roll_number: Optional[str] = Field(None, min_length=1, max_length=32)

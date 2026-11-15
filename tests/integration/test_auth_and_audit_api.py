@@ -2,7 +2,8 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_auth_and_audit_api_workflow(client):
+async def test_auth_and_audit_api_workflow(staff_client):
+    client = staff_client
     # 1. Register User
     reg_payload = {
         "username": "dean_admin",
@@ -11,6 +12,9 @@ async def test_auth_and_audit_api_workflow(client):
         "full_name": "Dean Dr. Alok Gupta",
         "role": "ADMIN",
     }
+    public_attempt = await client.post("/api/v1/auth/register", json=reg_payload, headers={"Authorization": ""})
+    assert public_attempt.status_code == 403
+
     reg_resp = await client.post("/api/v1/auth/register", json=reg_payload)
     assert reg_resp.status_code == 201
     user_data = reg_resp.json()
@@ -38,7 +42,7 @@ async def test_auth_and_audit_api_workflow(client):
     assert me_resp.json()["username"] == "dean_admin"
 
     # 5. Query Audit Logs endpoint
-    audit_resp = await client.get("/api/v1/audit-logs")
+    audit_resp = await client.get("/api/v1/audit-logs", headers={"Authorization": f"Bearer {token}"})
     assert audit_resp.status_code == 200
     audit_data = audit_resp.json()
     assert "total_count" in audit_data

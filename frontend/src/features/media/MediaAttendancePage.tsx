@@ -1,3 +1,4 @@
+import { PhotoAttendancePanel } from '../../components/PhotoAttendancePanel';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Image as ImageIcon,
@@ -22,7 +23,6 @@ import {
 import { fetchSessions } from '../../services/attendanceApi';
 import { AttendanceSession } from '../../types/attendance';
 import {
-  analyzeImageAttendance,
   processVideoAttendance,
   fetchMediaJobs,
   fetchMediaJob,
@@ -88,7 +88,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [imageMetadata, setImageMetadata] = useState<{ dimensions: string; size: string; width: number; height: number } | null>(null);
-  const [analyzingImage, setAnalyzingImage] = useState<boolean>(false);
+  const [analyzingImage] = useState<boolean>(false);
   const [imageResult, setImageResult] = useState<MediaAnalysisResponse | null>(null);
   const [showOverlays, setShowOverlays] = useState<boolean>(true);
 
@@ -426,40 +426,8 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
 
   // Submit Image Analysis & Mark Attendance
   const handleAnalyzeImage = async () => {
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
-    if (!selectedSessionId) {
-      setErrorMessage('Please select an attendance session first.');
-      return;
-    }
-    if (!imageFile) {
-      setErrorMessage('Please select a classroom image to analyze.');
-      return;
-    }
-
-    setAnalyzingImage(true);
-    setImageResult(null);
-    try {
-      const res = await analyzeImageAttendance(selectedSessionId, imageFile);
-      setImageResult(res);
-
-      if (imagePreviewRef.current && res?.faces) {
-        drawImageBoundingBoxes(res.faces, imagePreviewRef.current);
-      }
-
-      const refreshedJobs = await fetchMediaJobs();
-      setJobs(Array.isArray(refreshedJobs) ? refreshedJobs : []);
-      setSuccessMessage(
-        `Analysis complete: ${res.faces_detected || 0} detected, ${res.recognized_count || 0} verified, ${res.attendance_marked_count || 0} marked present.`
-      );
-    } catch (err: any) {
-      console.error('Error in analyzeImageAttendance:', err);
-      const msg = formatApiErrorMessage(err, 'Unable to process image. Please verify format and try again.');
-      setErrorMessage(msg);
-    } finally {
-      setAnalyzingImage(false);
-    }
+    if (!selectedSessionId || !imageFile) return;
+    window.dispatchEvent(new CustomEvent('photo-review-files', {detail: {sessionId:selectedSessionId,files:[imageFile]}}));
   };
 
   // Submit Video Processing
@@ -524,6 +492,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
 
   return (
     <div className="space-y-6">
+      {selectedSessionId && <PhotoAttendancePanel sessionId={selectedSessionId} active={selectedSession?.status === 'ACTIVE'} />}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -759,7 +728,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                       <span>{showOverlays ? 'AI Overlays Visible' : 'AI Overlays Hidden'}</span>
                     </button>
                     <span className="text-xs text-slate-400 hidden sm:inline">
-                      Click <strong>Analyze & Mark Attendance</strong> to process.
+                      Click <strong>Review Photo Attendance</strong> to process.
                     </span>
                   </div>
 
@@ -776,7 +745,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                     ) : (
                       <>
                         <Play className="w-4 h-4" />
-                        <span>Analyze & Mark Attendance</span>
+                        <span>Review Photo Attendance</span>
                       </>
                     )}
                   </button>

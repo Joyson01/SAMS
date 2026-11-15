@@ -1,3 +1,5 @@
+import { PhotoAttendancePanel } from '../../components/PhotoAttendancePanel';
+import { getAccessToken } from '../../services/api';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Play,
@@ -25,7 +27,6 @@ import {
   startSession,
   closeSession,
   markManualAttendance,
-  recognizeImageAttendance,
   PhotoRecognitionResponse,
   fetchSessionRoster,
   SessionRosterResponse,
@@ -138,14 +139,14 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
   const [captureCameraError, setCaptureCameraError] = useState<string | null>(null);
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
   const [capturedPreviewUrl, setCapturedPreviewUrl] = useState<string | null>(null);
-  const [processingCapturedPhoto, setProcessingCapturedPhoto] = useState<boolean>(false);
+  const [processingCapturedPhoto] = useState<boolean>(false);
   const [captureRecognitionResult, setCaptureRecognitionResult] = useState<PhotoRecognitionResponse | null>(null);
   const [captureErrorMessage, setCaptureErrorMessage] = useState<string | null>(null);
   const [showCaptureOverlay, setShowCaptureOverlay] = useState<boolean>(true);
 
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadPreviewUrl, setUploadPreviewUrl] = useState<string | null>(null);
-  const [processingUploadPhoto, setProcessingUploadPhoto] = useState<boolean>(false);
+  const [processingUploadPhoto] = useState<boolean>(false);
   const [uploadRecognitionResult, setUploadRecognitionResult] = useState<PhotoRecognitionResponse | null>(null);
   const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
   const [showUploadOverlay, setShowUploadOverlay] = useState<boolean>(true);
@@ -554,7 +555,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
         const wsUrl = `${protocol}//${host}/api/v1/cameras/${selectedCamera.id}/laptop-stream`;
 
         try {
-          const ws = new WebSocket(wsUrl);
+          const ws = new WebSocket(wsUrl, ['sams-auth', getAccessToken() || 'missing']);
           ws.binaryType = 'blob';
 
           ws.onmessage = (event) => {
@@ -935,18 +936,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
 
   const handleRecognizeCapturePhoto = async () => {
     if (!selectedSessionId || !capturedBlob) return;
-    setProcessingCapturedPhoto(true);
-    setCaptureErrorMessage(null);
-
-    try {
-      const resp = await recognizeImageAttendance(selectedSessionId, capturedBlob, 0.40);
-      setCaptureRecognitionResult(resp);
-      await Promise.all([fetchPresenceData(), fetchRosterData()]);
-    } catch (err: any) {
-      setCaptureErrorMessage(err.response?.data?.detail || err.message || 'Photo recognition failed.');
-    } finally {
-      setProcessingCapturedPhoto(false);
-    }
+    window.dispatchEvent(new CustomEvent('photo-review-files', {detail: {sessionId:selectedSessionId,files:[new File([capturedBlob], 'capture.jpg', {type:'image/jpeg'})]}}));
   };
 
   const handleUploadSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -963,18 +953,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
 
   const handleRecognizeUploadPhoto = async () => {
     if (!selectedSessionId || !uploadFile) return;
-    setProcessingUploadPhoto(true);
-    setUploadErrorMessage(null);
-
-    try {
-      const resp = await recognizeImageAttendance(selectedSessionId, uploadFile, 0.40);
-      setUploadRecognitionResult(resp);
-      await Promise.all([fetchPresenceData(), fetchRosterData()]);
-    } catch (err: any) {
-      setUploadErrorMessage(err.response?.data?.detail || err.message || 'Upload recognition failed.');
-    } finally {
-      setProcessingUploadPhoto(false);
-    }
+    window.dispatchEvent(new CustomEvent('photo-review-files', {detail: {sessionId:selectedSessionId,files:[uploadFile]}}));
   };
 
   const drawPhotoBoundingBoxes = (
@@ -1164,6 +1143,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       )}
 
       {/* ========================================================================= */}
+      {selectedSessionId && <PhotoAttendancePanel sessionId={selectedSessionId} active={selectedSession?.status === 'ACTIVE'} onConfirmed={fetchRosterData} />}
       {/* SESSION CONTEXT & CONTROLS HEADER */}
       {/* ========================================================================= */}
       <div className="bg-white border border-slate-200 rounded-lg p-3 sm:px-4 sm:py-3 flex flex-wrap items-center justify-between gap-3 shadow-xs">
@@ -1894,7 +1874,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                   disabled={processingCapturedPhoto}
                   className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs disabled:opacity-50"
                 >
-                  {processingCapturedPhoto ? 'Recognizing...' : 'Recognize & Mark Attendance'}
+                  {processingCapturedPhoto ? 'Recognizing...' : 'Review Photo Attendance'}
                 </button>
               )}
             </div>
@@ -1993,7 +1973,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                   disabled={processingUploadPhoto}
                   className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs disabled:opacity-50"
                 >
-                  {processingUploadPhoto ? 'Recognizing...' : 'Recognize & Mark Attendance'}
+                  {processingUploadPhoto ? 'Recognizing...' : 'Review Photo Attendance'}
                 </button>
               </div>
             )}

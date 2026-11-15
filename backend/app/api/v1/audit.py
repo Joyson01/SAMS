@@ -1,12 +1,13 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
+from backend.app.core.security import get_current_user, require_roles
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
 from backend.app.schemas.audit import AuditLogListResponse
 from backend.app.services.audit_service import AuditService
 
-router = APIRouter(prefix="/audit-logs", tags=["Compliance & Audit Logs"])
+router = APIRouter(prefix="/audit-logs", tags=["Compliance & Audit Logs"], dependencies=[Depends(require_roles("ADMIN"))])
 
 
 @router.get(

@@ -137,6 +137,40 @@ async def test_attendance_marking_and_deduplication(test_db_session):
 
 
 @pytest.mark.asyncio
+async def test_close_session_resolves_pending_review_as_absent(test_db_session):
+    student = await StudentService.create_student(
+        test_db_session,
+        StudentCreate(
+            first_name="Pending", last_name="Student", student_code="STU-PENDING",
+            roll_number="CSE-099", department="CSE", class_name="CSE-4P",
+            section="P", email="pending@campus.edu",
+        ),
+    )
+    session = await AttendanceService.create_session(
+        test_db_session,
+        SessionCreate(
+            session_code="SESS-PENDING-01", class_name="CSE-4P", subject="Algorithms",
+            room="Room-101", scheduled_date=date.today(), start_time=time(23), end_time=time(23, 59),
+        ),
+    )
+    await AttendanceService.start_session(test_db_session, session.id)
+    test_db_session.add(AttendanceRecord(
+        session_id=session.id, student_id=student.id, status="REVIEW_REQUIRED",
+        source="PHONE_CAPTURE", verification_metadata={"usable_live_frames": 1},
+    ))
+    await test_db_session.commit()
+
+    await AttendanceService.close_session(test_db_session, session.id, auto_mark_absent=True)
+
+    record = (await test_db_session.scalars(select(AttendanceRecord).where(
+        AttendanceRecord.session_id == session.id, AttendanceRecord.student_id == student.id,
+    ))).one()
+    assert record.status == "ABSENT"
+    assert record.source == "AUTO_ROSTER"
+    assert record.verification_metadata["resolution"] == "ABSENT_ON_CLOSE"
+
+
+@pytest.mark.asyncio
 async def test_manual_override_and_audit_logging(test_db_session):
     # 1. Setup student & active session
     st = await StudentService.create_student(

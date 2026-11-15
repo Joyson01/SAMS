@@ -2,6 +2,9 @@
 
 ## Smart Attendance Management System (SAMS)
 
+> [!TIP]
+> **Production & Pilot Deployment**: For the complete production, containerized, and private college pilot deployment instructions, please see the [Production Deployment Runbook](DEPLOYMENT_RUNBOOK.md).
+
 ---
 
 ## 1. System Requirements

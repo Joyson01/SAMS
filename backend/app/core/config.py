@@ -1,6 +1,6 @@
-import os
 from typing import Any, List, Union
-from pydantic import AnyHttpUrl, field_validator
+from pydantic import ValidationInfo, Field
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,13 +31,23 @@ class Settings(BaseSettings):
     DATABASE_FALLBACK_SQLITE: bool = True
     SQLITE_FALLBACK_URL: str = "sqlite+aiosqlite:///./data/sams_dev.db"
 
-    # Security & Tokens
-    SECRET_KEY: str = "sams-super-secret-jwt-key-for-development-change-in-production-2026"
+    # Security & Tokens. Set SECRET_KEY to a unique random value in every deployment.
+    SECRET_KEY: str = "development-only-change-me-before-deploying"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, value: str, info: ValidationInfo) -> str:
+        if len(value) < 32:
+            raise ValueError("SECRET_KEY must contain at least 32 characters.")
+        if value == "development-only-change-me-before-deploying" and str(info.data.get("ENVIRONMENT", "development")).lower() in {"production", "prod"}:
+            raise ValueError("Set a unique SECRET_KEY before running in production.")
+        return value
 
     # CORS
-    BACKEND_CORS_ORIGINS: List[str] = [
+    BACKEND_CORS_ORIGINS: Union[List[str], str] = [
         "http://localhost:5173",
         "http://localhost:3000",
         "http://127.0.0.1:5173",
@@ -45,9 +55,29 @@ class Settings(BaseSettings):
         "http://0.0.0.0:5173",
     ]
 
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v: Any) -> List[str]:
+        if isinstance(v, str):
+            v_str = v.strip()
+            if not v_str:
+                return []
+            if v_str.startswith("[") and v_str.endswith("]"):
+                import json
+                try:
+                    parsed = json.loads(v_str)
+                    if isinstance(parsed, list):
+                        return [str(x).strip() for x in parsed if str(x).strip()]
+                except Exception:
+                    pass
+            return [origin.strip() for origin in v_str.split(",") if origin.strip()]
+        if isinstance(v, list):
+            return [str(origin).strip() for origin in v if str(origin).strip()]
+        return []
+
     # Logging
     LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "text"  # 'text' or 'json'
+    LOG_FORMAT: str = "text"
 
     # Model Configuration
     MODEL_STORAGE_DIR: str = "./ai_engine/models"
@@ -56,6 +86,13 @@ class Settings(BaseSettings):
     REVIEW_THRESHOLD: float = 0.55
     FACE_MATCH_THRESHOLD: float = 0.65
     MIN_FACE_SIZE: int = 40
+
+    PHOTO_DET_SIZE: int = Field(1280, ge=640, le=2048)
+    PHOTO_TILE_SIZE: int = Field(640, ge=320, le=2048)
+    PHOTO_TILE_OVERLAP: float = Field(0.20, ge=0, lt=0.5)
+    PHOTO_MARGIN: float = Field(0.05, ge=0, le=1)
+    FACE_RECOGNITION_THRESHOLD: float = Field(0.58, ge=0.4, le=1)
+    UNCERTAIN_LOWER_THRESHOLD: float = Field(0.40, ge=0, le=0.58)
 
     # Real-Time Video & Streaming Pipeline Performance Knobs
     RECOGNITION_FPS: float = 5.0

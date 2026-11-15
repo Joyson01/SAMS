@@ -68,10 +68,10 @@ async def test_camera_frame_activity_updates_health_state(test_db_session: Async
 
 
 @pytest.mark.asyncio
-async def test_mobile_pairing_prevents_duplicate_camera_records(test_db_session: AsyncSession, client):
+async def test_mobile_pairing_prevents_duplicate_camera_records(test_db_session: AsyncSession, staff_client):
     """TEST 4: Generating mobile pairing QR with existing camera ID re-pairs that camera without creating duplicates."""
     # First pairing creates camera
-    res1 = await client.post(
+    res1 = await staff_client.post(
         "/api/v1/cameras/mobile-pairing",
         params={"camera_name": "Room 204 Smartphone", "location": "Room 204"},
     )
@@ -80,7 +80,7 @@ async def test_mobile_pairing_prevents_duplicate_camera_records(test_db_session:
     token1 = res1.json()["token"]
 
     # Second pairing with same camera_name and location must reuse camera
-    res2 = await client.post(
+    res2 = await staff_client.post(
         "/api/v1/cameras/mobile-pairing",
         params={"camera_id": cam1_id, "camera_name": "Room 204 Smartphone", "location": "Room 204"},
     )

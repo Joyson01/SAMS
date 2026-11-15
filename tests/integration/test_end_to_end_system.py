@@ -46,7 +46,8 @@ async def test_full_enterprise_sams_workflow_end_to_end(test_db_session, client)
         full_name="Prof. Rajesh Kumar",
         role="ADMIN",
     )
-    admin_user = await AuthService.register_user(test_db_session, reg_req)
+    from backend.app.models.entities import User
+    admin_user = await AuthService.register_user(test_db_session, reg_req, actor=User(role="ADMIN"))
     assert admin_user.username == "super_admin"
 
     login_res = await AuthService.authenticate_user(

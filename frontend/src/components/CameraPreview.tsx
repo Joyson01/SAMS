@@ -1,3 +1,4 @@
+import { getAccessToken } from '../services/api';
 import React, { useEffect, useRef, useState } from 'react';
 import { Smartphone, Radio, AlertTriangle } from 'lucide-react';
 import { CameraDevice } from '../types/camera';
@@ -79,7 +80,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
       const wsUrl = `${protocol}//${host}/api/v1/cameras/${camera.id}/laptop-stream`;
 
       try {
-        const ws = new WebSocket(wsUrl);
+        const ws = new WebSocket(wsUrl, ['sams-auth', getAccessToken() || 'missing']);
         ws.binaryType = 'blob';
 
         ws.onmessage = (event) => {

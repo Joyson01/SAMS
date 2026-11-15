@@ -3,6 +3,7 @@ import { DashboardLayout } from './layouts/DashboardLayout';
 import { DashboardOverview } from './pages/DashboardOverview';
 import { StudentListPage } from './features/students/StudentListPage';
 import { FaceEnrollmentPage } from './features/enrollment/FaceEnrollmentPage';
+import { PairedAttendancePage, PhoneAttendancePage } from './features/attendance/PhoneAttendancePage';
 import { AttendancePage } from './features/attendance/AttendancePage';
 import { LiveDashboardPage } from './features/live/LiveDashboardPage';
 import { MediaAttendancePage } from './features/media/MediaAttendancePage';
@@ -20,9 +21,14 @@ import { fetchCameras } from './services/cameraApi';
 import { ServiceHealthResponse } from './types';
 
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { AuthPage } from './components/auth/AuthPage';
+import { clearAuthTokens, getAccessToken } from './services/api';
+import { getCurrentUser, logout } from './services/authApi';
 
 export const App: React.FC = () => {
   const pathname = window.location.pathname;
+
+  if (pathname === '/attendance-capture') return <PairedAttendancePage />;
 
   // Standalone Mobile & Diagnostic Routes
   if (pathname.startsWith('/mobile-camera')) {
@@ -53,6 +59,8 @@ export const App: React.FC = () => {
   const [healthStatus, setHealthStatus] = useState<'healthy' | 'degraded' | 'unhealthy' | 'loading'>('loading');
   const [offlineCameraCount, setOfflineCameraCount] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
 
   const loadHealth = async () => {
     setIsRefreshing(true);
@@ -79,10 +87,24 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
+    let mounted = true;
+    if (!getAccessToken()) {
+      setIsAuthChecking(false);
+      return () => { mounted = false; };
+    }
+    getCurrentUser()
+      .then(() => { if (mounted) setIsAuthenticated(true); })
+      .catch(() => { clearAuthTokens(); })
+      .finally(() => { if (mounted) setIsAuthChecking(false); });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
     loadHealth();
     const interval = setInterval(loadHealth, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isAuthenticated]);
 
   const handleNavigate = (tab: string, studentId?: string) => {
     if (studentId) {
@@ -91,8 +113,35 @@ export const App: React.FC = () => {
     setActiveTab(tab);
   };
 
+  if (isAuthChecking) {
+    return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-sm text-slate-300">Checking your session…</div>;
+  }
+
+  if (!isAuthenticated) {
+    return <AuthPage onLogin={() => setIsAuthenticated(true)} />;
+  }
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      setIsAuthenticated(false);
+      setHealthData(null);
+    }
+  };
+
+  if (pathname === '/phone-attendance') {
+    return <PhoneAttendancePage onLogout={handleLogout} />;
+  }
+
   return (
     <ErrorBoundary fallbackTitle="Application Error" fallbackMessage="An error occurred in the workspace layout.">
+      <div className="fixed right-4 top-4 z-50 flex gap-2">
+        <a href="/phone-attendance" className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white">Take attendance</a>
+        <button type="button" onClick={handleLogout} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow hover:bg-slate-50">
+          Sign out
+        </button>
+      </div>
       <DashboardLayout
         healthData={healthData}
         healthStatus={healthStatus}

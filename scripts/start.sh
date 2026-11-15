@@ -224,12 +224,12 @@ if [ "${MODE}" = "dev" ]; then
     fi
 
     cd "${ROOT_DIR}/frontend"
-    if command -v pnpm &>/dev/null; then
+    if command -v pnpm &>/dev/null && pnpm -v &>/dev/null; then
         pnpm run dev --host 0.0.0.0 --port "${FRONTEND_PORT}" > "${FRONTEND_LOG}" 2>&1 &
-    elif command -v corepack &>/dev/null; then
-        corepack pnpm run dev --host 0.0.0.0 --port "${FRONTEND_PORT}" > "${FRONTEND_LOG}" 2>&1 &
-    else
+    elif command -v npm &>/dev/null; then
         npm run dev -- --host 0.0.0.0 --port "${FRONTEND_PORT}" > "${FRONTEND_LOG}" 2>&1 &
+    elif command -v corepack &>/dev/null && corepack pnpm -v &>/dev/null; then
+        corepack pnpm run dev --host 0.0.0.0 --port "${FRONTEND_PORT}" > "${FRONTEND_LOG}" 2>&1 &
     fi
     FRONTEND_PID=$!
     echo "${FRONTEND_PID}" > "${FRONTEND_PID_FILE}"
