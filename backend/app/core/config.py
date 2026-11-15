@@ -1,5 +1,5 @@
 from typing import Any, List, Union
-from pydantic import ValidationInfo
+from pydantic import ValidationInfo, Field
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     REVIEW_THRESHOLD: float = 0.55
     FACE_MATCH_THRESHOLD: float = 0.65
     MIN_FACE_SIZE: int = 40
+
+    PHOTO_DET_SIZE: int = Field(1280, ge=640, le=2048)
+    PHOTO_TILE_SIZE: int = Field(640, ge=320, le=2048)
+    PHOTO_TILE_OVERLAP: float = Field(0.20, ge=0, lt=0.5)
+    PHOTO_MARGIN: float = Field(0.05, ge=0, le=1)
+    FACE_RECOGNITION_THRESHOLD: float = Field(0.58, ge=0.4, le=1)
+    UNCERTAIN_LOWER_THRESHOLD: float = Field(0.40, ge=0, le=0.58)
 
     # Real-Time Video & Streaming Pipeline Performance Knobs
     RECOGNITION_FPS: float = 5.0

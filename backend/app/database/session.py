@@ -157,6 +157,32 @@ async def init_db_schema() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+        from sqlalchemy import inspect
+
+        additions = [
+            (
+                "students",
+                "batch_id",
+                "VARCHAR(36) REFERENCES batches(id) ON DELETE RESTRICT",
+            ),
+            ("attendance_sessions", "photo_batch_id", "VARCHAR(36)"),
+            (
+                "attendance_sessions",
+                "photo_scope_initialized",
+                "BOOLEAN NOT NULL DEFAULT FALSE",
+            ),
+        ]
+        for table, column, sql_type in additions:
+            columns = await conn.run_sync(
+                lambda sync_conn: {
+                    c["name"] for c in inspect(sync_conn).get_columns(table)
+                }
+            )
+            if column not in columns:
+                await conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+                )
+
         # Dynamic column additions for SQLite/Postgres backwards compatibility
         alter_statements = [
             ("classes", "effective_from", "VARCHAR(32) DEFAULT '15/06/2026'"),
@@ -172,11 +198,15 @@ async def init_db_schema() -> None:
         ]
 
         for table, col, col_type in alter_statements:
-            try:
+            columns = await conn.run_sync(
+                lambda sync_conn: {
+                    c["name"] for c in inspect(sync_conn).get_columns(table)
+                }
+            )
+            if col not in columns:
                 await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
-            except Exception:
-                # Column already exists or table not ready
-                pass
+        from backend.app.database.photo_scope import backfill_photo_scope
+
+        await conn.run_sync(backfill_photo_scope)
 
     logger.info("Database schema initialized and columns synchronized successfully.")
-

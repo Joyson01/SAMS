@@ -84,6 +84,10 @@ class AuthSession(Base):
 class Student(Base):
     __tablename__ = "students"
 
+    batch_id: Mapped[Optional[str]] = mapped_column(
+        GUID, ForeignKey("batches.id", ondelete="RESTRICT"), nullable=True
+    )
+
     id: Mapped[str] = mapped_column(GUID, primary_key=True, default=generate_uuid)
     student_code: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
     roll_number: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
@@ -235,6 +239,11 @@ class TimetableEntry(Base):
 
 class AttendanceSession(Base):
     __tablename__ = "attendance_sessions"
+
+    photo_batch_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    photo_scope_initialized: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
 
     id: Mapped[str] = mapped_column(GUID, primary_key=True, default=generate_uuid)
     session_code: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)

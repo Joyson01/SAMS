@@ -20,6 +20,19 @@ class StudentService:
     """Business logic and database access layer for student management."""
 
     @staticmethod
+    async def validate_batch(db, batch_id, class_name):
+        if batch_id:
+            from fastapi import HTTPException
+            from backend.app.models.entities import Batch, ClassSection
+
+            batch = await db.get(Batch, batch_id)
+            cls = await db.get(ClassSection, batch.class_id) if batch else None
+            if cls is None or cls.name != class_name:
+                raise HTTPException(
+                    400, "Choose a lab batch belonging to the student class"
+                )
+
+    @staticmethod
     async def get_students(
         db: AsyncSession,
         search: Optional[str] = None,
@@ -110,6 +123,7 @@ class StudentService:
                 email=s.email,
                 department=s.department,
                 class_name=s.class_name,
+                batch_id=s.batch_id,
                 section=s.section,
                 status=s.status,
                 enrollment_status=s.enrollment_status,
@@ -157,6 +171,7 @@ class StudentService:
             email=student.email,
             department=student.department,
             class_name=student.class_name,
+            batch_id=student.batch_id,
             section=student.section,
             status=student.status,
             enrollment_status=student.enrollment_status,
@@ -194,6 +209,7 @@ class StudentService:
         if email_check.scalar_one_or_none():
             raise StudentAlreadyExistsError("email", payload.email)
 
+        await StudentService.validate_batch(db, payload.batch_id, payload.class_name)
         new_student = Student(
             student_code=payload.student_code,
             roll_number=payload.roll_number,
@@ -202,6 +218,7 @@ class StudentService:
             email=payload.email,
             department=payload.department,
             class_name=payload.class_name,
+            batch_id=payload.batch_id,
             section=payload.section,
             status=payload.status,
             enrollment_status="NOT_ENROLLED",
@@ -232,6 +249,7 @@ class StudentService:
             email=new_student.email,
             department=new_student.department,
             class_name=new_student.class_name,
+            batch_id=new_student.batch_id,
             section=new_student.section,
             status=new_student.status,
             enrollment_status=new_student.enrollment_status,
@@ -272,6 +290,7 @@ class StudentService:
                 email=student.email,
                 department=student.department,
                 class_name=student.class_name,
+                batch_id=student.batch_id,
                 section=student.section,
                 status=student.status,
                 enrollment_status=student.enrollment_status,
@@ -318,6 +337,11 @@ class StudentService:
             k: getattr(student, k) for k in update_dict.keys()
         }
 
+        await StudentService.validate_batch(
+            db,
+            update_dict.get("batch_id", student.batch_id),
+            update_dict.get("class_name", student.class_name),
+        )
         # Apply updates
         for field_name, value in update_dict.items():
             setattr(student, field_name, value)
@@ -345,6 +369,7 @@ class StudentService:
             email=student.email,
             department=student.department,
             class_name=student.class_name,
+            batch_id=student.batch_id,
             section=student.section,
             status=student.status,
             enrollment_status=student.enrollment_status,

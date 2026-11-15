@@ -1,4 +1,5 @@
 export interface Student {
+  batch_id?: string | null;
   id: string;
   student_code: string;
   roll_number: string;
@@ -20,6 +21,7 @@ export interface Student {
 }
 
 export interface StudentCreatePayload {
+  batch_id?: string | null;
   student_code: string;
   roll_number: string;
   first_name: string;
@@ -33,6 +35,7 @@ export interface StudentCreatePayload {
 }
 
 export interface StudentUpdatePayload {
+  batch_id?: string | null;
   student_code?: string;
   roll_number?: string;
   first_name?: string;

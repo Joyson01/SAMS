@@ -5,3 +5,10 @@ __pycache__/
 *.py[cod]
 data/
 models/
+
+.venv-backend/
+frontend/node_modules/
+frontend/dist/
+
+backend/processed/
+outputs/*_detected.jpg

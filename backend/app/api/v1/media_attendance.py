@@ -102,10 +102,17 @@ async def analyze_image_attendance(
     session_id: Optional[str] = Form(None, description="Attendance session ID"),
     sessionId: Optional[str] = Form(None, description="Attendance session ID (alias)"),
     threshold: float = Form(UNKNOWN_THRESHOLD, description="Similarity threshold"),
-    file: Optional[UploadFile] = File(None, description="Classroom photo JPEG/PNG/WEBP"),
-    image: Optional[UploadFile] = File(None, description="Classroom photo JPEG/PNG/WEBP (alias)"),
-    photo: Optional[UploadFile] = File(None, description="Classroom photo JPEG/PNG/WEBP (alias)"),
+    file: Optional[UploadFile] = File(
+        None, description="Classroom photo JPEG/PNG/WEBP"
+    ),
+    image: Optional[UploadFile] = File(
+        None, description="Classroom photo JPEG/PNG/WEBP (alias)"
+    ),
+    photo: Optional[UploadFile] = File(
+        None, description="Classroom photo JPEG/PNG/WEBP (alias)"
+    ),
     db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
 ) -> MediaAnalysisResponse:
     target_session_id = session_id or sessionId
     if not target_session_id or target_session_id.strip() == "":
@@ -131,22 +138,15 @@ async def analyze_image_attendance(
             detail=f"Image file exceeds max allowed size of {MAX_IMAGE_SIZE_BYTES // (1024*1024)} MB.",
         )
 
-    try:
-        return await MediaAttendanceService.analyze_image(
-            db=db,
-            session_id=target_session_id.strip(),
-            image_bytes=image_bytes,
-            filename=upload_file.filename or "classroom_photo.jpg",
-            threshold=threshold,
-        )
-    except SessionNotFoundError as s_err:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(s_err))
-    except ValueError as v_err:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(v_err))
-    except Exception as exc:
-        logger.error(f"Image recognition engine error: {exc}", exc_info=True)
-        traceback.print_exc()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Image recognition engine error: {exc}")
+    from backend.app.services.photo_attendance_service import legacy_photo
+
+    return await legacy_photo(
+        db,
+        target_session_id.strip(),
+        image_bytes,
+        upload_file.filename or "photo.jpg",
+        user,
+    )
 
 
 @router.post(

@@ -67,6 +67,15 @@ async def test_media_attendance_api_endpoints(staff_client, test_db_session):
     assert "faces_detected" in diag_json
     assert "faces" in diag_json
 
+    # Photo writes now require ACTIVE, including the compatibility endpoint.
+    inactive = await staff_client.post(
+        "/api/v1/media-attendance/image",
+        data={"session_id": sess.id},
+        files={"file": ("classroom.jpg", img_bytes, "image/jpeg")},
+    )
+    assert inactive.status_code == 400
+    await AttendanceService.start_session(test_db_session, sess.id)
+
     # 3. Test Image Attendance API (/api/v1/media-attendance/image)
     files = {'file': ('classroom.jpg', img_bytes, 'image/jpeg')}
     data = {'session_id': sess.id}
@@ -144,6 +153,10 @@ async def test_media_attendance_api_endpoints(staff_client, test_db_session):
         crop = pipeline.aligner.align(img_cv, faces[0].landmarks)
         emb = pipeline.embedder.extract_from_crop(crop)
         norm = float(np.linalg.norm(emb))
+        # Photo attendance now reads enrolled profiles from the configured DB.
+        from backend.app.models.entities import FaceProfile
+        test_db_session.add(FaceProfile(student_id=st.id, embedding_data=(emb / norm).tolist()))
+        await test_db_session.commit()
         face_recognition_service._embeddings[st.id] = (emb / norm).astype(np.float32)
         face_recognition_service._last_embeddings_load_time = pytime.time()
         face_recognition_service._gallery_matrix_cache = None

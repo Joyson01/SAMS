@@ -134,3 +134,47 @@ class SessionBiometricValidationResponse(BaseModel):
     students_missing_face_data: int
     can_process: bool
     warning_message: Optional[str] = None
+
+
+class PhotoCandidate(BaseModel):
+    student_id: str
+    score: float
+
+
+class PhotoFace(BaseModel):
+    face_ref: str
+    bbox: List[int]
+    bucket: str
+    student_id: Optional[str] = None
+    similarity: float
+    candidates: List[PhotoCandidate]
+    quality_flags: List[str]
+
+
+class PhotoPreviewImage(BaseModel):
+    image_id: str
+    annotated_image: str
+    faces: List[PhotoFace]
+
+
+class PhotoRosterStudent(BaseModel):
+    student_id: str
+    name: str
+    roll_number: str
+
+
+class PhotoPreviewResponse(BaseModel):
+    session_id: str
+    images: List[PhotoPreviewImage]
+    students: List[PhotoRosterStudent]
+
+
+class PhotoMarkedStudent(BaseModel):
+    student_id: str
+    status: str
+
+
+class PhotoConfirmResponse(BaseModel):
+    marked: int
+    unchanged: int
+    records: List[PhotoMarkedStudent]

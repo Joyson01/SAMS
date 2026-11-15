@@ -9,6 +9,7 @@ from backend.app.api.v1 import (
     health,
     media_attendance,
     phone_attendance,
+    photo_attendance,
     recognition,
     reports,
     stream,
@@ -36,3 +37,5 @@ api_router.include_router(sync.router)
 api_router.include_router(audit.router)
 api_router.include_router(stream.router)
 
+
+api_router.include_router(photo_attendance.router)

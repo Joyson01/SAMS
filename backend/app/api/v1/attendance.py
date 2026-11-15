@@ -1,7 +1,7 @@
 from datetime import date
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from backend.app.core.security import require_roles
+from backend.app.core.security import require_roles, get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
@@ -241,30 +241,37 @@ async def get_student_attendance(
 async def recognize_frame_or_image_attendance(
     session_id: Optional[str] = Form(None, description="Attendance session ID"),
     sessionId: Optional[str] = Form(None, description="Attendance session ID alias"),
-    camera_id: Optional[str] = Form(None, description="Camera ID to capture frame from directly"),
-    frame_url: Optional[str] = Form(None, description="URL of previously captured frame"),
+    camera_id: Optional[str] = Form(
+        None, description="Camera ID to capture frame from directly"
+    ),
+    frame_url: Optional[str] = Form(
+        None, description="URL of previously captured frame"
+    ),
     threshold: float = Form(0.40, description="Recognition threshold"),
-    min_face_size: int = Form(60, description="Minimum face bounding box dimension in pixels"),
-    min_detection_confidence: float = Form(0.50, description="Minimum face detection confidence score"),
-    image: Optional[UploadFile] = File(None, description="Captured/Uploaded classroom photo"),
-    file: Optional[UploadFile] = File(None, description="Captured/Uploaded classroom photo alias"),
-    photo: Optional[UploadFile] = File(None, description="Captured/Uploaded classroom photo alias"),
+    min_face_size: int = Form(
+        35, description="Minimum face bounding box dimension in pixels"
+    ),
+    min_detection_confidence: float = Form(
+        0.50, description="Minimum face detection confidence score"
+    ),
+    image: Optional[UploadFile] = File(
+        None, description="Captured/Uploaded classroom photo"
+    ),
+    file: Optional[UploadFile] = File(
+        None, description="Captured/Uploaded classroom photo alias"
+    ),
+    photo: Optional[UploadFile] = File(
+        None, description="Captured/Uploaded classroom photo alias"
+    ),
     frame: Optional[UploadFile] = File(None, description="Captured camera frame alias"),
     db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
 ):
-    import time
-    from datetime import datetime, timezone
-    import uuid
-    import traceback
     import cv2
-    import numpy as np
+    from backend.app.services.photo_attendance_service import decode_photo
     from pathlib import Path
     from backend.app.models.entities import AttendanceSession, Camera
-    from backend.app.services.face_recognition_service import recognize_frame, load_and_orient_image
     from backend.app.services.camera_service import CameraService
-    from backend.app.database import sqlite_adapter
-
-    t0 = time.perf_counter()
 
     target_session_id = session_id or sessionId
     if not target_session_id or target_session_id.strip() == "":
@@ -275,8 +282,11 @@ async def recognize_frame_or_image_attendance(
 
     # 1. Validate Session
     from sqlalchemy import select
+
     sess_res = await db.execute(
-        select(AttendanceSession).where(AttendanceSession.id == target_session_id.strip())
+        select(AttendanceSession).where(
+            AttendanceSession.id == target_session_id.strip()
+        )
     )
     sess_obj = sess_res.scalars().first()
     if not sess_obj:
@@ -296,9 +306,9 @@ async def recognize_frame_or_image_attendance(
     upload_file = image or file or photo or frame
 
     if upload_file is not None:
-        image_bytes = await upload_file.read()
+        image_bytes = await upload_file.read(15 * 1024 * 1024 + 1)
         if len(image_bytes) > 0:
-            img_cv = load_and_orient_image(image_bytes)
+            img_cv = decode_photo(image_bytes)
 
     if img_cv is None and frame_url:
         clean_url = frame_url.lstrip("/")
@@ -319,7 +329,9 @@ async def recognize_frame_or_image_attendance(
     if img_cv is None and camera_id:
         cam_model = await db.get(Camera, camera_id)
         if cam_model:
-            img_cv = await asyncio.to_thread(CameraService.capture_camera_frame, camera_id, camera_obj=cam_model)
+            img_cv = await asyncio.to_thread(
+                CameraService.capture_camera_frame, camera_id, camera_obj=cam_model
+            )
 
     if img_cv is None:
         raise HTTPException(
@@ -327,253 +339,23 @@ async def recognize_frame_or_image_attendance(
             detail="No valid photo or camera frame available. Please capture a photo or select an active camera stream.",
         )
 
-    try:
-        # 3. Resolve eligible students for the session's class
-        from backend.app.services.class_service import ClassService
-        eligible_students = []
-        if sess_obj.class_id:
-            eligible_students = await ClassService.get_eligible_students(db, sess_obj.class_id)
-        eligible_student_ids = [s.id for s in eligible_students] if eligible_students else None
+    from backend.app.services.photo_attendance_service import legacy_photo
 
-        # 4. Detect and recognize all faces using InsightFace buffalo_l
-        detections = recognize_frame(
-            frame=img_cv,
-            threshold=threshold,
-            min_face_size=min_face_size,
-            min_detection_confidence=min_detection_confidence,
-            eligible_student_ids=eligible_student_ids,
-        )
-
-        student_names = sqlite_adapter.get_all_students()
-
-        results_list = []
-        seen_student_ids = set()
-        students_recognized_count = 0
-        attendance_marked_count = 0
-        duplicates_skipped_count = 0
-        unknown_faces_count = 0
-
-        annotated_image = img_cv.copy()
-
-        for d in detections:
-            bbox = d["bbox"]
-            x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-            box_w = max(0, x2 - x1)
-            box_h = max(0, y2 - y1)
-            st_id = d.get("student_id")
-            sim = float(d.get("similarity", 0.0))
-            is_quality_valid = d.get("is_quality_valid", True)
-            is_walk_in = d.get("is_walk_in", False)
-            status_str = str(d.get("status", "unknown"))
-            is_rec = bool((status_str.lower() in ["recognized", "verified", "verified_walk_in"] or d.get("is_recognized")) and st_id)
-
-            # Check in-frame duplicate
-            if is_rec and st_id:
-                if st_id in seen_student_ids:
-                    is_rec = False
-                    status_str = "duplicate_in_frame"
-                else:
-                    seen_student_ids.add(st_id)
-
-            if is_rec and st_id:
-                students_recognized_count += 1
-                from backend.app.models.entities import Student, AttendanceRecord
-                st_obj = await db.get(Student, st_id)
-                if not st_obj:
-                    st_q = await db.execute(select(Student).where(Student.student_code == st_id))
-                    st_obj = st_q.scalars().first()
-                if st_obj:
-                    st_name = f"{st_obj.first_name} {st_obj.last_name}".strip()
-                    st_code = st_obj.student_code
-                    st_roll = st_obj.roll_number
-                    st_id = st_obj.id
-                else:
-                    st_details = sqlite_adapter.get_student_details(st_id)
-                    st_name = st_details["name"] if st_details else student_names.get(st_id, st_id)
-                    st_code = st_details["student_code"] if st_details else ""
-                    st_roll = st_details["roll_number"] if st_details else ""
-
-                # Duplicate protection check against database
-                existing_rec = (await db.execute(
-                    select(AttendanceRecord).where(
-                        AttendanceRecord.session_id == target_session_id.strip(),
-                        AttendanceRecord.student_id == st_id,
-                    )
-                )).scalars().first()
-                already_marked = (existing_rec is not None and existing_rec.status in [
-                    "PRESENT", "MANUAL_PRESENT", "LATE", "MANUAL_LATE", "EXCUSED", "MANUAL_EXCUSED", "REVIEW_REQUIRED"
-                ]) or sqlite_adapter.is_marked_present(st_id, target_session_id.strip())
-                attendance_marked = False
-
-                if already_marked:
-                    duplicates_skipped_count += 1
-                    status_str = "already_marked"
-                    box_color = (255, 140, 0)  # Blue/Sky for already marked
-                    label = f"{st_name} ({sim*100:.0f}%) [ALREADY MARKED]"
-                else:
-                    from backend.app.core.config import settings
-                    determined_status = "PRESENT"
-                    if sim < settings.KNOWN_THRESHOLD:
-                        determined_status = "REVIEW_REQUIRED"
-
-                    now_utc = datetime.now(timezone.utc)
-                    if existing_rec:
-                        existing_rec.status = determined_status
-                        existing_rec.confidence = sim
-                        existing_rec.source = "IP_CAMERA" if camera_id else "PHOTO_CAPTURE"
-                        existing_rec.last_seen = now_utc
-                    else:
-                        new_rec = AttendanceRecord(
-                            session_id=target_session_id.strip(),
-                            student_id=st_id,
-                            status=determined_status,
-                            confidence=sim,
-                            source="IP_CAMERA" if camera_id else "PHOTO_CAPTURE",
-                            first_seen=now_utc,
-                            last_seen=now_utc,
-                            remarks=f"Photo Attendance ({sim*100:.1f}%)",
-                        )
-                        db.add(new_rec)
-                    await db.commit()
-                    attendance_marked = True
-                    attendance_marked_count += 1
-                    if determined_status == "PRESENT":
-                        box_color = (0, 200, 0)  # Green
-                        label = f"{st_name} ({sim*100:.0f}%) [PRESENT]"
-                    else:
-                        box_color = (0, 165, 255) # Orange
-                        label = f"{st_name} ({sim*100:.0f}%) [REVIEW]"
-                        status_str = "review_required"
-
-                    try:
-                        sqlite_adapter.mark_attendance(
-                            student_id=st_id,
-                            session_id=target_session_id.strip(),
-                            status=determined_status,
-                            confidence=sim,
-                            source="IP_CAMERA" if camera_id else "PHOTO_CAPTURE",
-                            remarks=f"Photo Attendance ({sim*100:.1f}%)",
-                        )
-                    except Exception:
-                        pass
-
-                results_list.append({
-                    "student_id": str(st_id),
-                    "name": str(st_name),
-                    "student_name": str(st_name),
-                    "student_code": str(st_code),
-                    "roll_number": str(st_roll),
-                    "confidence": round(sim, 4),
-                    "similarity": round(sim, 4),
-                    "confidence_pct": round(sim * 100.0, 1),
-                    "status": status_str,
-                    "attendance_marked": bool(attendance_marked),
-                    "already_present": bool(already_marked),
-                    "bbox": {
-                        "x1": x1,
-                        "y1": y1,
-                        "x2": x2,
-                        "y2": y2,
-                        "x": x1,
-                        "y": y1,
-                        "width": box_w,
-                        "height": box_h,
-                    },
-                })
-            elif status_str == "low_quality":
-                box_color = (0, 165, 255)  # Orange for low quality
-                label = f"Low Quality ({d.get('quality_reason', 'blur/small')})"
-                results_list.append({
-                    "student_id": None,
-                    "name": "Low Quality Face",
-                    "student_name": "Low Quality Face",
-                    "student_code": None,
-                    "roll_number": None,
-                    "confidence": round(sim, 4),
-                    "similarity": round(sim, 4),
-                    "confidence_pct": round(sim * 100.0, 1),
-                    "status": "low_quality",
-                    "rejection_reason": d.get("quality_reason", "Low quality face"),
-                    "attendance_marked": False,
-                    "already_present": False,
-                    "bbox": {
-                        "x1": x1,
-                        "y1": y1,
-                        "x2": x2,
-                        "y2": y2,
-                        "x": x1,
-                        "y": y1,
-                        "width": box_w,
-                        "height": box_h,
-                    },
-                })
-            else:
-                unknown_faces_count += 1
-                box_color = (128, 128, 128)  # Slate for unknown
-                label = f"Unknown ({sim*100:.0f}%)"
-                results_list.append({
-                    "student_id": None,
-                    "name": "Unknown",
-                    "student_name": "Unknown",
-                    "student_code": None,
-                    "roll_number": None,
-                    "confidence": round(sim, 4),
-                    "similarity": round(sim, 4),
-                    "confidence_pct": round(sim * 100.0, 1),
-                    "status": "unknown",
-                    "attendance_marked": False,
-                    "already_present": False,
-                    "bbox": {
-                        "x1": x1,
-                        "y1": y1,
-                        "x2": x2,
-                        "y2": y2,
-                        "x": x1,
-                        "y": y1,
-                        "width": box_w,
-                        "height": box_h,
-                    },
-                })
-
-            # Draw OpenCV annotation on image
-            cv2.rectangle(annotated_image, (x1, y1), (x2, y2), box_color, 2)
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.55
-            thickness = 1
-            (tw, th), baseline = cv2.getTextSize(label, font, font_scale, thickness)
-            ty = y1 - 8 if y1 - th - 8 > 0 else y1 + th + 8
-            cv2.rectangle(annotated_image, (x1, ty - th - 4), (x1 + tw + 8, ty + 4), box_color, -1)
-            text_color = (255, 255, 255)
-            cv2.putText(annotated_image, label, (x1 + 4, ty), font, font_scale, text_color, thickness, cv2.LINE_AA)
-
-        # 4. Save annotated image to outputs/ and processed/
-        outputs_dir = Path("outputs")
-        processed_dir = Path("backend/processed/images")
-        outputs_dir.mkdir(parents=True, exist_ok=True)
-        processed_dir.mkdir(parents=True, exist_ok=True)
-
-        photo_id = uuid.uuid4().hex[:8]
-        out_filename = f"capture_{photo_id}_detected.jpg"
-        cv2.imwrite(str(outputs_dir / out_filename), annotated_image)
-        cv2.imwrite(str(processed_dir / out_filename), annotated_image)
-
-        elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
-
-        return {
-            "success": True,
-            "faces_detected": int(len(detections)),
-            "students_recognized": int(students_recognized_count),
-            "attendance_marked": int(attendance_marked_count),
-            "duplicates_skipped": int(duplicates_skipped_count),
-            "unknown_faces": int(unknown_faces_count),
-            "results": results_list,
-            "annotated_image_url": f"/outputs/{out_filename}",
-            "processing_time_ms": float(elapsed_ms),
-        }
-    except Exception as exc:
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Photo recognition error: {str(exc)}",
-        )
-
+    ok, encoded = cv2.imencode(".jpg", img_cv)
+    if not ok:
+        raise HTTPException(400, "Invalid photo")
+    response = await legacy_photo(
+        db,
+        target_session_id.strip(),
+        encoded.tobytes(),
+        upload_file.filename if upload_file else "capture.jpg",
+        user,
+    )
+    result = response.model_dump()
+    result.update(
+        students_recognized=response.recognized_count,
+        attendance_marked=response.attendance_marked_count,
+        duplicates_skipped=response.duplicates_prevented,
+        unknown_faces=response.unknown_count,
+    )
+    return result

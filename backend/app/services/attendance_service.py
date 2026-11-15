@@ -116,6 +116,9 @@ class AttendanceService:
             status="SCHEDULED",
             created_by_user_id=creator_user_id,
         )
+        from backend.app.services.photo_attendance_service import snapshot_photo_scope
+
+        await snapshot_photo_scope(db, session)
         db.add(session)
         await db.commit()
         await db.refresh(session)
@@ -129,13 +132,21 @@ class AttendanceService:
         if not session:
             raise SessionNotFoundError(session_id)
 
+        from backend.app.services.photo_attendance_service import (
+            eligible_photo_students,
+        )
+
+        eligible_ids = [s.id for s in await eligible_photo_students(db, session)]
         # Compute attendance stats
         stats_q = (
             select(
                 AttendanceRecord.status,
                 func.count(AttendanceRecord.id),
             )
-            .where(AttendanceRecord.session_id == session_id)
+            .where(
+                AttendanceRecord.session_id == session_id,
+                AttendanceRecord.student_id.in_(eligible_ids),
+            )
             .group_by(AttendanceRecord.status)
         )
         stats_res = await db.execute(stats_q)
@@ -226,13 +237,28 @@ class AttendanceService:
 
         session_ids = [s.id for s in sessions]
 
+        from backend.app.services.photo_attendance_service import (
+            eligible_photo_students,
+        )
+
+        scope_filters = []
+        for session_item in sessions:
+            eligible_ids = [
+                st.id for st in await eligible_photo_students(db, session_item)
+            ]
+            scope_filters.append(
+                and_(
+                    AttendanceRecord.session_id == session_item.id,
+                    AttendanceRecord.student_id.in_(eligible_ids),
+                )
+            )
         stats_q = (
             select(
                 AttendanceRecord.session_id,
                 AttendanceRecord.status,
-                func.count(AttendanceRecord.id).label('cnt'),
+                func.count(AttendanceRecord.id).label("cnt"),
             )
-            .where(AttendanceRecord.session_id.in_(session_ids))
+            .where(or_(*scope_filters))
             .group_by(AttendanceRecord.session_id, AttendanceRecord.status)
         )
         stats_res = await db.execute(stats_q)
@@ -299,6 +325,9 @@ class AttendanceService:
         if session.status in {"COMPLETED", "CANCELLED"}:
             raise SessionNotActiveError(session_id, session.status)
 
+        from backend.app.services.photo_attendance_service import snapshot_photo_scope
+
+        await snapshot_photo_scope(db, session)
         session.status = "ACTIVE"
         await db.commit()
         await db.refresh(session)
@@ -326,12 +355,24 @@ class AttendanceService:
         session.status = "COMPLETED"
 
         if auto_mark_absent:
-            pending_records = (await db.execute(
-                select(AttendanceRecord).where(
-                    AttendanceRecord.session_id == session_id,
-                    AttendanceRecord.status == "REVIEW_REQUIRED",
+            from backend.app.services.photo_attendance_service import (
+                eligible_photo_students,
+            )
+
+            eligible_ids = [st.id for st in await eligible_photo_students(db, session)]
+            pending_records = (
+                (
+                    await db.execute(
+                        select(AttendanceRecord).where(
+                            AttendanceRecord.session_id == session_id,
+                            AttendanceRecord.status == "REVIEW_REQUIRED",
+                            AttendanceRecord.student_id.in_(eligible_ids),
+                        )
+                    )
                 )
-            )).scalars().all()
+                .scalars()
+                .all()
+            )
             for record in pending_records:
                 record.status = "ABSENT"
                 record.source = "AUTO_ROSTER"
@@ -351,6 +392,11 @@ class AttendanceService:
             )
             students_res = await db.execute(students_q)
             class_students = students_res.scalars().all()
+            from backend.app.services.photo_attendance_service import (
+                eligible_photo_students,
+            )
+
+            class_students = await eligible_photo_students(db, session)
 
             # Query student IDs who already have records
             existing_records_q = select(AttendanceRecord.student_id).where(AttendanceRecord.session_id == session_id)
@@ -381,6 +427,99 @@ class AttendanceService:
 
         logger.info(f"Closed attendance session: {session.session_code}")
         return await cls.get_session_by_id(db, session_id)
+
+    @classmethod
+    async def confirm_photo_attendance(cls, db, session_id, selections, actor_id):
+        from fastapi import HTTPException
+        from backend.app.models.entities import FaceProfile, AuditLog
+        from backend.app.services.photo_attendance_service import (
+            active_session,
+            eligible_photo_students,
+            validate_evidence,
+        )
+
+        approvals = validate_evidence(selections, session_id, actor_id)
+        await cls.lock_session(db, session_id)
+        session = await active_session(db, session_id)
+        eligible = {s.id for s in await eligible_photo_students(db, session)}
+        from backend.app.services.photo_attendance_service import valid_gallery
+
+        profiles = (
+            await db.scalars(
+                select(FaceProfile).where(FaceProfile.student_id.in_(eligible))
+            )
+        ).all()
+        enrolled = set(valid_gallery(profiles))
+        if not set(approvals).issubset(eligible & enrolled):
+            raise HTTPException(
+                400, "Student is no longer enrolled in this session's roster"
+            )
+        now = _utc_now()
+        start = datetime.combine(
+            session.scheduled_date, session.start_time, tzinfo=timezone.utc
+        )
+        status = (
+            "LATE"
+            if now > start + timedelta(minutes=session.late_threshold_minutes)
+            else "PRESENT"
+        )
+        marked = 0
+        results = []
+        for student_id, evidence in approvals.items():
+            record = await db.scalar(
+                select(AttendanceRecord).where(
+                    AttendanceRecord.session_id == session_id,
+                    AttendanceRecord.student_id == student_id,
+                )
+            )
+            protected = record is not None and (
+                record.source == "MANUAL"
+                or record.status.startswith("MANUAL_")
+                or record.status in {"EXCUSED", "PRESENT", "LATE"}
+            )
+            if not protected:
+                if record is None:
+                    record = AttendanceRecord(
+                        session_id=session_id, student_id=student_id
+                    )
+                    db.add(record)
+                record.status = status
+                record.source = "PHOTO"
+                record.first_seen = now
+                record.last_seen = now
+                record.confidence = max(0.0, min(1.0, evidence["similarity"]))
+                record.marked_by_user_id = actor_id
+                record.liveness_score = 0.0
+                record.verification_metadata = {
+                    "liveness_checked": False,
+                    "bucket": evidence["bucket"],
+                    "image_digest": evidence["image"],
+                    "reviewed_by": actor_id,
+                    "face_index": evidence["face"],
+                    "detected_student_id": evidence.get("student_id"),
+                    "identity_override": evidence.get("student_id") != student_id,
+                }
+                marked += 1
+            results.append({"student_id": student_id, "status": record.status, "attendance_marked": not protected})
+        db.add(
+            AuditLog(
+                user_id=actor_id,
+                action="PHOTO_CONFIRM",
+                entity_type="attendance_sessions",
+                entity_id=session_id,
+                new_values={
+                    "source": "PHOTO",
+                    "marked": marked,
+                    "approved": len(approvals),
+                },
+            )
+        )
+        await db.commit()
+        return {
+            "marked": marked,
+            "unchanged": len(approvals) - marked,
+            "records": results,
+        }
 
     @classmethod
     async def mark_attendance(
@@ -663,6 +802,11 @@ class AttendanceService:
             .order_by(Student.roll_number.asc(), Student.first_name.asc())
         )
         students = (await db.execute(students_q)).scalars().all()
+        from backend.app.services.photo_attendance_service import (
+            eligible_photo_students,
+        )
+
+        students = await eligible_photo_students(db, session)
 
         # 2. Fetch existing attendance records for this session
         records_q = (
