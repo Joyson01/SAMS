@@ -15,6 +15,24 @@ The repository is named **SAMS**. Use the **`joyson` branch** for the current ap
 
 The app also contains enrollment, recognition and photo-review workflows. Detection counts and similarity scores should not be treated as proof of identity or classroom-wide accuracy.
 
+## Contents
+
+- [Technology](#technology)
+- [System architecture](#system-architecture)
+- [Project workflow](#project-workflow)
+- [AI models and their responsibilities](#ai-models-and-their-responsibilities)
+- [Machine-learning concepts](#machine-learning-concepts)
+- [Algorithms and image processing](#algorithms-and-image-processing)
+- [Database and attendance logic](#database-and-attendance-logic)
+- [Evaluation and limitations](#evaluation-and-limitations)
+- [Run on your laptop](#run-on-your-laptop)
+- [Anonymous photo detection](#anonymous-photo-detection)
+- [Verification commands](#verification-commands)
+- [Configuration and operations](#configuration-and-operations)
+- [API](#api)
+- [Repository guide](#repository-guide)
+- [Technical references](#technical-references)
+
 ## Technology
 
 | Layer | Stack |
@@ -23,6 +41,253 @@ The app also contains enrollment, recognition and photo-review workflows. Detect
 | API | Python, FastAPI, SQLAlchemy |
 | Storage | SQLite for local development; PostgreSQL support |
 | Vision | InsightFace buffalo_l, ONNX Runtime, OpenCV, Pillow |
+
+## System architecture
+
+AttedDEL has three main application layers. React presents records and captures user actions. FastAPI authenticates requests and coordinates services. SQLAlchemy reads and writes persistent records. Vision processing is a separate group of Python components called by selected services.
+
+```mermaid
+flowchart LR
+    User[Faculty, administrator or student] --> UI[React and TypeScript interface]
+    UI --> API[FastAPI API and role checks]
+    API --> Academic[Student and academic services]
+    API --> Attendance[Attendance and report services]
+    API --> Diagnostic[Anonymous photo detection service]
+    API --> Existing[Existing recognition and media services]
+    Academic --> DB[(SQLAlchemy: SQLite or PostgreSQL)]
+    Attendance --> DB
+    Existing --> DB
+    Existing --> Vision[Vision components]
+    Diagnostic --> Detector[Face detector only]
+    Vision --> Runtime[ONNX Runtime]
+    Detector --> Runtime
+```
+
+The anonymous diagnostic path does not query student profiles or write attendance. Other application services have their own persistence rules; a single diagram should not imply that every image request records attendance.
+
+### Application layers
+
+| Layer | Responsibility | Main source |
+| --- | --- | --- |
+| Presentation | Navigation, forms, tables, image overlays, light/dark themes | [`frontend/src/`](frontend/src/) |
+| API boundary | Request validation, authentication, role checks and response schemas | [`backend/app/api/v1/`](backend/app/api/v1/) |
+| Business services | Session lifecycle, academic records, manual updates and reports | [`backend/app/services/`](backend/app/services/) |
+| Persistence | Entities, relationships, constraints and transactions | [`backend/app/models/entities.py`](backend/app/models/entities.py) |
+| Vision | Detection, geometric processing, feature extraction and tracking components | [`ai_engine/`](ai_engine/) |
+
+Runtime state and database state are different. Stream trackers, temporary observation buffers and the in-memory gallery are process-local. Student records and attendance records are stored in the database. Restarting a process clears temporary state; it does not erase the database.
+
+## Project workflow
+
+### Administrative flowchart
+
+```mermaid
+flowchart TD
+    A[Sign in] --> B{Account role}
+    B -->|Student| C[View linked personal attendance]
+    B -->|Authorized staff| D[Manage classes, subjects and student records]
+    D --> E[Prepare timetable and session roster]
+    E --> F[Create or select attendance session]
+    F --> G[Start session]
+    G --> H[Review attendance records and apply permitted corrections]
+    H --> I[Close session]
+    I --> J[Resolve remaining roster records under closing rules]
+    J --> K[View reports or export CSV]
+```
+
+The timetable describes when a class is scheduled. A session represents an actual attendance event. A record connects one student to one session. These are separate objects: editing a timetable entry is not equivalent to marking a student present.
+
+### Anonymous image analysis flowchart
+
+```mermaid
+flowchart TD
+    A[Upload a still photo] --> B[Check authorization and upload limits]
+    B --> C{Valid supported image?}
+    C -->|No| D[Return an explanatory error]
+    C -->|Yes| E[Correct orientation and decode pixels]
+    E --> F[Detect faces in the image and overlapping regions]
+    F --> G[Map regional boxes to original coordinates]
+    G --> H[Remove overlapping duplicate detections]
+    H --> I[Flag small faces for visual review]
+    I --> J[Return boxes, count, scores and processing time]
+    J --> K[Display anonymous overlays]
+```
+
+No detection is a possible valid result. A face box means the detector found a face-like region; it does not establish identity, presence for an entire lecture, or the total number of occupants.
+
+## AI models and their responsibilities
+
+**`buffalo_l` is a pretrained InsightFace model package**, rather than a model trained from scratch by this repository. Its upstream model listing describes a SCRFD detector and a ResNet-50 recognition model. The implementation loads detection through InsightFace and the `w600k_r50.onnx` recognition file through ONNX Runtime. See the [upstream model zoo](https://github.com/deepinsight/insightface/blob/master/model_zoo/README.md).
+
+| Component | What it produces | What it does not establish |
+| --- | --- | --- |
+| SCRFD face detector | Bounding boxes, detection scores and facial landmarks | A person's name or attendance status |
+| ArcFace-style ResNet-50 embedding model | A 512-dimensional numeric representation | A calibrated probability of identity |
+| ONNX Runtime | Execution of exported neural-network graphs | Training, a dataset or a recognition algorithm by itself |
+| Local tracker | Temporary track IDs across frames | Permanent identities or guaranteed tracking through occlusion |
+| Quality and texture checks | Measurements and rule-based decisions | Validated spoof resistance |
+
+The detector implementation is in [`scrfd.py`](ai_engine/detection/scrfd.py), and the embedding wrapper is in [`arcface.py`](ai_engine/recognition/arcface.py). Model availability and the actual runtime provider should be inspected locally; CUDA support in code does not mean GPU inference was tested on every installation.
+
+### Training versus inference
+
+- **Training** adjusts neural-network weights using a dataset and a loss function. This repository does not contain a documented end-to-end training experiment for the supplied models.
+- **Inference** runs already-trained weights on new images. This is the neural-network operation performed by the application.
+- **Enrollment** stores reference information associated with an application record. Adding reference samples does not retrain the network or change its weights.
+- **Configuration** changes application behavior. A threshold change is not model training and does not, on its own, prove improved accuracy.
+
+## Machine-learning concepts
+
+### Convolutional neural networks and residual learning
+
+A convolutional neural network learns spatial patterns in images. Early layers can represent local edges or textures; later layers combine information into more abstract features. A ResNet adds shortcut connections around groups of layers. Those connections make deep networks easier to optimize during their original training. In this project, the resulting trained network is loaded for inference.
+
+### Representation learning and embeddings
+
+An embedding maps an image into a vector space. Images with related visual identity information are intended to have nearby representations. The vector's individual coordinates are learned features; they are not a list of named traits such as eye color or age.
+
+The local wrapper returns a **512-dimensional vector**. This dimension is a property of the model output, not a count of students or facial landmarks. Embeddings remain sensitive biometric information; representing a face with numbers does not make that information anonymous or automatically irreversible.
+
+### ArcFace and metric learning
+
+ArcFace is an approach to training discriminative face representations using an angular margin in the classification objective. Its purpose is to improve separation between identities in the learned representation space. The application consumes pretrained representations; it does not calculate the ArcFace training loss during ordinary requests. See the [ArcFace paper](https://arxiv.org/abs/1801.07698).
+
+### Vector normalization and similarity
+
+The implementation uses L2 normalization, which rescales a vector to unit length:
+
+$$
+\hat{x} = \frac{x}{\lVert x\rVert_2}
+$$
+
+Cosine similarity compares vector directions:
+
+$$
+\operatorname{cosine}(x,y)=\frac{x^T y}{\lVert x\rVert_2\lVert y\rVert_2}
+$$
+
+For normalized vectors, this is a dot product. Similarity, detection confidence, quality scores and attendance percentages answer different questions and should not be compared as if they were the same measure. In particular, a similarity of `0.8` is not evidence of an 80% probability that an identity is correct.
+
+### Open-set decisions and uncertainty
+
+A real image can contain someone absent from a reference gallery. This is an **open-set** problem: the system needs an unknown outcome instead of always choosing the nearest stored entry. The repository includes known, uncertain/review and unknown decisions. It also considers ambiguity between leading candidates. These are application decision rules around model outputs, not additional neural-network classes learned for each enrolled student.
+
+### Temporal information
+
+One frame may be blurred or partially occluded. Temporal processing uses a sequence of observations rather than treating every frame as independent. The repository contains tracking, bounded observation histories and consistency checks. Repeated observations can still repeat the same error, so temporal agreement is not a guarantee of correctness.
+
+## Algorithms and image processing
+
+The following describes the components present in the code. Some are learned models; others are numerical algorithms or ordinary application rules.
+
+| Algorithm or technique | Purpose | Source |
+| --- | --- | --- |
+| Face detection | Locate candidate facial regions | [`scrfd.py`](ai_engine/detection/scrfd.py) |
+| Intersection over Union (IoU) | Measure overlap between two bounding boxes | [`base.py`](ai_engine/base.py) |
+| Non-maximum suppression (NMS) | Suppress overlapping detections of the same region | [`scrfd.py`](ai_engine/detection/scrfd.py) |
+| Overlapping photo regions | Analyze local image regions and translate their coordinates back | [`photo.py`](ai_engine/detection/photo.py) |
+| Similarity transformation | Align landmarks using scale, rotation and translation | [`face_aligner.py`](ai_engine/alignment/face_aligner.py) |
+| Laplacian variance | Estimate sharpness from image intensity changes | [`quality_analyzer.py`](ai_engine/quality/quality_analyzer.py) |
+| Mean grayscale intensity | Measure approximate brightness | [`quality_analyzer.py`](ai_engine/quality/quality_analyzer.py) |
+| Landmark geometry | Estimate approximate head pose | [`pose_estimator.py`](ai_engine/quality/pose_estimator.py) |
+| Dense vector comparison | Compare representations in the in-memory gallery | [`vector_matcher.py`](ai_engine/recognition/vector_matcher.py) |
+| Kalman filtering | Predict box position/state between observations | [`kalman_filter.py`](ai_engine/tracking/kalman_filter.py) |
+| Linear assignment | Associate detections with predicted tracks | [`byte_tracker.py`](ai_engine/tracking/byte_tracker.py) |
+| Sliding-window aggregation | Summarize recent observations for each track | [`temporal_verifier.py`](ai_engine/verification/temporal_verifier.py) |
+
+### Bounding boxes, IoU and duplicate suppression
+
+A box is represented by its upper-left and lower-right coordinates. IoU is the intersection area divided by the union area:
+
+$$
+\operatorname{IoU}(A,B)=\frac{|A\cap B|}{|A\cup B|}
+$$
+
+NMS processes detections in confidence order and suppresses sufficiently overlapping alternatives. This is especially relevant when overlapping photo regions report the same face more than once. An unfortunate suppression can also hide a legitimate nearby detection; it is not a perfect person counter.
+
+### Alignment and quality measurements
+
+The alignment module uses five landmarks and an Umeyama-style similarity transform based on singular value decomposition. It produces a canonical **112 × 112** crop for the embedding model. This normalizes image geometry; it cannot reconstruct the hidden side of a face or recover detail absent from the source.
+
+The quality analyzer evaluates properties such as blur, brightness and face size. Laplacian variance measures variation in image second derivatives: a heavily blurred region generally has fewer sharp changes. These are image-quality heuristics, not learned identity judgments. Different processing paths have different quality rules, so there is no single universal minimum size or acceptance threshold for the entire application.
+
+### Tracking and temporal verification
+
+The code contains a local **ByteTrack-style** tracker using Kalman box prediction, overlap costs and SciPy linear assignment. It separates detection confidence groups during association. This is a local implementation, not evidence that the original ByteTrack benchmark results apply here. The original method is described in the [ByteTrack paper](https://arxiv.org/abs/2110.06864).
+
+Tracking state and observation buffers are scoped by session/camera context in the recognition service. A track ID is temporary and can change after loss or reset. The temporal verifier uses configurable windows and consistency conditions; describing every runtime as a fixed “3 of 5 frames” algorithm would be inaccurate.
+
+### Texture checks and liveness limitations
+
+The existing liveness modules use texture/frequency measurements, including Fourier analysis and Laplacian statistics, plus landmark-related checks. They are heuristic components, not a demonstrated defense against printed faces, screen replay, deepfakes or other presentation attacks. Enforcement depends on the caller and configuration; the presence of a liveness score does not mean every endpoint requires it.
+
+### Concepts not demonstrated by this repository
+
+The application should not be described as a newly trained foundation model, reinforcement-learning system, LLM application or online-learning system. The core inspected gallery matcher uses NumPy matrix operations; the presence of a `pgvector` dependency does not establish that an approximate vector index is used on that path. There is no evidence here of a locally measured, universal classroom recognition accuracy or latency figure.
+
+## Database and attendance logic
+
+```mermaid
+erDiagram
+    STUDENT ||--o{ FACE_PROFILE : has
+    STUDENT ||--o{ ATTENDANCE_RECORD : receives
+    ATTENDANCE_SESSION ||--o{ ATTENDANCE_RECORD : contains
+    CLASS_SECTION ||--o{ BATCH : contains
+    CLASS_SECTION ||--o{ CLASS_SUBJECT : maps
+    SUBJECT ||--o{ CLASS_SUBJECT : maps
+    CLASS_SECTION ||--o{ TIMETABLE_ENTRY : schedules
+    SUBJECT ||--o{ ATTENDANCE_SESSION : relates
+    USER ||--o{ AUTH_SESSION : owns
+```
+
+This is a simplified relationship diagram; optional foreign keys and all auxiliary tables are defined in [`entities.py`](backend/app/models/entities.py).
+
+| Entity | Meaning |
+| --- | --- |
+| `User` / `AuthSession` | Login identity, role and authentication session |
+| `Student` | Student directory record; separate from a login account |
+| `UserStudentLink` | Explicit link used for a student's personal attendance view |
+| `FaceProfile` | Stored reference representation and related metadata |
+| `ClassSection`, `Batch`, `Subject` | Academic organization |
+| `TimetableEntry` | Planned class slot |
+| `AttendanceSession` | Scheduled or active attendance event |
+| `AttendanceRecord` | Student status for one session |
+| `AuditLog` | Application audit event; not inherently tamper-proof storage |
+
+### Session lifecycle and consistency
+
+```mermaid
+stateDiagram-v2
+    [*] --> SCHEDULED
+    SCHEDULED --> ACTIVE: Start session
+    ACTIVE --> COMPLETED: Close session
+    COMPLETED --> [*]
+```
+
+The diagram shows the ordinary start/close path. Additional states and permitted actions depend on the API. Closing a session resolves remaining roster entries under the attendance service's rules and prevents further active-session capture operations.
+
+Attendance deduplication is a database concern as well as an application concern. The schema has a unique constraint on `(session_id, student_id)`, preventing multiple rows for that pair. A row can still be updated: one stored record does not mean an immutable event history. Manual corrections record their source and generate an audit action. Detailed transition rules differ between manual, live and reviewed-photo paths.
+
+Authentication uses password hashing and bearer tokens with refresh-session handling. Role checks control staff endpoints. Authorization, roster membership and session state must be evaluated separately from image scores: none of those business rules are learned by the vision model.
+
+## Evaluation and limitations
+
+**A successful build or passing integration test proves a software behavior, not model accuracy in a classroom.** Model evaluation needs labelled, representative data and clear definitions of what counts as success.
+
+| Measure | Question it answers |
+| --- | --- |
+| Detection precision | Of the reported face boxes, how many are correct? |
+| Detection recall | Of the visible faces in the labelled images, how many were found? |
+| False acceptance / false rejection | How often does an identity decision incorrectly accept or reject? |
+| Unknown-person rejection | How does the system behave when a person is absent from the gallery? |
+| Track stability | Does a track remain consistent across a sequence? |
+| Latency | How long do decoding, inference and the full request take on specified hardware? |
+
+No representative classroom benchmark for these measures is included in this README. Results from upstream model datasets cannot be copied as this project's measured accuracy. A speed report needs hardware, input resolution, face count, runtime provider and cold/warm model state.
+
+Current practical limits include small or occluded faces, backlighting, motion blur, changing camera angles, track loss and limited image detail. Upscaling cannot create missing visual information. A photograph of the back of a person's head does not supply a visible face. Basic texture checks do not establish anti-proxy guarantees.
+
+Operational limits also matter: SQLite has write-concurrency constraints, phone capture requires a trusted browser camera context, and in-memory stream state requires deliberate deployment design. See the configuration section and manual QA notes for the supported local workflow.
 
 ## Run on your laptop
 
@@ -132,3 +397,18 @@ See the generated [API inventory](docs/API_ROUTES.md) or live OpenAPI docs for e
 | `docs/` | Setup guides, design decisions and validation reports |
 
 Keep local `.env` files, database backups, student images and runtime logs out of commits. The application data in a local checkout is not supplied by cloning this repository.
+
+## Technical references
+
+These references explain the underlying methods. Their research results are not performance measurements of this application.
+
+- [InsightFace model zoo](https://github.com/deepinsight/insightface/blob/master/model_zoo/README.md) — upstream model packages and model descriptions.
+- [ArcFace: Additive Angular Margin Loss for Deep Face Recognition](https://arxiv.org/abs/1801.07698) — the representation-learning objective associated with ArcFace.
+- [ByteTrack: Multi-Object Tracking by Associating Every Detection Box](https://arxiv.org/abs/2110.06864) — the tracking approach that informs the local tracker.
+- [Face-processing orchestration](ai_engine/pipeline/face_pipeline.py) — actual component invocation and optional checks in this repository.
+- [Recognition service](backend/app/services/recognition_service.py) — runtime configuration and stream-state ownership.
+- [Anonymous detection service](backend/app/services/anonymous_detection.py) — isolated detection-only request processing.
+- [Attendance service](backend/app/services/attendance_service.py) — session closure, record updates and manual corrections.
+- [UI direction and validation](docs/UNSLOP_DIRECTION.md) — design decisions and the scope of browser checks.
+
+Documentation describes the inspected `joyson` application as of November 16, 2026. Configuration and source code take precedence over illustrative diagrams; older reports describe their own recorded runs.
