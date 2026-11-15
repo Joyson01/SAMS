@@ -326,6 +326,22 @@ class AttendanceService:
         session.status = "COMPLETED"
 
         if auto_mark_absent:
+            pending_records = (await db.execute(
+                select(AttendanceRecord).where(
+                    AttendanceRecord.session_id == session_id,
+                    AttendanceRecord.status == "REVIEW_REQUIRED",
+                )
+            )).scalars().all()
+            for record in pending_records:
+                record.status = "ABSENT"
+                record.source = "AUTO_ROSTER"
+                record.confidence = 0.0
+                record.verification_metadata = {
+                    **(record.verification_metadata or {}),
+                    "resolution": "ABSENT_ON_CLOSE",
+                }
+                record.remarks = "Absent (Unresolved when session was finalized)"
+
             # Query all active students enrolled in this class
             students_q = select(Student).where(
                 and_(
@@ -509,7 +525,13 @@ class AttendanceService:
         user_id: Optional[str] = None,
     ) -> AttendanceRecordResponse:
         """Manually corrects attendance record (PRESENT, ABSENT, LATE, EXCUSED) with audit trail logging."""
-        record = await db.get(AttendanceRecord, record_id)
+        session_id = await db.scalar(
+            select(AttendanceRecord.session_id).where(AttendanceRecord.id == record_id)
+        )
+        if not session_id:
+            raise RecordNotFoundError(record_id)
+        await cls.lock_session(db, session_id)
+        record = await db.get(AttendanceRecord, record_id, populate_existing=True)
         if not record:
             raise RecordNotFoundError(record_id)
 

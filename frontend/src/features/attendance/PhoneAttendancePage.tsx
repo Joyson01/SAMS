@@ -311,14 +311,14 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
     }));
   });
 
-  const unmarked = roster?.roster.filter(student => !student.record_id).length ?? 0;
   const needsReview = (status: string) => status === 'NOT_RECORDED' || status === 'REVIEW_REQUIRED';
+  const unmarked = roster?.roster.filter(student => needsReview(student.attendance_status)).length ?? 0;
   const remaining = roster?.roster.filter(student => needsReview(student.attendance_status)).length;
   const displayedRoster = roster?.session_id === sessionId ? roster : undefined;
   const visibleStudents = displayedRoster?.roster.filter(student => {
     const query = rosterSearch.trim().toLowerCase();
     const matches = !query || `${student.student_name} ${student.roll_number}`.toLowerCase().includes(query);
-    return matches && (rosterView === 'all' || needsReview(student.attendance_status));
+    return matches && (session?.status === 'COMPLETED' || rosterView === 'all' || needsReview(student.attendance_status));
   }) ?? [];
 
   return (
@@ -447,7 +447,8 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
               </li>
             ))}
             {!visibleStudents.length && <li className="p-4 text-sm text-slate-600">
-              {rosterSearch ? 'No students match that search.' : 'Everyone is resolved. You can finish attendance.'}
+              {rosterSearch ? 'No students match that search.' : session.status === 'COMPLETED'
+                ? 'No students were enrolled in this session.' : 'Everyone is resolved. You can finish attendance.'}
             </li>}
           </ul>
           {session.status === 'ACTIVE' && review && <button className={button} onClick={() => setReview(false)}>Rescan class</button>}

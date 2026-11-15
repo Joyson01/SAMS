@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import io
 from datetime import timedelta
 from typing import Optional
@@ -121,6 +122,7 @@ async def capture(
             data.extend(chunk)
         if not data:
             raise HTTPException(400, "Choose a photo to continue.")
+        frame_digest = hashlib.sha256(data).hexdigest()
         result = await asyncio.to_thread(recognize_image, data, gallery)
         if isinstance(result, tuple):
             detections, quality = result
@@ -158,19 +160,31 @@ async def capture(
                 source="PHONE_CAPTURE", confidence=similarity, liveness_score=0.0,
                 verification_metadata={
                     "liveness_checked": False, "usable_live_frames": 1,
-                    "scanner_id": scanner_id[:80],
+                    "scanner_id": scanner_id[:80], "frame_digest": frame_digest,
+                    "live_pending": True,
                 },
             ))
             pending += 1
             continue
         if existing is not None:
+            if capture_mode.lower() == "live" and existing.status == "REVIEW_REQUIRED":
+                metadata = existing.verification_metadata or {}
+                if (
+                    existing.source != "PHONE_CAPTURE" or not metadata.get("live_pending")
+                    or metadata.get("scanner_id") != scanner_id[:80]
+                    or metadata.get("frame_digest") == frame_digest
+                ):
+                    pending += 1
+                    continue
             if existing.status != "REVIEW_REQUIRED" or existing.source == "MANUAL":
                 continue
             existing.status = "PRESENT"
             existing.source = "PHONE_CAPTURE"
             existing.confidence = similarity
             existing.liveness_score = 0.0
-            existing.verification_metadata = {"liveness_checked": False, "usable_live_frames": 2}
+            existing.verification_metadata = {
+                "liveness_checked": False, "usable_live_frames": 2, "live_pending": False,
+            }
         else:
             db.add(AttendanceRecord(
                 session_id=session.id, student_id=student_id, status="PRESENT",

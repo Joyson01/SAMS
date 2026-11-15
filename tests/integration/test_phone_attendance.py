@@ -141,9 +141,15 @@ async def test_live_capture_waits_for_repeated_evidence(client, test_db_session,
     }
 
     first = await client.post(f"{path}/capture", headers=headers, content=photo.getvalue())
-    second = await client.post(f"{path}/capture", headers=headers, content=photo.getvalue())
+    retry = await client.post(f"{path}/capture", headers=headers, content=photo.getvalue())
+    pixels[0, 0] = 255 - pixels[0, 0]
+    next_photo = io.BytesIO()
+    Image.fromarray(np.repeat(pixels[:, :, None], 3, axis=2)).save(next_photo, format="JPEG", quality=90)
+    second = await client.post(f"{path}/capture", headers=headers, content=next_photo.getvalue())
 
     assert first.json()["pending"] == 1
     assert first.json()["marked"] == 0
+    assert retry.json()["pending"] == 1
+    assert retry.json()["marked"] == 0
     assert second.json()["pending"] == 0
     assert second.json()["marked"] == 1
