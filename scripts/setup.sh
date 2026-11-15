@@ -84,13 +84,13 @@ if command -v corepack &>/dev/null; then
     corepack enable &>/dev/null || true
 fi
 
-if command -v pnpm &>/dev/null; then
+if command -v pnpm &>/dev/null && pnpm -v &>/dev/null; then
     pnpm install --silent
-elif command -v corepack &>/dev/null; then
-    corepack pnpm install --silent
-else
-    echo "  ℹ pnpm not found directly, falling back to npm install..."
+elif command -v npm &>/dev/null; then
+    echo "  ℹ Using npm install..."
     npm install --silent
+elif command -v corepack &>/dev/null && corepack pnpm -v &>/dev/null; then
+    corepack pnpm install --silent
 fi
 cd "${ROOT_DIR}"
 echo "  ✓ Frontend dependencies installed"
