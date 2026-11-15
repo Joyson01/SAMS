@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Union
 from pydantic import ValidationInfo
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -47,13 +47,33 @@ class Settings(BaseSettings):
         return value
 
     # CORS
-    BACKEND_CORS_ORIGINS: List[str] = [
+    BACKEND_CORS_ORIGINS: Union[List[str], str] = [
         "http://localhost:5173",
         "http://localhost:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
         "http://0.0.0.0:5173",
     ]
+
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v: Any) -> List[str]:
+        if isinstance(v, str):
+            v_str = v.strip()
+            if not v_str:
+                return []
+            if v_str.startswith("[") and v_str.endswith("]"):
+                import json
+                try:
+                    parsed = json.loads(v_str)
+                    if isinstance(parsed, list):
+                        return [str(x).strip() for x in parsed if str(x).strip()]
+                except Exception:
+                    pass
+            return [origin.strip() for origin in v_str.split(",") if origin.strip()]
+        if isinstance(v, list):
+            return [str(origin).strip() for origin in v if str(origin).strip()]
+        return []
 
     # Logging
     LOG_LEVEL: str = "INFO"

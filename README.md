@@ -1,5 +1,8 @@
 # AttedDEL
 
+> [!IMPORTANT]
+> **Production & Pilot Deployment**: For complete first-boot commands, Docker Compose orchestration, TLS certificate generation, staff account bootstrapping, backup, restore, and rollback procedures, refer to the canonical [Deployment Runbook](docs/DEPLOYMENT_RUNBOOK.md).
+
 ### Authentication & Session Security
 
 The API uses signed JWT bearer access tokens and server-side revocable refresh sessions.
@@ -463,6 +466,9 @@ AttedDEL/
 ---
 
 ## Installation
+
+> [!TIP]
+> For container-based deployment in production or a private college pilot, follow the unified [Deployment Runbook](docs/DEPLOYMENT_RUNBOOK.md). The instructions below cover local bare-metal developer setup.
 
 ### Prerequisites
 

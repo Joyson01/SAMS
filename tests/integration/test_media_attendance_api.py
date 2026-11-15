@@ -1,6 +1,7 @@
 import pytest
 import io
 from datetime import date, time
+import numpy as np
 from PIL import Image
 
 from backend.app.models.entities import AttendanceSession, Student
@@ -13,7 +14,14 @@ from backend.app.services.subject_service import SubjectService
 
 
 @pytest.mark.asyncio
-async def test_media_attendance_api_endpoints(client, test_db_session):
+async def test_media_attendance_unauthorized(client):
+    """Verifies that unauthenticated access to media attendance is rejected."""
+    resp = await client.get("/api/v1/media-attendance/jobs")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_media_attendance_api_endpoints(staff_client, test_db_session):
     # 1. Setup Subject & Session
     subj = await SubjectService.create_subject(
         test_db_session,
@@ -39,7 +47,7 @@ async def test_media_attendance_api_endpoints(client, test_db_session):
     )
 
     # 1b. Test Session Biometric Validation API
-    val_resp = await client.get(f'/api/v1/media-attendance/session-validation/{sess.id}')
+    val_resp = await staff_client.get(f'/api/v1/media-attendance/session-validation/{sess.id}')
     assert val_resp.status_code == 200
     val_json = val_resp.json()
     assert val_json['session_id'] == sess.id
@@ -53,7 +61,7 @@ async def test_media_attendance_api_endpoints(client, test_db_session):
     img_bytes = img_byte_arr.getvalue()
 
     diag_files = {'file': ('classroom_diag.jpg', img_bytes, 'image/jpeg')}
-    diag_resp = await client.post('/api/v1/media-attendance/analyze-image', files=diag_files)
+    diag_resp = await staff_client.post('/api/v1/media-attendance/analyze-image', files=diag_files)
     assert diag_resp.status_code == 200
     diag_json = diag_resp.json()
     assert "faces_detected" in diag_json
@@ -63,7 +71,7 @@ async def test_media_attendance_api_endpoints(client, test_db_session):
     files = {'file': ('classroom.jpg', img_bytes, 'image/jpeg')}
     data = {'session_id': sess.id}
 
-    img_resp = await client.post('/api/v1/media-attendance/image', data=data, files=files)
+    img_resp = await staff_client.post('/api/v1/media-attendance/image', data=data, files=files)
     assert img_resp.status_code == 200
     img_json = img_resp.json()
     assert img_json['status'] == 'COMPLETED'
@@ -76,42 +84,74 @@ async def test_media_attendance_api_endpoints(client, test_db_session):
     # 3b. Test Image Attendance via /api alias and sessionId alias
     files_alias = {'image': ('classroom_alias.jpg', img_bytes, 'image/jpeg')}
     data_alias = {'sessionId': sess.id}
-    img_alias_resp = await client.post('/api/media-attendance/image', data=data_alias, files=files_alias)
+    img_alias_resp = await staff_client.post('/api/media-attendance/image', data=data_alias, files=files_alias)
     assert img_alias_resp.status_code == 200
     assert img_alias_resp.json()['status'] == 'COMPLETED'
 
     # 3c. Test missing session ID returns 400 Bad Request
-    bad_resp = await client.post('/api/v1/media-attendance/image', data={}, files=files)
+    bad_resp = await staff_client.post('/api/v1/media-attendance/image', data={}, files=files)
     assert bad_resp.status_code == 400
 
     # 4. Test List Jobs API
-    list_resp = await client.get('/api/v1/media-attendance/jobs')
+    list_resp = await staff_client.get('/api/v1/media-attendance/jobs')
     assert list_resp.status_code == 200
     jobs_list = list_resp.json()
     assert len(jobs_list) >= 1
 
     # 5. Test Get Specific Job
     if job_id:
-        get_resp = await client.get(f'/api/v1/media-attendance/jobs/{job_id}')
+        get_resp = await staff_client.get(f'/api/v1/media-attendance/jobs/{job_id}')
         assert get_resp.status_code == 200
         assert get_resp.json()['id'] == job_id
 
         # 5b. Test Get Job Results
-        res_resp = await client.get(f'/api/v1/media-attendance/jobs/{job_id}/results')
+        res_resp = await staff_client.get(f'/api/v1/media-attendance/jobs/{job_id}/results')
         assert res_resp.status_code == 200
         assert 'job' in res_resp.json()
 
         # 6. Test Delete Job
-        del_resp = await client.delete(f'/api/v1/media-attendance/jobs/{job_id}')
+        del_resp = await staff_client.delete(f'/api/v1/media-attendance/jobs/{job_id}')
         assert del_resp.status_code == 204
 
     # 7. Test Photo Capture Recognize Image API (/api/attendance/recognize-image)
+    import cv2
+    import time as pytime
+    from backend.app.services.face_recognition_service import face_recognition_service
+    from backend.app.services.recognition_service import get_pipeline
+
+    # Create enrolled student in this class
+    st = await StudentService.create_student(
+        test_db_session,
+        StudentCreate(
+            first_name="Kavya",
+            last_name="Nair",
+            email="kavya.nair@campus.edu",
+            student_code="STU-GRAPHICS-01",
+            roll_number="CSE-G-01",
+            department="Computer Science",
+            class_name="CSE-8A",
+        ),
+    )
+
     with open('tests/fixtures/sample_student.jpg', 'rb') as f:
         sample_bytes = f.read()
 
+    # Pre-register embedding for sample student so recognition succeeds
+    img_cv = cv2.imread('tests/fixtures/sample_student.jpg')
+    pipeline = get_pipeline()
+    faces = pipeline.detector.detect(img_cv)
+    if faces:
+        crop = pipeline.aligner.align(img_cv, faces[0].landmarks)
+        emb = pipeline.embedder.extract_from_crop(crop)
+        norm = float(np.linalg.norm(emb))
+        face_recognition_service._embeddings[st.id] = (emb / norm).astype(np.float32)
+        face_recognition_service._last_embeddings_load_time = pytime.time()
+        face_recognition_service._gallery_matrix_cache = None
+        face_recognition_service._gallery_ids_cache = None
+
     rec_files = {'image': ('capture.jpg', sample_bytes, 'image/jpeg')}
     rec_data = {'session_id': sess.id}
-    rec_resp = await client.post('/api/attendance/recognize-image', data=rec_data, files=rec_files)
+    rec_resp = await staff_client.post('/api/attendance/recognize-image', data=rec_data, files=rec_files)
     assert rec_resp.status_code == 200
     rec_json = rec_resp.json()
     assert rec_json['success'] is True
@@ -121,10 +161,11 @@ async def test_media_attendance_api_endpoints(client, test_db_session):
 
     # 7b. Test duplicate photo recognition
     rec_files_dup = {'image': ('capture.jpg', sample_bytes, 'image/jpeg')}
-    rec_dup_resp = await client.post('/api/attendance/recognize-image', data=rec_data, files=rec_files_dup)
+    rec_dup_resp = await staff_client.post('/api/attendance/recognize-image', data=rec_data, files=rec_files_dup)
     assert rec_dup_resp.status_code == 200
     rec_dup_json = rec_dup_resp.json()
     assert rec_dup_json['success'] is True
+    assert rec_dup_json['duplicates_skipped'] >= 1
     assert rec_dup_json['duplicates_skipped'] >= 1
 
     # Clean up

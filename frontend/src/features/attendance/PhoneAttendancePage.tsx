@@ -393,7 +393,8 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
           }} />
           <button className={button} disabled={busy} onClick={() => void perform(async () => {
             const response = await apiClient.post<{ token: string }>(`/phone-attendance/${session.id}/pair`);
-            const link = new URL('/attendance-capture', window.location.origin);
+            const baseOrigin = (import.meta.env.VITE_APP_URL as string | undefined) || window.location.origin;
+            const link = new URL('/attendance-capture', baseOrigin);
             link.searchParams.set('session', session.id);
             link.hash = new URLSearchParams({ pair: response.data.token }).toString();
             setQr(await QRCode.toDataURL(link.toString(), { width: 240 }));

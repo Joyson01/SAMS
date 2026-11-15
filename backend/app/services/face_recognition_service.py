@@ -445,6 +445,7 @@ def recognize_frame(
     min_detection_confidence: float = 0.50,
     eligible_student_ids: Optional[List[str]] = None,
     roster_gallery: Optional[Dict[str, np.ndarray]] = None,
+    return_embedding: bool = False,
 ) -> List[Dict[str, Any]]:
     return face_recognition_service.recognize_frame(
         frame=frame,
@@ -452,6 +453,7 @@ def recognize_frame(
         min_face_size=min_face_size,
         min_detection_confidence=min_detection_confidence,
         eligible_student_ids=eligible_student_ids,
+        return_embedding=return_embedding,
         roster_gallery=roster_gallery,
     )
 

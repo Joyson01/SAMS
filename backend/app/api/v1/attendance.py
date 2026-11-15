@@ -253,6 +253,7 @@ async def recognize_frame_or_image_attendance(
     db: AsyncSession = Depends(get_db),
 ):
     import time
+    from datetime import datetime, timezone
     import uuid
     import traceback
     import cv2
@@ -376,13 +377,32 @@ async def recognize_frame_or_image_attendance(
 
             if is_rec and st_id:
                 students_recognized_count += 1
-                st_details = sqlite_adapter.get_student_details(st_id)
-                st_name = st_details["name"] if st_details else student_names.get(st_id, st_id)
-                st_code = st_details["student_code"] if st_details else ""
-                st_roll = st_details["roll_number"] if st_details else ""
+                from backend.app.models.entities import Student, AttendanceRecord
+                st_obj = await db.get(Student, st_id)
+                if not st_obj:
+                    st_q = await db.execute(select(Student).where(Student.student_code == st_id))
+                    st_obj = st_q.scalars().first()
+                if st_obj:
+                    st_name = f"{st_obj.first_name} {st_obj.last_name}".strip()
+                    st_code = st_obj.student_code
+                    st_roll = st_obj.roll_number
+                    st_id = st_obj.id
+                else:
+                    st_details = sqlite_adapter.get_student_details(st_id)
+                    st_name = st_details["name"] if st_details else student_names.get(st_id, st_id)
+                    st_code = st_details["student_code"] if st_details else ""
+                    st_roll = st_details["roll_number"] if st_details else ""
 
                 # Duplicate protection check against database
-                already_marked = sqlite_adapter.is_marked_present(st_id, target_session_id.strip())
+                existing_rec = (await db.execute(
+                    select(AttendanceRecord).where(
+                        AttendanceRecord.session_id == target_session_id.strip(),
+                        AttendanceRecord.student_id == st_id,
+                    )
+                )).scalars().first()
+                already_marked = (existing_rec is not None and existing_rec.status in [
+                    "PRESENT", "MANUAL_PRESENT", "LATE", "MANUAL_LATE", "EXCUSED", "MANUAL_EXCUSED", "REVIEW_REQUIRED"
+                ]) or sqlite_adapter.is_marked_present(st_id, target_session_id.strip())
                 attendance_marked = False
 
                 if already_marked:
@@ -395,34 +415,47 @@ async def recognize_frame_or_image_attendance(
                     determined_status = "PRESENT"
                     if sim < settings.KNOWN_THRESHOLD:
                         determined_status = "REVIEW_REQUIRED"
-                        
-                    mark_res = sqlite_adapter.mark_attendance(
-                        student_id=st_id,
-                        session_id=target_session_id.strip(),
-                        status=determined_status,
-                        confidence=sim,
-                        source="IP_CAMERA" if camera_id else "PHOTO_CAPTURE",
-                        remarks=f"Photo Attendance ({sim*100:.1f}%)",
-                    )
-                    if mark_res.get("success") and mark_res.get("attendanceMarked"):
-                        attendance_marked = True
-                        attendance_marked_count += 1
-                        if determined_status == "PRESENT":
-                            box_color = (0, 200, 0)  # Green
-                            label = f"{st_name} ({sim*100:.0f}%) [PRESENT]"
-                        else:
-                            box_color = (0, 165, 255) # Orange
-                            label = f"{st_name} ({sim*100:.0f}%) [REVIEW]"
-                            status_str = "review_required"
-                    elif mark_res.get("alreadyPresent"):
-                        already_marked = True
-                        duplicates_skipped_count += 1
-                        status_str = "already_marked"
-                        box_color = (255, 140, 0)
-                        label = f"{st_name} ({sim*100:.0f}%) [ALREADY MARKED]"
+
+                    now_utc = datetime.now(timezone.utc)
+                    if existing_rec:
+                        existing_rec.status = determined_status
+                        existing_rec.confidence = sim
+                        existing_rec.source = "IP_CAMERA" if camera_id else "PHOTO_CAPTURE"
+                        existing_rec.last_seen = now_utc
                     else:
-                        box_color = (0, 200, 0)
-                        label = f"{st_name} ({sim*100:.0f}%)"
+                        new_rec = AttendanceRecord(
+                            session_id=target_session_id.strip(),
+                            student_id=st_id,
+                            status=determined_status,
+                            confidence=sim,
+                            source="IP_CAMERA" if camera_id else "PHOTO_CAPTURE",
+                            first_seen=now_utc,
+                            last_seen=now_utc,
+                            remarks=f"Photo Attendance ({sim*100:.1f}%)",
+                        )
+                        db.add(new_rec)
+                    await db.commit()
+                    attendance_marked = True
+                    attendance_marked_count += 1
+                    if determined_status == "PRESENT":
+                        box_color = (0, 200, 0)  # Green
+                        label = f"{st_name} ({sim*100:.0f}%) [PRESENT]"
+                    else:
+                        box_color = (0, 165, 255) # Orange
+                        label = f"{st_name} ({sim*100:.0f}%) [REVIEW]"
+                        status_str = "review_required"
+
+                    try:
+                        sqlite_adapter.mark_attendance(
+                            student_id=st_id,
+                            session_id=target_session_id.strip(),
+                            status=determined_status,
+                            confidence=sim,
+                            source="IP_CAMERA" if camera_id else "PHOTO_CAPTURE",
+                            remarks=f"Photo Attendance ({sim*100:.1f}%)",
+                        )
+                    except Exception:
+                        pass
 
                 results_list.append({
                     "student_id": str(st_id),

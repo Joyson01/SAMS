@@ -106,6 +106,9 @@ build/
 # IDE & OS System Files
 .vscode/
 .idea/
+.superpowers/
+infra/certs/*
+!infra/certs/.gitkeep
 *.swp
 *.swo
 *~

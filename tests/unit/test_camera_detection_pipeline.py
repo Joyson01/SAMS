@@ -51,49 +51,54 @@ def test_detector_empty_and_corrupt_inputs(detector):
 
 
 @pytest.mark.asyncio
-async def test_api_detect_endpoint_valid_image():
-    """Tests POST /api/v1/recognition/detect with real image upload."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        with open("tests/fixtures/sample_student.jpg", "rb") as f:
-            res = await client.post(
-                "/api/v1/recognition/detect",
-                files={"file": ("frame.jpg", f, "image/jpeg")},
-            )
-        assert res.status_code == 200
-        data = res.json()
-        assert data["status"] == "success"
-        assert data["total_faces"] == 1
-        assert len(data["faces"]) == 1
-        assert data["faces"][0]["is_valid"] is True
-        assert len(data["faces"][0]["box"]) == 4
-
-
-@pytest.mark.asyncio
-async def test_api_debug_detect_endpoint():
-    """Tests POST /api/v1/recognition/debug/detect development endpoint."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        with open("tests/fixtures/sample_student.jpg", "rb") as f:
-            res = await client.post(
-                "/api/v1/recognition/debug/detect",
-                files={"file": ("frame.jpg", f, "image/jpeg")},
-            )
-        assert res.status_code == 200
-        data = res.json()
-        assert "faces" in data
-        assert len(data["faces"]) == 1
-        assert data["faces"][0]["confidence"] >= 0.70
-
-
-@pytest.mark.asyncio
-async def test_api_detect_endpoint_rejects_empty_frame():
-    """Tests that empty file returns 400 Bad Request."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+async def test_api_detect_endpoint_requires_auth(client):
+    """Verifies that unauthenticated calls to /api/v1/recognition/detect return 401."""
+    with open("tests/fixtures/sample_student.jpg", "rb") as f:
         res = await client.post(
             "/api/v1/recognition/detect",
-            files={"file": ("frame.jpg", b"", "image/jpeg")},
+            files={"file": ("frame.jpg", f, "image/jpeg")},
         )
-        assert res.status_code == 400
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_api_detect_endpoint_valid_image(staff_client):
+    """Tests POST /api/v1/recognition/detect with real image upload."""
+    with open("tests/fixtures/sample_student.jpg", "rb") as f:
+        res = await staff_client.post(
+            "/api/v1/recognition/detect",
+            files={"file": ("frame.jpg", f, "image/jpeg")},
+        )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "success"
+    assert data["total_faces"] == 1
+    assert len(data["faces"]) == 1
+    assert data["faces"][0]["is_valid"] is True
+    assert len(data["faces"][0]["box"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_api_debug_detect_endpoint(staff_client):
+    """Tests POST /api/v1/recognition/debug/detect development endpoint."""
+    with open("tests/fixtures/sample_student.jpg", "rb") as f:
+        res = await staff_client.post(
+            "/api/v1/recognition/debug/detect",
+            files={"file": ("frame.jpg", f, "image/jpeg")},
+        )
+    assert res.status_code == 200
+    data = res.json()
+    assert "faces" in data
+    assert len(data["faces"]) == 1
+    assert data["faces"][0]["confidence"] >= 0.70
+
+
+@pytest.mark.asyncio
+async def test_api_detect_endpoint_rejects_empty_frame(staff_client):
+    """Tests that empty file returns 400 Bad Request."""
+    res = await staff_client.post(
+        "/api/v1/recognition/detect",
+        files={"file": ("frame.jpg", b"", "image/jpeg")},
+    )
+    assert res.status_code == 400
 
