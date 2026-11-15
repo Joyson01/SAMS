@@ -1,4 +1,3 @@
-import { useDialogFeedback } from '../../components/common/useDialogFeedback';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Calendar,
@@ -28,7 +27,7 @@ import { SessionCreatePayload } from '../../types/attendance';
 import { formatApiErrorMessage } from '../../utils/apiError';
 
 interface TimetablePageProps {
-  onNavigate?: (tab: string, extra?: string) => void;
+  onNavigate?: (tab: string, extra?: any) => void;
 }
 
 const TIME_PERIODS = [
@@ -45,8 +44,6 @@ const TIME_PERIODS = [
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
-  const { notify, feedback } = useDialogFeedback();
-  const [loadError, setLoadError] = useState('');
   // State
   const [selectedClass, setSelectedClass] = useState<ClassSection | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -107,7 +104,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
         setTimetableEntries(entries);
       }
     } catch (err) {
-      setLoadError(formatApiErrorMessage(err, 'Unable to load this view. Please try again.'));
+      console.error('Failed to load timetable data:', err);
     } finally {
       setLoading(false);
     }
@@ -246,12 +243,12 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
       if (onNavigate) {
         onNavigate('attendance');
       } else {
-        notify('Attendance session created successfully!');
+        alert('Attendance session created successfully!');
       }
-    } catch (err: unknown) {
+    } catch (err: any) {
       const msg = formatApiErrorMessage(err, 'Failed to create session.');
       setSessionError(msg);
-      const detail = (err as { response?: { data?: { detail?: { details?: { existing_session_id?: string } } } } }).response?.data?.detail;
+      const detail = err.response?.data?.detail;
       if (detail && typeof detail === 'object' && detail.details?.existing_session_id) {
         setConflictSessionId(detail.details.existing_session_id);
       }
@@ -281,7 +278,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
         room: editRoom || undefined,
         batch: editBatch || undefined,
         label: editLabel,
-        entry_type: editType as TimetableEntry['entry_type'],
+        entry_type: editType as any,
       });
       setEditingEntry(null);
       if (selectedClass) {
@@ -289,7 +286,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
         setTimetableEntries(entries);
       }
     } catch (err) {
-      notify('Failed to update timetable slot.');
+      alert('Failed to update timetable slot.');
     } finally {
       setSavingEdit(false);
     }
@@ -316,7 +313,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
         );
       }
       return (
-        <div className="h-full min-h-[96px] bg-surface-muted/40 border border-dashed border-border rounded-xl flex items-center justify-center p-2 text-slate-300 text-xs">
+        <div className="h-full min-h-[96px] bg-slate-50/40 border border-dashed border-slate-200 rounded-xl flex items-center justify-center p-2 text-slate-300 text-xs">
           —
         </div>
       );
@@ -345,7 +342,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
                 key={entry.id}
                 className={`p-2 rounded-xl border flex-1 flex flex-col justify-between text-xs transition group ${
                   isB1
-                    ? 'bg-indigo-50/50 hover:bg-indigo-100/60 border-indigo-200 text-indigo-950'
+                    ? 'bg-blue-50/50 hover:bg-blue-100/60 border-blue-200 text-blue-950'
                     : 'bg-indigo-50/50 hover:bg-indigo-100/60 border-indigo-200 text-indigo-950'
                 }`}
               >
@@ -355,26 +352,26 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
                   </div>
                   <span
                     className={`px-1 py-0.2 rounded text-[9px] font-bold shrink-0 ${
-                      isB1 ? 'bg-indigo-200 text-indigo-800' : 'bg-indigo-200 text-indigo-800'
+                      isB1 ? 'bg-blue-200 text-blue-800' : 'bg-indigo-200 text-indigo-800'
                     }`}
                   >
                     {entry.batch || 'Batch'}
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between text-[10px] text-text-muted pt-1 border-t border-border/50 mt-1">
-                  <span className="font-mono text-text-muted">{entry.room || 'Lab'}</span>
+                <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-200/50 mt-1">
+                  <span className="font-mono text-slate-600">{entry.room || 'Lab'}</span>
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => handleOpenCreateSession(entry, dayName)}
-                      className="px-1.5 py-0.5 rounded bg-surface hover:bg-indigo-600 hover:text-white text-indigo-700 font-bold text-[10px] border border-indigo-200 transition"
+                      className="px-1.5 py-0.5 rounded bg-white hover:bg-blue-600 hover:text-white text-blue-700 font-bold text-[10px] border border-blue-200 transition"
                       title="Create attendance session for this batch"
                     >
                       + Session
                     </button>
                     <button
                       onClick={() => handleOpenEditSlot(entry)}
-                      className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text transition"
+                      className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 transition"
                       title="Edit slot"
                     >
                       <Edit2 className="w-3 h-3" />
@@ -394,24 +391,24 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
 
     if (isActivity) {
       return (
-        <div className="h-full min-h-[96px] bg-surface-muted/70 hover:bg-surface-muted/60 border border-border rounded-xl p-2.5 flex flex-col justify-between text-xs transition group">
+        <div className="h-full min-h-[96px] bg-slate-100/70 hover:bg-slate-200/60 border border-slate-200 rounded-xl p-2.5 flex flex-col justify-between text-xs transition group">
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-text text-xs">{entry.label}</span>
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-surface-muted text-text uppercase">
+              <span className="font-bold text-slate-800 text-xs">{entry.label}</span>
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-200 text-slate-700 uppercase">
                 ACTIVITY
               </span>
             </div>
-            <div className="text-[10px] text-text-muted italic">
+            <div className="text-[10px] text-slate-500 italic">
               Institutional / Mentoring
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-1 border-t border-border/60 text-[10px] text-text-muted">
+          <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 text-[10px] text-slate-400">
             <span>No Attendance</span>
             <button
               onClick={() => handleOpenEditSlot(entry)}
-              className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text transition"
+              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 transition"
               title="Edit Activity"
             >
               <Edit2 className="w-3 h-3" />
@@ -423,14 +420,14 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
 
     // Teaching / Subject Entry
     return (
-      <div className="h-full min-h-[96px] bg-surface hover:bg-indigo-50/40 border border-border hover:border-indigo-300 rounded-xl p-2.5 flex flex-col justify-between shadow-xs transition group">
+      <div className="h-full min-h-[96px] bg-white hover:bg-blue-50/40 border border-slate-200 hover:border-blue-300 rounded-xl p-2.5 flex flex-col justify-between shadow-xs transition group">
         <div className="space-y-1">
           <div className="flex items-start justify-between gap-1">
-            <span className="font-bold text-text text-xs group-hover:text-indigo-700 leading-snug">
+            <span className="font-bold text-slate-900 text-xs group-hover:text-blue-700 leading-snug">
               {entry.label}
             </span>
             {entry.room && (
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-surface-muted text-text-muted shrink-0">
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-100 text-slate-600 shrink-0">
                 {entry.room}
               </span>
             )}
@@ -442,23 +439,23 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
               <span className="truncate">[{entry.subject_code}] {entry.subject_name}</span>
             </div>
           ) : (
-            <div className="text-[10px] text-text-muted italic">
+            <div className="text-[10px] text-slate-400 italic">
               Timetable Entry
             </div>
           )}
         </div>
 
-        <div className="flex items-center justify-between pt-2 border-t border-border text-xs mt-1">
+        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs mt-1">
           <button
             onClick={() => handleOpenCreateSession(entry, dayName)}
-            className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition"
+            className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-800 transition"
           >
             <Plus className="w-3 h-3" />
             <span>Create Session</span>
           </button>
           <button
             onClick={() => handleOpenEditSlot(entry)}
-            className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text transition"
+            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 transition"
             title="Edit Slot / Map Course"
           >
             <Edit2 className="w-3 h-3" />
@@ -470,42 +467,40 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
 
   return (
     <div className="space-y-6">
-      {feedback}
-      {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-danger/10 p-4 text-sm text-danger"><p>{loadError}</p><button className="min-h-11 font-semibold underline" onClick={() => {setLoadError('');void loadData();}}>Retry</button></div>}
       {/* Timetable Header Card */}
-      <div className="bg-surface rounded-3xl border border-border p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1">
-          <div className="flex items-center gap-2 text-xs font-bold text-indigo-700 uppercase tracking-wider">
-            <Layers className="w-4 h-4 text-indigo-600" />
+          <div className="flex items-center gap-2 text-xs font-bold text-blue-700 uppercase tracking-wider">
+            <Layers className="w-4 h-4 text-blue-600" />
             <span>Department of Computer Engineering</span>
             <span>·</span>
             <span>Class: TE-B</span>
           </div>
-          <h1 className="text-2xl font-black text-text tracking-tight">Official Weekly Timetable</h1>
-          <p className="text-xs text-text-muted font-medium">
-            Effective From: <span className="text-text font-bold">15/06/2026</span> · 8 Standard Teaching Periods Daily (Monday – Friday)
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Official Weekly Timetable</h1>
+          <p className="text-xs text-slate-500 font-medium">
+            Effective From: <span className="text-slate-900 font-bold">15/06/2026</span> · 8 Standard Teaching Periods Daily (Monday – Friday)
           </p>
         </div>
 
         {/* Week Navigator & Actions */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center bg-surface-muted p-1 rounded-2xl border border-border shadow-inner text-xs">
+          <div className="flex items-center bg-slate-100 p-1 rounded-2xl border border-slate-200 shadow-inner text-xs">
             <button
               onClick={handlePrevWeek}
-              className="p-1.5 rounded-xl hover:bg-surface text-text-muted hover:text-text transition"
+              className="p-1.5 rounded-xl hover:bg-white text-slate-600 hover:text-slate-900 transition"
               title="Previous Week"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
               onClick={handleCurrentWeek}
-              className="px-3 py-1.5 rounded-xl font-bold bg-surface text-indigo-700 shadow-sm text-xs transition"
+              className="px-3 py-1.5 rounded-xl font-bold bg-white text-blue-700 shadow-sm text-xs transition"
             >
               Today
             </button>
             <button
               onClick={handleNextWeek}
-              className="p-1.5 rounded-xl hover:bg-surface text-text-muted hover:text-text transition"
+              className="p-1.5 rounded-xl hover:bg-white text-slate-600 hover:text-slate-900 transition"
               title="Next Week"
             >
               <ChevronRight className="w-4 h-4" />
@@ -514,7 +509,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
 
           <button
             onClick={loadData}
-            className="p-2.5 rounded-2xl bg-surface-muted hover:bg-surface-muted text-text-muted transition"
+            className="p-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
             title="Refresh Timetable"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -523,16 +518,16 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
       </div>
 
       {/* College Timetable Grid */}
-      <div className="bg-surface rounded-3xl border border-border shadow-sm overflow-hidden">
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         {/* Week Header Indicator */}
         <div className="bg-slate-900 text-white px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-indigo-400" />
+            <Calendar className="w-4 h-4 text-blue-400" />
             <span className="font-bold">
               Week of {weekStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </span>
           </div>
-          <div className="text-text-muted text-[11px]">
+          <div className="text-slate-400 text-[11px]">
             Showing Monday – Friday schedule (Click any teaching slot to create attendance session)
           </div>
         </div>
@@ -542,8 +537,8 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
           <table className="w-full border-collapse text-left min-w-[900px]">
             {/* Table Header: Days of the Week */}
             <thead>
-              <tr className="bg-surface-muted border-b border-border text-text text-xs font-bold">
-                <th className="py-3 px-4 w-40 text-text-muted font-mono text-[11px] uppercase tracking-wider border-r border-border text-center">
+              <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 text-xs font-bold">
+                <th className="py-3 px-4 w-40 text-slate-500 font-mono text-[11px] uppercase tracking-wider border-r border-slate-200 text-center">
                   TIME PERIOD
                 </th>
                 {DAYS_OF_WEEK.map((day) => {
@@ -551,15 +546,15 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
                   return (
                     <th
                       key={day}
-                      className={`py-3 px-4 border-r border-border last:border-r-0 ${
-                        isCurrentDay ? 'bg-indigo-50/80 text-indigo-900 font-black' : ''
+                      className={`py-3 px-4 border-r border-slate-200 last:border-r-0 ${
+                        isCurrentDay ? 'bg-blue-50/80 text-blue-900 font-black' : ''
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <span>{day.toUpperCase()}</span>
                         <span
                           className={`text-[10px] font-mono font-medium px-2 py-0.5 rounded-full ${
-                            isCurrentDay ? 'bg-indigo-600 text-white font-bold' : 'text-text-muted bg-surface-muted'
+                            isCurrentDay ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 bg-slate-100'
                           }`}
                         >
                           {weekDates[day]?.formatted}
@@ -572,16 +567,16 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
             </thead>
 
             {/* Table Body: Standard Periods */}
-            <tbody className="divide-y divide-border text-text text-xs">
+            <tbody className="divide-y divide-slate-200 text-slate-800 text-xs">
               {TIME_PERIODS.map((period) => {
                 return (
-                  <tr key={period.start} className="hover:bg-surface-muted/30 transition">
+                  <tr key={period.start} className="hover:bg-slate-50/30 transition">
                     {/* Time Column */}
-                    <td className="py-3 px-3 w-40 border-r border-border bg-surface-muted/60 text-center font-mono text-[11px] text-text-muted font-bold align-middle">
+                    <td className="py-3 px-3 w-40 border-r border-slate-200 bg-slate-50/60 text-center font-mono text-[11px] text-slate-600 font-bold align-middle">
                       <div className="flex flex-col items-center justify-center space-y-0.5">
-                        <span className="text-text">{period.start}</span>
-                        <span className="text-text-muted text-[10px] font-normal">to</span>
-                        <span className="text-text">{period.end}</span>
+                        <span className="text-slate-900">{period.start}</span>
+                        <span className="text-slate-400 text-[10px] font-normal">to</span>
+                        <span className="text-slate-900">{period.end}</span>
                       </div>
                     </td>
 
@@ -593,12 +588,12 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
                       return (
                         <td
                           key={day}
-                          className={`p-2.5 border-r border-border last:border-r-0 align-top relative ${
-                            isCurrentDay ? 'bg-indigo-50/20' : ''
-                          } ${isNow ? 'ring-2 ring-indigo-500 rounded-lg' : ''}`}
+                          className={`p-2.5 border-r border-slate-200 last:border-r-0 align-top relative ${
+                            isCurrentDay ? 'bg-blue-50/20' : ''
+                          } ${isNow ? 'ring-2 ring-blue-500 rounded-lg' : ''}`}
                         >
                           {isNow && (
-                            <span className="absolute -top-2 right-2 px-1.5 py-0.5 rounded-md bg-indigo-600 text-white font-black text-[9px] tracking-wider uppercase shadow-xs z-10 animate-pulse">
+                            <span className="absolute -top-2 right-2 px-1.5 py-0.5 rounded-md bg-blue-600 text-white font-black text-[9px] tracking-wider uppercase shadow-xs z-10 animate-pulse">
                               ● NOW
                             </span>
                           )}
@@ -614,28 +609,28 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
         </div>
 
         {/* Legend Footer */}
-        <div className="p-4 bg-surface-muted border-t border-border flex flex-wrap items-center justify-between gap-4 text-xs">
+        <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-4 text-xs">
           <div className="flex flex-wrap items-center gap-4">
-            <span className="font-bold text-text">Legend:</span>
+            <span className="font-bold text-slate-700">Legend:</span>
             <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-surface border border-border shadow-2xs" />
-              <span className="text-text-muted">Subject (Teaching Slot)</span>
+              <span className="w-3 h-3 rounded bg-white border border-slate-300 shadow-2xs" />
+              <span className="text-slate-600">Subject (Teaching Slot)</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-indigo-100 border border-indigo-300" />
-              <span className="text-text-muted">Batch B1 / B2 Lab</span>
+              <span className="w-3 h-3 rounded bg-blue-100 border border-blue-300" />
+              <span className="text-slate-600">Batch B1 / B2 Lab</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-surface-muted border border-border" />
-              <span className="text-text-muted">Activity (Mentoring / Library / HM)</span>
+              <span className="w-3 h-3 rounded bg-slate-200 border border-slate-300" />
+              <span className="text-slate-600">Activity (Mentoring / Library / HM)</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded bg-amber-100 border border-amber-300" />
-              <span className="text-text-muted">Lunch Break</span>
+              <span className="text-slate-600">Lunch Break</span>
             </div>
           </div>
 
-          <div className="text-[11px] text-text-muted">
+          <div className="text-[11px] text-slate-400">
             Source: Official College Timetable (TE-B · 15/06/2026)
           </div>
         </div>
@@ -646,15 +641,15 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
       {/* ========================================================================= */}
       {sessionModalSlot && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-surface rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-border space-y-4">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <div className="flex items-center gap-2 font-bold text-text text-base">
-                <Sparkles className="w-4 h-4 text-indigo-600" />
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2 font-bold text-slate-900 text-base">
+                <Sparkles className="w-4 h-4 text-blue-600" />
                 <span>Create Attendance Session</span>
               </div>
               <button
                 onClick={() => setSessionModalSlot(null)}
-                className="text-text-muted hover:text-text-muted"
+                className="text-slate-400 hover:text-slate-600"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -683,9 +678,9 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
             )}
 
             <form onSubmit={handleCreateSessionSubmit} className="space-y-3 text-xs">
-              <div className="bg-indigo-50/60 p-3 rounded-2xl border border-indigo-100 space-y-1">
-                <div className="font-bold text-text text-sm">{sessionModalSlot.label}</div>
-                <div className="text-[11px] text-indigo-800 font-medium flex items-center gap-3">
+              <div className="bg-blue-50/60 p-3 rounded-2xl border border-blue-100 space-y-1">
+                <div className="font-bold text-slate-900 text-sm">{sessionModalSlot.label}</div>
+                <div className="text-[11px] text-blue-800 font-medium flex items-center gap-3">
                   <span>Class: {selectedClass?.name || 'TE-B'}</span>
                   <span>·</span>
                   <span>
@@ -702,30 +697,30 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="font-bold text-text">Scheduled Date *</label>
+                  <label className="font-bold text-slate-700">Scheduled Date *</label>
                   <input
                     type="date"
                     required
                     value={sessionForm.scheduled_date}
                     onChange={(e) => setSessionForm({ ...sessionForm, scheduled_date: e.target.value })}
-                    className="w-full bg-surface-muted border border-border rounded-xl px-3 py-2 text-xs font-semibold text-text focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-bold text-text">Room / Hall *</label>
+                  <label className="font-bold text-slate-700">Room / Hall *</label>
                   <input
                     type="text"
                     required
                     value={sessionForm.room}
                     onChange={(e) => setSessionForm({ ...sessionForm, room: e.target.value })}
-                    className="w-full bg-surface-muted border border-border rounded-xl px-3 py-2 text-xs font-semibold text-text focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-text">Camera Source</label>
+                <label className="font-bold text-slate-700">Camera Source</label>
                 <select
                   value={sessionForm.camera_id || ''}
                   onChange={(e) =>
@@ -735,7 +730,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
                       camera_ids: e.target.value ? [e.target.value] : [],
                     })
                   }
-                  className="w-full bg-surface-muted border border-border rounded-xl px-3 py-2 text-xs font-semibold text-text focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
                 >
                   {cameras.length === 0 ? (
                     <option value="">No cameras configured</option>
@@ -757,11 +752,11 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="font-bold text-text">Attendance Mode</label>
+                  <label className="font-bold text-slate-700">Attendance Mode</label>
                   <select
                     value={sessionForm.attendance_mode}
-                    onChange={(e) => setSessionForm({ ...sessionForm, attendance_mode: e.target.value as SessionCreatePayload['attendance_mode'] })}
-                    className="w-full bg-surface-muted border border-border rounded-xl px-3 py-2 text-xs font-semibold text-text focus:outline-none focus:border-indigo-500"
+                    onChange={(e) => setSessionForm({ ...sessionForm, attendance_mode: e.target.value as any })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
                   >
                     <option value="AI_FACE_RECOGNITION">AI Face Recognition</option>
                     <option value="MANUAL">Manual Marking</option>
@@ -769,7 +764,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-bold text-text">Late Threshold (Min)</label>
+                  <label className="font-bold text-slate-700">Late Threshold (Min)</label>
                   <input
                     type="number"
                     min="0"
@@ -781,23 +776,23 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
                         late_threshold_minutes: parseInt(e.target.value) || 10,
                       })
                     }
-                    className="w-full bg-surface-muted border border-border rounded-xl px-3 py-2 text-xs font-semibold text-text focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setSessionModalSlot(null)}
-                  className="px-4 py-2 rounded-xl bg-surface-muted hover:bg-surface-muted text-text font-bold"
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={creatingSession}
-                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-sm transition flex items-center gap-1.5 disabled:opacity-50"
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-sm transition flex items-center gap-1.5 disabled:opacity-50"
                 >
                   {creatingSession && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   <span>Create Session</span>
@@ -813,35 +808,35 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
       {/* ========================================================================= */}
       {editingEntry && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-surface rounded-3xl max-w-md w-full p-6 shadow-2xl border border-border space-y-4">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <div className="font-bold text-text text-sm flex items-center gap-2">
-                <Edit2 className="w-4 h-4 text-indigo-600" />
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                <Edit2 className="w-4 h-4 text-blue-600" />
                 <span>Edit Timetable Slot ({editingEntry.day_of_week})</span>
               </div>
-              <button onClick={() => setEditingEntry(null)} className="text-text-muted hover:text-text-muted">
+              <button onClick={() => setEditingEntry(null)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSaveEditSlot} className="space-y-3 text-xs">
               <div className="space-y-1">
-                <label className="font-bold text-text">Timetable Label *</label>
+                <label className="font-bold text-slate-700">Timetable Label *</label>
                 <input
                   type="text"
                   required
                   value={editLabel}
                   onChange={(e) => setEditLabel(e.target.value)}
-                  className="w-full bg-surface-muted border border-border rounded-xl px-3 py-2 text-xs font-semibold text-text focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-text">Map to Academic Course</label>
+                <label className="font-bold text-slate-700">Map to Academic Course</label>
                 <select
                   value={editSubjectId}
                   onChange={(e) => setEditSubjectId(e.target.value)}
-                  className="w-full bg-surface-muted border border-border rounded-xl px-3 py-2 text-xs font-semibold text-text focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
                 >
                   <option value="">(Unmapped Timetable Label)</option>
                   {subjects.map((s) => (
@@ -854,34 +849,34 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <label className="font-bold text-text">Room / Lab</label>
+                  <label className="font-bold text-slate-700">Room / Lab</label>
                   <input
                     type="text"
                     value={editRoom}
                     onChange={(e) => setEditRoom(e.target.value)}
                     placeholder="e.g. CR 26, L5, SL"
-                    className="w-full bg-surface-muted border border-border rounded-xl px-3 py-2 text-xs font-semibold text-text focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-bold text-text">Batch</label>
+                  <label className="font-bold text-slate-700">Batch</label>
                   <input
                     type="text"
                     value={editBatch}
                     onChange={(e) => setEditBatch(e.target.value)}
                     placeholder="e.g. B1, B2"
-                    className="w-full bg-surface-muted border border-border rounded-xl px-3 py-2 text-xs font-semibold text-text focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-text">Entry Type</label>
+                <label className="font-bold text-slate-700">Entry Type</label>
                 <select
                   value={editType}
                   onChange={(e) => setEditType(e.target.value)}
-                  className="w-full bg-surface-muted border border-border rounded-xl px-3 py-2 text-xs font-semibold text-text focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
                 >
                   <option value="SUBJECT">SUBJECT (Teaching)</option>
                   <option value="ACTIVITY">ACTIVITY (Mentoring/Library/HM)</option>
@@ -889,18 +884,18 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
                 </select>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setEditingEntry(null)}
-                  className="px-4 py-2 rounded-xl bg-surface-muted hover:bg-surface-muted text-text font-bold"
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={savingEdit}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold flex items-center gap-1"
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center gap-1"
                 >
                   {savingEdit && <RefreshCw className="w-3 h-3 animate-spin" />}
                   <span>Save Changes</span>

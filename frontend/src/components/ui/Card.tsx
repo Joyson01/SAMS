@@ -12,8 +12,8 @@ export const Card: React.FC<CardProps> = ({
 }) => {
   return (
     <div
-      className={`bg-white border border-slate-200 rounded-xl shadow-xs ${
-        compact ? 'p-4' : 'p-4 sm:p-6'
+      className={`bg-white border border-slate-200 rounded-lg shadow-xs ${
+        compact ? 'p-3' : 'p-4 sm:p-5'
       } ${className}`}
       {...props}
     >
@@ -44,7 +44,7 @@ export const CardTitle: React.FC<React.HTMLAttributes<HTMLHeadingElement>> = ({
 }) => {
   return (
     <h3
-      className={`text-sm sm:text-base font-semibold text-slate-900 leading-snug ${className}`}
+      className={`text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-snug ${className}`}
       {...props}
     >
       {children}

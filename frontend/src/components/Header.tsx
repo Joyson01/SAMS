@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import { Menu, User, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { ThemeToggle } from './ui/ThemeToggle';
 import { ServiceHealthResponse } from '../types';
 
 interface HeaderProps {
@@ -16,7 +15,6 @@ interface HeaderProps {
 
 const TAB_TITLES: Record<string, string> = {
   'recognition-test': 'Recognition Test',
-  'anonymous-detection': 'Anonymous Detection',
   users: 'Users',
   'my-attendance': 'My Attendance',
   dashboard: 'Dashboard',
@@ -52,7 +50,7 @@ export const Header: React.FC<HeaderProps> = ({
   const pageTitle = TAB_TITLES[activeTab] || 'Dashboard';
 
   return (
-    <header className="min-h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 select-none">
+    <header className="h-14 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 select-none">
       {/* LEFT: Page title / breadcrumb */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0">
         {onToggleMobileMenu && (
@@ -67,28 +65,26 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         <div className="flex items-center gap-1.5 min-w-0 text-xs">
-          <span className="hidden sm:inline text-xs font-medium text-text-muted shrink-0">
+          <span className="text-xs font-bold text-slate-900 tracking-tight shrink-0">
             AttedDEL
           </span>
-          <span className="hidden sm:inline text-slate-300 font-normal">/</span>
+          <span className="text-slate-300 font-normal">/</span>
           <span className="font-semibold text-slate-800 truncate text-xs sm:text-sm">
             {pageTitle}
           </span>
           <span className="text-slate-300 font-normal hidden lg:inline">•</span>
-          <span className="font-medium text-text-muted hidden lg:inline truncate">
+          <span className="font-medium text-slate-400 hidden lg:inline truncate">
             {formattedDate}
           </span>
         </div>
       </div>
 
       {/* RIGHT: System status, Notifications, User profile */}
-      <div className="flex items-center gap-1 sm:gap-3 shrink-0">
-        <ThemeToggle />
+      <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
         {/* Hardware / Camera Status Indicator (Clickable to open Cameras) */}
-        {role !== 'STUDENT' && (
         <button
           onClick={() => onNavigate('cameras')}
-          className={`hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
             offlineCameraCount > 0
               ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-900'
               : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
@@ -115,7 +111,6 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </button>
 
-        )}
         {/* User Profile */}
         <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
           <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 font-semibold text-xs shrink-0">
@@ -125,7 +120,7 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="text-xs font-semibold text-slate-900 leading-tight truncate">
               {userName}
             </span>
-            <span className="text-xs text-slate-500 leading-tight truncate">{role.charAt(0) + role.slice(1).toLowerCase()}</span>
+            <span className="text-[10px] text-slate-500 leading-tight truncate">{role}</span>
           </div>
         </div>
       </div>

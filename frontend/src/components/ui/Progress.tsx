@@ -17,7 +17,7 @@ export const Progress: React.FC<ProgressProps> = ({
   showLabel = false,
   className = '',
 }) => {
-  const percentage = Math.min(100, Math.max(0, Math.round((value / Math.max(1, max)) * 100)));
+  const percentage = Math.min(100, Math.max(0, Math.round((value / max) * 100)));
 
   const sizeClasses = {
     sm: 'h-1',
@@ -50,9 +50,9 @@ export const Progress: React.FC<ProgressProps> = ({
           <span className="font-mono">{percentage}%</span>
         </div>
       )}
-      <div role="progressbar" aria-label="Progress" aria-valuenow={percentage} aria-valuemin={0} aria-valuemax={100} className={`w-full bg-slate-100 rounded-full overflow-hidden ${sizeClasses}`}>
+      <div className={`w-full bg-slate-100 rounded-full overflow-hidden ${sizeClasses}`}>
         <div
-          className={`h-full rounded-full transition-colors duration-150 ${barColor}`}
+          className={`h-full rounded-full transition-all duration-300 ${barColor}`}
           style={{ width: `${percentage}%` }}
         />
       </div>

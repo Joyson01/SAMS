@@ -63,7 +63,7 @@ export interface MediaAnalysisResponse {
   recognized_students: MediaAttendanceItem[];
   unresolved_faces: UnresolvedFaceItem[];
   faces?: DetectedMediaFaceItem[];
-  results?: DetectedMediaFaceItem[];
+  results?: any[];
   processing_time_ms: number;
   status: string;
 }
@@ -91,7 +91,7 @@ export interface MediaJobResponse {
     recognized?: MediaAttendanceItem[];
     unresolved?: UnresolvedFaceItem[];
     faces?: DetectedMediaFaceItem[];
-    results?: DetectedMediaFaceItem[];
+    results?: any[];
     duplicates_prevented?: number;
     low_quality_count?: number;
   };

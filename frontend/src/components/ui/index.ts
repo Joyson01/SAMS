@@ -15,8 +15,3 @@ export * from './Avatar';
 export * from './EmptyState';
 export * from './Skeleton';
 
-export * from './Primitives';
-export * from './Toast';
-export * from './ThemeToggle';
-export { Progress as ProgressBar } from './Progress';
-export { StatusBadge as StatusPill } from './StatusBadge';

@@ -1,5 +1,25 @@
+import { TimetableEditor } from './features/academics/TimetableEditor';
+import { LaptopAttendancePage } from './features/live/LaptopAttendancePage';
+import { RecognitionTestPage } from './features/recognition/RecognitionTestPage';
+import { AcademicTools } from './features/academics/AcademicTools';
+import { UsersPage, MyAttendancePage } from './features/users/UsersPage';
 import React, { useState, useEffect } from 'react';
 import { DashboardLayout } from './layouts/DashboardLayout';
+import { DashboardOverview } from './pages/DashboardOverview';
+import { StudentListPage } from './features/students/StudentListPage';
+import { FaceEnrollmentPage } from './features/enrollment/FaceEnrollmentPage';
+import { PairedAttendancePage, PhoneAttendancePage } from './features/attendance/PhoneAttendancePage';
+import { AttendancePage } from './features/attendance/AttendancePage';
+import { LiveDashboardPage } from './features/live/LiveDashboardPage';
+import { MediaAttendancePage } from './features/media/MediaAttendancePage';
+import { ReportsPage } from './features/reports/ReportsPage';
+import { CameraManagementPage } from './features/cameras/CameraManagementPage';
+import { SubjectManagementPage } from './features/subjects/SubjectManagementPage';
+import { TimetablePage } from './features/timetable/TimetablePage';
+import { SettingsPage } from './features/settings/SettingsPage';
+import { MobileCameraPage } from './features/mobile/MobileCameraPage';
+import { CameraTestPage } from './features/camera-test/CameraTestPage';
+import { AuditLogsPage } from './features/security/AuditLogsPage';
 import { fetchHealthStatus } from './services/api';
 import { fetchCameras } from './services/cameraApi';
 import { ServiceHealthResponse } from './types';
@@ -9,31 +29,7 @@ import { AuthPage } from './components/auth/AuthPage';
 import { clearAuthTokens, getAccessToken } from './services/api';
 import { getCurrentUser, logout } from './services/authApi';
 
-const TimetableEditor = React.lazy(() => import('./features/academics/TimetableEditor').then(module => ({ default: module.TimetableEditor })));
-const LaptopAttendancePage = React.lazy(() => import('./features/live/LaptopAttendancePage').then(module => ({ default: module.LaptopAttendancePage })));
-const RecognitionTestPage = React.lazy(() => import('./features/recognition/RecognitionTestPage').then(module => ({ default: module.RecognitionTestPage })));
-const AnonymousDetectionPage = React.lazy(() => import('./features/detection/AnonymousDetectionPage').then(module => ({ default: module.AnonymousDetectionPage })));
-const AcademicTools = React.lazy(() => import('./features/academics/AcademicTools').then(module => ({ default: module.AcademicTools })));
-const UsersPage = React.lazy(() => import('./features/users/UsersPage').then(module => ({ default: module.UsersPage })));
-const MyAttendancePage = React.lazy(() => import('./features/users/UsersPage').then(module => ({ default: module.MyAttendancePage })));
-const DashboardOverview = React.lazy(() => import('./pages/DashboardOverview').then(module => ({ default: module.DashboardOverview })));
-const StudentListPage = React.lazy(() => import('./features/students/StudentListPage').then(module => ({ default: module.StudentListPage })));
-const FaceEnrollmentPage = React.lazy(() => import('./features/enrollment/FaceEnrollmentPage').then(module => ({ default: module.FaceEnrollmentPage })));
-const PairedAttendancePage = React.lazy(() => import('./features/attendance/PhoneAttendancePage').then(module => ({ default: module.PairedAttendancePage })));
-const PhoneAttendancePage = React.lazy(() => import('./features/attendance/PhoneAttendancePage').then(module => ({ default: module.PhoneAttendancePage })));
-const AttendancePage = React.lazy(() => import('./features/attendance/AttendancePage').then(module => ({ default: module.AttendancePage })));
-const LiveDashboardPage = React.lazy(() => import('./features/live/LiveDashboardPage').then(module => ({ default: module.LiveDashboardPage })));
-const MediaAttendancePage = React.lazy(() => import('./features/media/MediaAttendancePage').then(module => ({ default: module.MediaAttendancePage })));
-const ReportsPage = React.lazy(() => import('./features/reports/ReportsPage').then(module => ({ default: module.ReportsPage })));
-const CameraManagementPage = React.lazy(() => import('./features/cameras/CameraManagementPage').then(module => ({ default: module.CameraManagementPage })));
-const SubjectManagementPage = React.lazy(() => import('./features/subjects/SubjectManagementPage').then(module => ({ default: module.SubjectManagementPage })));
-const TimetablePage = React.lazy(() => import('./features/timetable/TimetablePage').then(module => ({ default: module.TimetablePage })));
-const SettingsPage = React.lazy(() => import('./features/settings/SettingsPage').then(module => ({ default: module.SettingsPage })));
-const MobileCameraPage = React.lazy(() => import('./features/mobile/MobileCameraPage').then(module => ({ default: module.MobileCameraPage })));
-const CameraTestPage = React.lazy(() => import('./features/camera-test/CameraTestPage').then(module => ({ default: module.CameraTestPage })));
-const AuditLogsPage = React.lazy(() => import('./features/security/AuditLogsPage').then(module => ({ default: module.AuditLogsPage })));
-
-const Workspace: React.FC = () => {
+export const App: React.FC = () => {
   const pathname = window.location.pathname;
   const authBypass = import.meta.env.VITE_AUTH_BYPASS === 'true';
 
@@ -55,7 +51,7 @@ const Workspace: React.FC = () => {
     );
   }
 
-  const [activeTab, setActiveTab] = useState<string>(pathname === '/anonymous-detection' ? 'anonymous-detection' : pathname === '/recognition-test' ? 'recognition-test' : pathname === '/mobile-enrollment' ? 'enrollment' : 'dashboard');
+  const [activeTab, setActiveTab] = useState<string>(pathname === '/recognition-test' ? 'recognition-test' : pathname === '/mobile-enrollment' ? 'enrollment' : 'dashboard');
   const [enrollingStudentId, setEnrollingStudentId] = useState<string | undefined>(new URLSearchParams(location.search).get("student_id") || undefined);
   const [healthData, setHealthData] = useState<ServiceHealthResponse | null>(null);
   const [healthStatus, setHealthStatus] = useState<'healthy' | 'degraded' | 'unhealthy' | 'loading'>('loading');
@@ -151,7 +147,7 @@ const Workspace: React.FC = () => {
         healthStatus={healthStatus}
         onRefreshHealth={loadHealth}
         isRefreshing={isRefreshing}
-        activeTab={role === 'STUDENT' ? 'my-attendance' : activeTab}
+        activeTab={activeTab}
         setActiveTab={setActiveTab}
         offlineCameraCount={offlineCameraCount}
       >
@@ -159,7 +155,6 @@ const Workspace: React.FC = () => {
           {role === 'STUDENT' && <MyAttendancePage />}
           {role !== 'STUDENT' && <>
           {activeTab === 'recognition-test' && ['ADMIN','FACULTY'].includes(role) && <RecognitionTestPage />}
-          {activeTab === 'anonymous-detection' && ['ADMIN','FACULTY'].includes(role) && <AnonymousDetectionPage />}
           {activeTab === 'users' && role === 'ADMIN' && <UsersPage />}
           {activeTab === 'dashboard' && <DashboardOverview onNavigate={handleNavigate} />}
           {activeTab === 'students' && <StudentListPage onNavigate={handleNavigate} />}
@@ -185,11 +180,5 @@ const Workspace: React.FC = () => {
     </ErrorBoundary>
   );
 };
-
-export const App: React.FC = () => (
-  <React.Suspense fallback={<div role="status" className="p-8 text-text-muted">Loading workspace…</div>}>
-    <Workspace />
-  </React.Suspense>
-);
 
 export default App;

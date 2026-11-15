@@ -1,6 +1,5 @@
 from fastapi import APIRouter
 from backend.app.api.v1 import (
-    anonymous_detection,
     attendance,
     audit,
     auth,
@@ -20,7 +19,6 @@ from backend.app.api.v1 import (
 )
 
 api_router = APIRouter()
-api_router.include_router(anonymous_detection.router)
 
 # Mount API sub-routers
 api_router.include_router(dashboard.router)

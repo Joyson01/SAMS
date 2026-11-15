@@ -1,5 +1,4 @@
-import React, { useId } from 'react';
-import { useDialog } from './useDialog';
+import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
 import { IconButton } from './IconButton';
 
@@ -22,8 +21,15 @@ export const Drawer: React.FC<DrawerProps> = ({
   footer,
   width = 'md',
 }) => {
-  const dialogRef = useDialog(isOpen, onClose);
-  const titleId = useId();
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -44,16 +50,13 @@ export const Drawer: React.FC<DrawerProps> = ({
       <div className="fixed inset-y-0 right-0 flex max-w-full pl-10">
         <div
           className={`w-screen ${widthClasses} bg-white border-l border-slate-200 shadow-2xl flex flex-col`}
-          ref={dialogRef}
-          tabIndex={-1}
-          aria-labelledby={titleId}
           role="dialog"
           aria-modal="true"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
             <div className="min-w-0 pr-3">
-              <h3 id={titleId} className="text-base font-semibold text-slate-900 tracking-tight truncate">
+              <h3 className="text-base font-bold text-slate-900 tracking-tight truncate">
                 {title}
               </h3>
               {subtitle && (

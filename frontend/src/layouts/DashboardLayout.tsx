@@ -33,7 +33,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans">
-      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[70] focus:rounded-xl focus:bg-primary focus:p-3 focus:text-primary-foreground">Skip to content</a>
       {/* Sidebar (Desktop persistent + Mobile overlay drawer) */}
       <Sidebar
         role={role}
@@ -61,15 +60,13 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
           onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
         />
         <main
-          id="main-content"
-          tabIndex={-1}
           className={`flex-1 overflow-y-auto w-full mx-auto ${
             isLiveView
               ? 'p-4 sm:p-6 max-w-[1720px]'
-              : 'p-4 sm:p-6 md:p-8 max-w-[1536px]'
+              : 'p-4 sm:p-6 md:p-8 max-w-7xl'
           }`}
         >
-          <div key={activeTab} className="route-enter">{children}</div>
+          {children}
         </main>
       </div>
     </div>

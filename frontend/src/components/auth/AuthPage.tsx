@@ -1,16 +1,12 @@
 import React, { FormEvent, useState } from 'react';
-import { Eye, EyeOff, GraduationCap } from 'lucide-react';
 import { login, register, bootstrapAdmin } from '../../services/authApi';
 import { formatApiErrorMessage } from '../../utils/apiError';
-import { Button } from '../ui';
 
 export const AuthPage: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
   const [mode, setMode] = useState(window.location.pathname === '/setup' ? 'setup' : window.location.pathname === '/register' ? 'register' : 'login');
   const [form, setForm] = useState({username: '', email: '', full_name: '', password: '', bootstrap_token: ''});
   const [error, setError] = useState(new URLSearchParams(location.search).has('expired') ? 'Your session expired. Please sign in again.' : '');
   const [busy, setBusy] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const strength = [form.password.length >= 8, /[a-z]/i.test(form.password), /\d/.test(form.password)].filter(Boolean).length;
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError(''); setBusy(true);
     try {
@@ -21,26 +17,20 @@ export const AuthPage: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
     } catch (e) { setError(formatApiErrorMessage(e, 'Unable to sign in or create the account.')); }
     finally { setBusy(false); }
   };
-  return <main className="flex min-h-screen items-center justify-center bg-background px-5 py-10 text-text">
-    <section className="w-full max-w-md rounded-xl border border-border bg-surface p-6 sm:p-9">
-      <div className="mb-8 flex items-center gap-3 border-b border-border pb-5">
-        <span className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-primary-foreground">
-          <GraduationCap size={21} aria-hidden="true"/>
-        </span>
-        <span className="font-semibold tracking-tight">AttedDEL</span>
-      </div>
-      <h1 className="mb-5 text-2xl font-semibold tracking-tight">{mode === 'login' ? 'Welcome back' : mode === 'setup' ? 'First administrator' : 'Create your account'}</h1>
-      {mode === 'setup' && <p className="mb-5 text-sm text-text-muted">Production setup requires a bootstrap token.</p>}
-      <form onSubmit={submit} className="space-y-5">
-        {(['username', ...(mode !== 'login' ? ['full_name', 'email'] : []), 'password', ...(mode === 'setup' ? ['bootstrap_token'] : [])] as (keyof typeof form)[]).map(key => <div key={key}><label htmlFor={`auth-${key}`} className="mb-2 block text-sm font-medium capitalize">{key.replace('_', ' ')}{key === 'bootstrap_token' && <span className="ml-1 text-xs font-normal text-text-muted">if required</span>}</label><div className="relative">
-          <input id={`auth-${key}`} className={`min-h-12 w-full rounded-xl border border-border bg-surface px-3 py-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 ${key === 'password' ? 'pr-14' : ''}`} type={key === 'password' ? (showPassword ? 'text' : 'password') : key === 'bootstrap_token' ? 'password' : key === 'email' ? 'email' : 'text'} required={key !== 'bootstrap_token'} minLength={key === 'password' && mode !== 'login' ? 8 : undefined} autoComplete={key === 'password' ? (mode === 'login' ? 'current-password' : 'new-password') : key === 'username' ? 'username' : key === 'email' ? 'email' : key === 'full_name' ? 'name' : 'off'} value={form[key]} disabled={busy} onChange={e => setForm({...form, [key]: e.target.value})}/>
-          {key === 'password' && <button type="button" className="absolute inset-y-0 right-0 w-12 text-text-muted" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff className="mx-auto" size={18}/> : <Eye className="mx-auto" size={18}/>}</button>}
-        </div></div>)}
-        {mode !== 'login' && <div><div className="mb-2 flex gap-1" aria-label={`Password requirements: ${strength} of 3 met`}>{[1,2,3].map(i => <div key={i} className={`h-1 flex-1 rounded-full ${strength >= i ? 'bg-primary' : 'bg-surface-muted'}`}/>)}</div><p className="text-xs leading-5 text-text-muted">Use at least 8 characters, including a letter and a digit.</p></div>}
-        {error && <p role="alert" className="rounded-xl border border-danger/30 bg-danger/10 p-3 text-sm text-danger">{error}</p>}
-        <Button disabled={busy} type="submit" className="w-full min-h-12">{busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}</Button>
+  return <main className="min-h-screen flex items-center justify-center bg-slate-950 px-4 py-10">
+    <section className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-2xl text-white">
+      <p className="text-sm font-semibold tracking-widest text-cyan-400">AttedDEL</p>
+      <h1 className="my-3 text-3xl font-bold">{mode === 'login' ? 'Welcome back' : mode === 'setup' ? 'First administrator' : 'Create student account'}</h1>
+      <p className="mb-6 text-sm text-slate-400">{mode === 'setup' ? 'Available only until the first administrator exists. Production requires a bootstrap token.' : 'Your attendance workspace, from enrollment to reports.'}</p>
+      <form onSubmit={submit} className="space-y-4">
+        {(['username', ...(mode !== 'login' ? ['full_name', 'email'] : []), 'password', ...(mode === 'setup' ? ['bootstrap_token'] : [])] as (keyof typeof form)[]).map(key => <label key={key} className="block text-sm capitalize">{key.replace('_', ' ')}
+          <input className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-950 p-3 focus:ring-2 focus:ring-cyan-400" type={key === 'password' || key === 'bootstrap_token' ? 'password' : key === 'email' ? 'email' : 'text'} required={key !== 'bootstrap_token'} minLength={key === 'password' && mode !== 'login' ? 8 : undefined} autoComplete={key === 'password' ? (mode === 'login' ? 'current-password' : 'new-password') : key === 'username' ? 'username' : undefined} value={form[key]} onChange={e => setForm({...form, [key]: e.target.value})}/>
+        </label>)}
+        {mode !== 'login' && <p className="text-xs text-slate-400">Password: at least 8 characters including a letter and a digit. Student accounts are linked to academic records by an administrator.</p>}
+        {error && <p role="alert" className="rounded bg-red-950 p-3 text-sm text-red-200">{error}</p>}
+        <button disabled={busy} className="w-full rounded-lg bg-cyan-400 p-3 font-semibold text-slate-950 disabled:opacity-50">{busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}</button>
       </form>
-      <nav aria-label="Account options" className="mt-7 flex flex-wrap justify-between gap-3 border-t border-border pt-5 text-sm">{['login', 'register', 'setup'].filter(x => x !== mode).map(x => <button key={x} className="min-h-11 font-medium text-primary" onClick={() => {setMode(x); setError(''); history.replaceState(null, '', `/${x}`);}}>{x === 'login' ? 'Sign in' : x === 'register' ? 'Create student account' : 'First-time setup'}</button>)}</nav>
+      <nav className="mt-5 flex justify-between text-sm text-cyan-300">{['login', 'register', 'setup'].filter(x => x !== mode).map(x => <button key={x} onClick={() => {setMode(x); setError(''); history.replaceState(null, '', `/${x}`);}}>{x === 'login' ? 'Sign in' : x === 'register' ? 'Register' : 'First-time setup'}</button>)}</nav>
     </section>
   </main>;
 };

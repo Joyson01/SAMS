@@ -56,9 +56,9 @@ export const CameraTestPage: React.FC = () => {
         if (videoInputs.length > 0 && !selectedDeviceId) {
           setSelectedDeviceId(videoInputs[0].deviceId);
         }
-      } catch (err: unknown) {
+      } catch (err: any) {
         console.error('Failed to enumerate devices:', err);
-        setErrorMessage((err instanceof Error ? err.message : '') || 'Could not list video devices.');
+        setErrorMessage(err.message || 'Could not list video devices.');
       }
     };
 
@@ -120,17 +120,17 @@ export const CameraTestPage: React.FC = () => {
           label: d.label || `Camera ${idx + 1}`,
         }));
       setDevices(videoInputs);
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error('getUserMedia failure:', err);
       setCameraState('ERROR');
-      let msg = (err instanceof Error ? err.message : '') || 'Unknown camera error';
-      if ((err instanceof Error ? err.name : 'Error') === 'NotAllowedError' || (err instanceof Error ? err.name : 'Error') === 'PermissionDeniedError') {
+      let msg = err.message || 'Unknown camera error';
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         msg = 'Camera permission was denied. Please click the lock/camera icon in your browser address bar and select "Allow".';
-      } else if ((err instanceof Error ? err.name : 'Error') === 'NotFoundError' || (err instanceof Error ? err.name : 'Error') === 'DevicesNotFoundError') {
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         msg = 'No camera hardware found on this computer.';
-      } else if ((err instanceof Error ? err.name : 'Error') === 'NotReadableError' || (err instanceof Error ? err.name : 'Error') === 'TrackStartError') {
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
         msg = 'Camera hardware is busy or in use by another program (e.g. Chrome tab, Zoom, OBS).';
-      } else if ((err instanceof Error ? err.name : 'Error') === 'SecurityError') {
+      } else if (err.name === 'SecurityError') {
         msg = 'Insecure context. Camera access requires HTTPS or http://localhost.';
       }
       setErrorMessage(msg);
@@ -223,13 +223,13 @@ export const CameraTestPage: React.FC = () => {
         <div>
           <a
             href="/"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-text-muted hover:text-text mb-2 transition"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 mb-2 transition"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Back to Dashboard</span>
           </a>
-          <h1 className="text-2xl font-bold text-text tracking-tight">Hardware Camera Diagnostic Test</h1>
-          <p className="text-xs text-text-muted mt-0.5">
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Hardware Camera Diagnostic Test</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
             Isolated webcam inspection without AI models or attendance dependencies.
           </p>
         </div>
@@ -245,7 +245,7 @@ export const CameraTestPage: React.FC = () => {
           ) : (
             <button
               onClick={() => startCamera(selectedDeviceId)}
-              className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary text-white text-xs font-semibold transition"
+              className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition"
             >
               Start Camera
             </button>
@@ -271,7 +271,7 @@ export const CameraTestPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left: Video Viewport */}
         <div className="lg:col-span-8 space-y-4">
-          <div className="bg-[#0f172a] border border-slate-800 rounded-2xl p-3 shadow-xl space-y-3">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-xl space-y-3">
             <div className="relative aspect-video bg-black rounded-xl overflow-hidden flex items-center justify-center border border-slate-800">
               {/* The Video Element */}
               <video
@@ -302,8 +302,8 @@ export const CameraTestPage: React.FC = () => {
               )}
 
               {cameraState === 'IDLE' && (
-                <div className="text-center text-text-muted space-y-2 p-6">
-                  <Tv className="w-10 h-10 mx-auto text-text" />
+                <div className="text-center text-slate-500 space-y-2 p-6">
+                  <Tv className="w-10 h-10 mx-auto text-slate-700" />
                   <p className="text-xs font-semibold text-slate-400">Camera stream stopped</p>
                 </div>
               )}
@@ -331,13 +331,13 @@ export const CameraTestPage: React.FC = () => {
 
             {/* Bottom Controls */}
             <div className="flex items-center justify-between pt-1 px-1">
-              <div className="flex items-center gap-2 text-xs text-[#cbd5e1]">
+              <div className="flex items-center gap-2 text-xs text-slate-300">
                 <Sliders className="w-3.5 h-3.5 text-blue-400" />
                 <span>Select Hardware Source:</span>
                 <select
                   value={selectedDeviceId}
                   onChange={(e) => setSelectedDeviceId(e.target.value)}
-                  className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-primary font-medium"
+                  className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-blue-500 font-medium"
                 >
                   {devices.map((d, idx) => (
                     <option key={d.deviceId || idx} value={d.deviceId}>
@@ -350,7 +350,7 @@ export const CameraTestPage: React.FC = () => {
               <button
                 onClick={handleTestSnapshot}
                 disabled={cameraState !== 'LIVE'}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[#e2e8f0] text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-40"
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-40"
               >
                 <Camera className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Verify Frame Snapshot</span>
@@ -362,15 +362,15 @@ export const CameraTestPage: React.FC = () => {
         {/* Right: Telemetry & Snapshot Inspector */}
         <div className="lg:col-span-4 space-y-4">
           {/* Telemetry Card */}
-          <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm space-y-3">
-            <h3 className="text-xs font-bold text-text uppercase tracking-wider border-b border-border pb-2">
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-2">
               Hardware Stream Telemetry
             </h3>
 
-            <div className="space-y-2 font-mono text-xs text-text">
+            <div className="space-y-2 font-mono text-xs text-slate-700">
               <div className="flex justify-between border-b border-slate-50 pb-1">
                 <span className="text-slate-400 font-sans">Status:</span>
-                <span className={`font-bold ${cameraState === 'LIVE' ? 'text-emerald-600' : 'text-text-muted'}`}>
+                <span className={`font-bold ${cameraState === 'LIVE' ? 'text-emerald-600' : 'text-slate-500'}`}>
                   {cameraState}
                 </span>
               </div>
@@ -380,7 +380,7 @@ export const CameraTestPage: React.FC = () => {
               </div>
               <div className="flex justify-between border-b border-slate-50 pb-1">
                 <span className="text-slate-400 font-sans">Stream Rate:</span>
-                <span className="text-primary font-bold">{fps} FPS</span>
+                <span className="text-blue-600 font-bold">{fps} FPS</span>
               </div>
               <div className="flex justify-between border-b border-slate-50 pb-1">
                 <span className="text-slate-400 font-sans">Track State:</span>
@@ -403,9 +403,9 @@ export const CameraTestPage: React.FC = () => {
 
           {/* Snapshot Verification Card */}
           {testSnapshotUrl && (
-            <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm space-y-2">
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-2">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold text-text uppercase tracking-wider">
+                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                   Verified Frame Buffer
                 </h3>
                 <CheckCircle className="w-4 h-4 text-emerald-600" />
@@ -413,9 +413,9 @@ export const CameraTestPage: React.FC = () => {
               <img
                 src={testSnapshotUrl}
                 alt="Verified snapshot"
-                className="w-full rounded-lg border border-border aspect-video object-cover"
+                className="w-full rounded-lg border border-slate-200 aspect-video object-cover"
               />
-              <div className="text-[11px] font-mono text-text-muted flex justify-between pt-1">
+              <div className="text-[11px] font-mono text-slate-600 flex justify-between pt-1">
                 <span>Avg Luminance: {avgLuminance} / 255</span>
                 <span className={avgLuminance && avgLuminance > 15 ? 'text-emerald-600 font-bold' : 'text-amber-600 font-bold'}>
                   {avgLuminance && avgLuminance > 15 ? 'Valid RGB Feed' : 'Low Light'}

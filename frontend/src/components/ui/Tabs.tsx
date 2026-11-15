@@ -31,13 +31,12 @@ export const Tabs: React.FC<TabsProps> = ({
           const isActive = tab.id === activeId;
           return (
             <button
-              aria-pressed={isActive}
               key={tab.id}
               type="button"
               onClick={() => onChange(tab.id)}
               className={`flex items-center gap-2 pb-2.5 px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors cursor-pointer ${
                 isActive
-                  ? 'border-primary text-primary font-semibold'
+                  ? 'border-blue-600 text-blue-600 font-semibold'
                   : 'border-transparent text-slate-500 hover:text-slate-800'
               }`}
             >
@@ -45,8 +44,8 @@ export const Tabs: React.FC<TabsProps> = ({
               <span>{tab.label}</span>
               {typeof tab.count === 'number' && (
                 <span
-                  className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${
-                    isActive ? 'bg-surface-muted text-text' : 'bg-slate-100 text-slate-600'
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                    isActive ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-600'
                   }`}
                 >
                   {tab.count}
@@ -67,11 +66,10 @@ export const Tabs: React.FC<TabsProps> = ({
         const isActive = tab.id === activeId;
         return (
           <button
-              aria-pressed={isActive}
             key={tab.id}
             type="button"
             onClick={() => onChange(tab.id)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all cursor-pointer ${
               isActive
                 ? 'bg-white text-slate-900 font-semibold shadow-xs'
                 : 'hover:text-slate-900 text-slate-600'
@@ -81,8 +79,8 @@ export const Tabs: React.FC<TabsProps> = ({
             <span>{tab.label}</span>
             {typeof tab.count === 'number' && (
               <span
-                className={`ml-1 px-1.5 py-0.5 rounded-full text-xs font-medium ${
-                  isActive ? 'bg-surface-muted text-text' : 'bg-slate-200 text-slate-600'
+                className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                  isActive ? 'bg-blue-50 text-blue-700' : 'bg-slate-200 text-slate-600'
                 }`}
               >
                 {tab.count}

@@ -1,4 +1,3 @@
-import { useDialogFeedback } from '../../components/common/useDialogFeedback';
 import { StudentBatchSelect } from '../../components/StudentBatchSelect';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
@@ -115,7 +114,6 @@ interface CapturedAngleSample {
 }
 
 export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) => {
-  const { confirmAction, notify, feedback } = useDialogFeedback();
   // Data State
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -175,7 +173,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
   const videoRef = useRef<HTMLVideoElement>(null);
   const captureCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const detectIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const detectIntervalRef = useRef<any>(null);
   const isDetectingRef = useRef<boolean>(false);
 
   // QR Mobile Enrollment Modal State
@@ -197,11 +195,9 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
     status: 'ACTIVE',
   });
 
-  const [loadError, setLoadError] = useState('');
   // Load students list
   const loadData = useCallback(async () => {
     setLoading(true);
-    setLoadError('');
     try {
       const res = await fetchStudents({
         search: search.trim() || undefined,
@@ -226,7 +222,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
         }
       });
     } catch (err) {
-      setLoadError(formatApiErrorMessage(err, 'Unable to load students. Please try again.'));
+      console.error('Failed to load students:', err);
     } finally {
       setLoading(false);
     }
@@ -340,7 +336,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
   };
 
   const handleDeleteSelected = async () => {
-    if (!await confirmAction(`Are you sure you want to delete ${selectedStudentIds.length} selected students? This action cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to delete ${selectedStudentIds.length} selected students? This action cannot be undone.`)) {
       return;
     }
     setLoading(true);
@@ -348,8 +344,8 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       await Promise.all(selectedStudentIds.map((id) => deleteStudent(id)));
       setSelectedStudentIds([]);
       loadData();
-    } catch (err: unknown) {
-      notify(formatApiErrorMessage(err, 'Failed to delete some students.'));
+    } catch (err: any) {
+      alert(formatApiErrorMessage(err, 'Failed to delete some students.'));
     } finally {
       setLoading(false);
     }
@@ -406,9 +402,9 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
 
       // Detection scan loop for quality / centering indicators
       detectIntervalRef.current = setInterval(runEnrollmentDetectionScan, 400);
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error('Webcam start failed:', err);
-      setCameraError(formatApiErrorMessage(err, 'Unable to access camera.'));
+      setCameraError(err.message || 'Unable to access camera.');
       setCameraActive(false);
     }
   };
@@ -581,7 +577,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
         } else {
           setEnrollErrorMessage(res.message || 'Face unclear or position invalid. Please adjust and try again.');
         }
-      } catch (err: unknown) {
+      } catch (err: any) {
         setEnrollErrorMessage(formatApiErrorMessage(err, 'Failed to capture face sample.'));
       } finally {
         setIsCapturingSample(false);
@@ -700,7 +696,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       setIsAddModalOpen(false);
       loadData();
       openFaceEnrollmentModal(created);
-    } catch (err: unknown) {
+    } catch (err: any) {
       setModalError(formatApiErrorMessage(err, 'Failed to register student.'));
     } finally {
       setFormSubmitting(false);
@@ -727,7 +723,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
             : null
         );
       }
-    } catch (err: unknown) {
+    } catch (err: any) {
       setModalError(formatApiErrorMessage(err, 'Failed to update student.'));
     } finally {
       setFormSubmitting(false);
@@ -744,8 +740,8 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
         setSelectedProfileStudent(null);
       }
       loadData();
-    } catch (err: unknown) {
-      notify(formatApiErrorMessage(err, 'Failed to delete student.'));
+    } catch (err: any) {
+      alert(formatApiErrorMessage(err, 'Failed to delete student.'));
     } finally {
       setFormSubmitting(false);
     }
@@ -765,16 +761,15 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
   const isAllSelected = displayedStudents.length > 0 && selectedStudentIds.length === displayedStudents.length;
 
   return (
-    <div className="space-y-5 max-w-7xl mx-auto">
-      {feedback}
+    <div className="space-y-4 max-w-7xl mx-auto select-none">
       {/* ========================================================================= */}
       {/* 1. PAGE HEADER */}
       {/* ========================================================================= */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl sm:text-[28px] font-medium text-text">Students</h1>
-          <p className="text-sm text-text-muted mt-2">
-            Student records and individual attendance history
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Students</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Institutional directory, multi-angle face enrollment, and individual attendance history.
           </p>
         </div>
 
@@ -785,7 +780,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
             onClick={openCreateModal}
             icon={<Plus className="w-4 h-4" />}
           >
-            Register student
+            Register Student
           </Button>
         </div>
       </div>
@@ -793,9 +788,9 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {/* 2. SEARCH & FILTER TOOLBAR */}
       {/* ========================================================================= */}
-      <div className="flex flex-wrap items-center gap-2.5">
-        <div className="relative min-w-0 basis-full sm:basis-0 flex-1">
-          <Search className="w-3.5 h-3.5 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+        <div className="relative flex-1">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={search}
@@ -803,9 +798,8 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
               setSearch(e.target.value);
               setPage(1);
             }}
-            aria-label="Search students"
             placeholder="Search students by name, roll number, or email..."
-            className="w-full bg-surface border border-border rounded-lg pl-8 pr-3 py-1.5 text-xs text-text placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 shadow-xs"
+            className="w-full bg-white border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-xs"
           />
         </div>
 
@@ -816,14 +810,14 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
             onClick={() => setIsFilterOpen(!isFilterOpen)}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition shadow-xs ${
               activeFilterCount > 0
-                ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                : 'bg-surface border-border text-text hover:bg-surface-muted'
+                ? 'bg-blue-50 border-blue-200 text-blue-700'
+                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
             }`}
           >
             <Filter className="w-3.5 h-3.5" />
             <span>Filter</span>
             {activeFilterCount > 0 && (
-              <span className="w-4 h-4 rounded-full bg-indigo-600 text-white text-[10px] flex items-center justify-center font-bold">
+              <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">
                 {activeFilterCount}
               </span>
             )}
@@ -831,13 +825,13 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
 
           {/* Filter Dropdown Popover */}
           {isFilterOpen && (
-            <div className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-64 bg-surface border border-border rounded-xl shadow-lg p-3 z-30 space-y-3 text-xs animate-in fade-in-50">
-              <div className="flex items-center justify-between border-b border-border pb-2">
-                <span className="font-bold text-text">Filter Students</span>
+            <div className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-xl shadow-lg p-3 z-30 space-y-3 text-xs animate-in fade-in-50">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <span className="font-bold text-slate-900">Filter Students</span>
                 {activeFilterCount > 0 && (
                   <button
                     onClick={handleClearFilters}
-                    className="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium"
+                    className="text-[11px] text-blue-600 hover:text-blue-800 font-medium"
                   >
                     Reset
                   </button>
@@ -846,14 +840,14 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
 
               {/* Class Filter */}
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-text-muted">Class</label>
+                <label className="text-[11px] font-semibold text-slate-600">Class</label>
                 <select
-                  aria-label="Filter by Class" value={filterClass}
+                  value={filterClass}
                   onChange={(e) => {
                     setFilterClass(e.target.value);
                     setPage(1);
                   }}
-                  className="w-full bg-surface-muted border border-border rounded-lg px-2.5 py-1 text-xs text-text focus:bg-surface focus:outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800 focus:bg-white focus:outline-none"
                 >
                   <option value="">All Classes</option>
                   {availableClasses.map((c) => (
@@ -864,14 +858,14 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
 
               {/* Section Filter */}
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-text-muted">Section</label>
+                <label className="text-[11px] font-semibold text-slate-600">Section</label>
                 <select
-                  aria-label="Filter by Section" value={filterSection}
+                  value={filterSection}
                   onChange={(e) => {
                     setFilterSection(e.target.value);
                     setPage(1);
                   }}
-                  className="w-full bg-surface-muted border border-border rounded-lg px-2.5 py-1 text-xs text-text focus:bg-surface focus:outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800 focus:bg-white focus:outline-none"
                 >
                   <option value="">All Sections</option>
                   <option value="A">Section A</option>
@@ -882,14 +876,14 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
 
               {/* Face Enrollment Filter */}
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-text-muted">Face Enrollment</label>
+                <label className="text-[11px] font-semibold text-slate-600">Face Enrollment</label>
                 <select
-                  aria-label="Filter by Enrollment" value={filterEnrollment}
+                  value={filterEnrollment}
                   onChange={(e) => {
                     setFilterEnrollment(e.target.value);
                     setPage(1);
                   }}
-                  className="w-full bg-surface-muted border border-border rounded-lg px-2.5 py-1 text-xs text-text focus:bg-surface focus:outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800 focus:bg-white focus:outline-none"
                 >
                   <option value="">All Statuses</option>
                   <option value="ENROLLED">Enrolled</option>
@@ -900,14 +894,14 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
 
               {/* Attendance Filter */}
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-text-muted">Attendance</label>
+                <label className="text-[11px] font-semibold text-slate-600">Attendance</label>
                 <select
-                  aria-label="Filter by Attendance" value={filterAttendance}
+                  value={filterAttendance}
                   onChange={(e) => {
                     setFilterAttendance(e.target.value);
                     setPage(1);
                   }}
-                  className="w-full bg-surface-muted border border-border rounded-lg px-2.5 py-1 text-xs text-text focus:bg-surface focus:outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800 focus:bg-white focus:outline-none"
                 >
                   <option value="">All Attendance</option>
                   <option value="healthy">Healthy (≥85%)</option>
@@ -918,7 +912,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
 
               <button
                 onClick={() => setIsFilterOpen(false)}
-                className="w-full py-1.5 rounded-lg bg-surface-muted hover:bg-surface-muted text-text text-xs font-semibold transition"
+                className="w-full py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition"
               >
                 Apply & Close
               </button>
@@ -930,20 +924,18 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
         <button
           onClick={loadData}
           disabled={loading}
-          className="p-1.5 rounded-lg bg-surface border border-border hover:bg-surface-muted text-text-muted transition shadow-xs disabled:opacity-50"
-          aria-label="Refresh students"
+          className="p-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 transition shadow-xs disabled:opacity-50"
           title="Refresh"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-indigo-600' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
         </button>
       </div>
 
       {/* ========================================================================= */}
-      {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-danger/10 p-4 text-sm text-danger"><p>{loadError}</p><Button variant="secondary" onClick={() => void loadData()}>Retry</Button></div>}
       {/* BULK ACTIONS TOOLBAR (When students are selected) */}
       {/* ========================================================================= */}
       {selectedStudentIds.length > 0 && (
-        <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-indigo-900 shadow-xs animate-in fade-in-50">
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-blue-900 shadow-xs animate-in fade-in-50">
           <div className="flex items-center gap-2">
             <span className="font-bold">{selectedStudentIds.length}</span>
             <span>students selected</span>
@@ -952,7 +944,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
           <div className="flex items-center gap-2">
             <button
               onClick={handleExportSelectedCsv}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-indigo-200 text-indigo-700 hover:bg-indigo-100 font-semibold transition"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 font-semibold transition"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Export CSV</span>
@@ -966,7 +958,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
             </button>
             <button
               onClick={() => setSelectedStudentIds([])}
-              className="p-1 text-indigo-500 hover:text-indigo-700 ml-1"
+              className="p-1 text-blue-500 hover:text-blue-700 ml-1"
               title="Clear selection"
             >
               <X className="w-4 h-4" />
@@ -978,40 +970,33 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {/* 3. STUDENT TABLE */}
       {/* ========================================================================= */}
-      <div className="bg-surface border border-border rounded-xl overflow-hidden shadow-xs">
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
         {loading ? (
-          <div className="py-16 text-center text-text-muted text-xs">
-            <RefreshCw className="w-5 h-5 animate-spin mx-auto text-indigo-600 mb-2" />
+          <div className="py-16 text-center text-slate-400 text-xs">
+            <RefreshCw className="w-5 h-5 animate-spin mx-auto text-blue-600 mb-2" />
             Loading students...
           </div>
         ) : displayedStudents.length === 0 ? (
           <div className="py-16 text-center space-y-3">
             <Users className="w-8 h-8 text-slate-300 mx-auto" />
-            <h3 className="text-sm font-semibold text-text">No students found</h3>
-            <p className="text-xs text-text-muted max-w-sm mx-auto">
+            <h3 className="text-sm font-semibold text-slate-800">No students found</h3>
+            <p className="text-xs text-slate-400 max-w-sm mx-auto">
               {search || activeFilterCount > 0
                 ? 'Try adjusting your search or filter options.'
                 : 'Register your first student to begin automated attendance tracking.'}
             </p>
           </div>
         ) : (
-          <div>
-            <div className="divide-y divide-border md:hidden">{displayedStudents.map(student => <article key={student.id} className="space-y-4 p-4">
-              <div className="flex items-start gap-3"><input type="checkbox" aria-label={`Select ${student.first_name} ${student.last_name}`} checked={selectedStudentIds.includes(student.id)} onChange={() => handleToggleSelectStudent(student.id)} className="mt-2"/><Avatar name={`${student.first_name} ${student.last_name}`} size="lg"/><div className="min-w-0 flex-1"><button className="text-left font-semibold text-text" onClick={() => openProfileDrawer(student)}>{student.first_name} {student.last_name}</button><p className="break-all text-xs text-text-muted">{student.email}</p><p className="mt-1 text-xs text-text-muted"><span className="font-mono">{student.roll_number || student.student_code}</span> · {student.class_name}</p></div></div>
-              <div className="flex flex-wrap items-center gap-2"><StatusBadge status={student.enrollment_status || 'NOT_ENROLLED'} category="enrollment" size="sm"/><span className="text-xs text-text-muted">{student.sample_count} poses saved</span></div>
-              <div className="grid grid-cols-2 gap-2"><Button size="sm" onClick={() => openFaceEnrollmentModal(student)} icon={<Camera size={15}/>}>{student.enrollment_status === 'ENROLLED' ? 'Re-enroll' : 'Enroll face'}</Button><Button variant="secondary" size="sm" onClick={() => openQrEnrollModal(student)} icon={<Smartphone size={15}/>}>Phone enroll</Button><Button variant="secondary" size="sm" onClick={() => openProfileDrawer(student)}>Attendance</Button><Button variant="secondary" size="sm" onClick={() => openEditModal(student)}>Edit student</Button></div><button className="min-h-11 text-sm font-medium text-danger" onClick={() => openDeleteModal(student)}>Delete student</button>
-            </article>)}</div>
-            <div className="hidden overflow-x-auto md:block">
+          <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-surface-muted/80 border-b border-border text-text-muted font-semibold text-[11px]">
+              <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold text-[11px]">
                 <tr>
                   <th className="p-3 w-8 text-center">
                     <input
                       type="checkbox"
-                      aria-label="Select all students"
                       checked={isAllSelected}
                       onChange={handleToggleSelectAll}
-                      className="rounded border-border text-indigo-600 focus:ring-indigo-500"
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                     />
                   </th>
                   <th className="px-4 py-3">Student</th>
@@ -1022,7 +1007,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border text-text">
+              <tbody className="divide-y divide-slate-100 text-slate-700">
                 {displayedStudents.map((student) => {
                   const hist = attendanceMap[student.id];
                   const isEnrolled = student.enrollment_status === 'ENROLLED';
@@ -1032,8 +1017,8 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                     <tr
                       key={student.id}
                       onClick={() => openProfileDrawer(student)}
-                      className={`hover:bg-surface-muted/70 transition cursor-pointer ${
-                        isSelected ? 'bg-indigo-50/40' : ''
+                      className={`hover:bg-slate-50/70 transition cursor-pointer ${
+                        isSelected ? 'bg-blue-50/40' : ''
                       }`}
                     >
                       {/* Checkbox */}
@@ -1046,10 +1031,9 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                       >
                         <input
                           type="checkbox"
-                          aria-label={`Select ${student.first_name} ${student.last_name}`}
                           checked={isSelected}
                           onChange={() => handleToggleSelectStudent(student.id)}
-                          className="rounded border-border text-indigo-600 focus:ring-indigo-500"
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                         />
                       </td>
 
@@ -1061,28 +1045,28 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                             size="md"
                           />
                           <div className="min-w-0">
-                            <div className="font-semibold text-text truncate">
+                            <div className="font-semibold text-slate-900 truncate">
                               {student.first_name} {student.last_name}
                             </div>
-                            <div className="text-[11px] text-text-muted truncate">{student.email}</div>
+                            <div className="text-[11px] text-slate-400 truncate">{student.email}</div>
                           </div>
                         </div>
                       </td>
 
                       {/* 2. ROLL / ID */}
-                      <td className="px-4 py-2.5 text-text">
+                      <td className="px-4 py-2.5 text-slate-700">
                         <div className="font-medium font-mono text-xs">{student.roll_number || student.student_code}</div>
                         {student.roll_number && student.student_code && student.roll_number !== student.student_code && (
-                          <div className="text-[10px] text-text-muted font-mono">{student.student_code}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">{student.student_code}</div>
                         )}
                       </td>
 
                       {/* 3. CLASS */}
-                      <td className="px-4 py-2.5 text-text-muted font-medium">
+                      <td className="px-4 py-2.5 text-slate-600 font-medium">
                         <span className="inline-flex items-center gap-1.5">
                           <span>{student.class_name}</span>
                           {student.section && (
-                            <span className="px-1.5 py-0.5 rounded bg-surface-muted text-text-muted text-[10px] font-mono font-semibold">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-mono font-semibold">
                               Sec {student.section}
                             </span>
                           )}
@@ -1096,14 +1080,14 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                           category="enrollment"
                           size="sm"
                         />
-                        <span className="block text-xs text-text-muted">{student.sample_count} poses saved</span>
+                        <span className="block text-xs text-slate-500">{student.sample_count} poses saved</span>
                       </td>
 
                       {/* 5. ATTENDANCE RATE WITH PROGRESS BAR */}
                       <td className="px-4 py-2.5">
                         {hist ? (
                           hist.total_sessions === 0 ? (
-                            <span className="text-text-muted font-mono">—</span>
+                            <span className="text-slate-400 font-mono">—</span>
                           ) : (
                             <div className="space-y-1 max-w-[130px]">
                               <div className="flex items-center justify-between text-[11px]">
@@ -1116,7 +1100,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                                 }`}>
                                   {hist.attendance_rate_pct}%
                                 </span>
-                                <span className="text-[10px] text-text-muted">
+                                <span className="text-[10px] text-slate-400">
                                   {hist.present_sessions}/{hist.total_sessions}
                                 </span>
                               </div>
@@ -1142,17 +1126,17 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                             <button
                               type="button"
                               onClick={() => openFaceEnrollmentModal(student)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-border bg-surface hover:bg-surface-muted text-text text-[11px] font-semibold transition shadow-2xs"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold transition shadow-2xs"
                               title="Re-enroll biometrics"
                             >
-                              <RotateCcw className="w-3 h-3 text-text-muted" />
+                              <RotateCcw className="w-3 h-3 text-slate-500" />
                               <span>Re-enroll</span>
                             </button>
                           ) : (
                             <button
                               type="button"
                               onClick={() => openFaceEnrollmentModal(student)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold transition shadow-2xs"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition shadow-2xs"
                               title="Enroll face biometrics"
                             >
                               <Camera className="w-3 h-3" />
@@ -1163,7 +1147,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                           <button
                             type="button"
                             onClick={() => openProfileDrawer(student)}
-                            className="px-2 py-1 rounded text-[11px] font-medium text-text-muted hover:text-text hover:bg-surface-muted transition"
+                            className="px-2 py-1 rounded text-[11px] font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
                           >
                             View
                           </button>
@@ -1177,7 +1161,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                                   activeMenuStudentId === student.id ? null : student.id
                                 )
                               }
-                              className="p-1 rounded text-text-muted hover:text-text hover:bg-surface-muted transition"
+                              className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
                               title="More actions"
                             >
                               <MoreVertical className="w-3.5 h-3.5" />
@@ -1185,21 +1169,21 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
 
                             {/* Dropdown Popover */}
                             {activeMenuStudentId === student.id && (
-                              <div className="absolute right-0 mt-1 w-44 bg-surface border border-border rounded-lg shadow-lg py-1 z-30 text-left text-xs animate-in fade-in-50">
+                              <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-30 text-left text-xs animate-in fade-in-50">
                                 <button
                                   type="button"
                                   onClick={() => openFaceEnrollmentModal(student)}
-                                  className="w-full text-left px-3 py-1.5 hover:bg-surface-muted flex items-center gap-2 text-text font-medium"
+                                  className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
                                 >
-                                  <Camera className="w-3.5 h-3.5 text-indigo-600" />
+                                  <Camera className="w-3.5 h-3.5 text-blue-600" />
                                   <span>Guided Enrollment</span>
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => openQrEnrollModal(student)}
-                                  className="w-full text-left px-3 py-1.5 hover:bg-surface-muted flex items-center gap-2 text-text font-medium"
+                                  className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
                                 >
-                                  <Smartphone className="w-3.5 h-3.5 text-text-muted" />
+                                  <Smartphone className="w-3.5 h-3.5 text-slate-500" />
                                   <span>Phone QR Enroll</span>
                                 </button>
                                 <button
@@ -1212,20 +1196,20 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                                       openProfileDrawer(student);
                                     }
                                   }}
-                                  className="w-full text-left px-3 py-1.5 hover:bg-surface-muted flex items-center gap-2 text-text font-medium"
+                                  className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
                                 >
-                                  <Calendar className="w-3.5 h-3.5 text-text-muted" />
+                                  <Calendar className="w-3.5 h-3.5 text-slate-500" />
                                   <span>Attendance History</span>
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => openEditModal(student)}
-                                  className="w-full text-left px-3 py-1.5 hover:bg-surface-muted flex items-center gap-2 text-text font-medium"
+                                  className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
                                 >
-                                  <Edit2 className="w-3.5 h-3.5 text-text-muted" />
+                                  <Edit2 className="w-3.5 h-3.5 text-slate-500" />
                                   <span>Edit Student</span>
                                 </button>
-                                <div className="border-t border-border my-1" />
+                                <div className="border-t border-slate-100 my-1" />
                                 <button
                                   type="button"
                                   onClick={() => openDeleteModal(student)}
@@ -1244,7 +1228,6 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                 })}
               </tbody>
             </table>
-            </div>
           </div>
         )}
 
@@ -1252,20 +1235,20 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
         {/* 4. TABLE FOOTER (PAGINATION) */}
         {/* ========================================================================= */}
         {students.length > 0 && (
-          <div className="px-4 py-2.5 bg-surface-muted border-t border-border flex items-center justify-between text-xs text-text-muted">
+          <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
             <div>
               Showing {students.length} of {total} students
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-text-muted font-medium">
+              <span className="text-slate-600 font-medium">
                 Page {page} of {totalPages || 1}
               </span>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page <= 1 || loading}
-                  className="p-1 rounded bg-surface border border-border hover:bg-surface-muted disabled:opacity-40 transition"
+                  className="p-1 rounded bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 transition"
                   title="Previous Page"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
@@ -1273,7 +1256,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages || loading}
-                  className="p-1 rounded bg-surface border border-border hover:bg-surface-muted disabled:opacity-40 transition"
+                  className="p-1 rounded bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 transition"
                   title="Next Page"
                 >
                   <ChevronRight className="w-3.5 h-3.5" />
@@ -1295,16 +1278,16 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
           />
 
           <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-            <div className="w-screen max-w-md bg-surface border-l border-border shadow-xl flex flex-col">
+            <div className="w-screen max-w-md bg-white border-l border-slate-200 shadow-xl flex flex-col">
               {/* Drawer Header */}
-              <div className="p-4 border-b border-border flex items-center justify-between">
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between">
                 <div>
-                  <h2 className="text-base font-bold text-text">Student Profile</h2>
-                  <p className="text-xs text-text-muted">Academic & biometric record</p>
+                  <h2 className="text-base font-bold text-slate-900">Student Profile</h2>
+                  <p className="text-xs text-slate-500">Academic & biometric record</p>
                 </div>
                 <button
                   onClick={closeProfileDrawer}
-                  className="p-1.5 rounded-lg text-text-muted hover:text-text hover:bg-surface-muted transition"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1313,43 +1296,43 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
               {/* Drawer Content */}
               <div className="flex-1 overflow-y-auto p-5 space-y-5 text-xs">
                 {/* Profile Identity Card */}
-                <div className="p-4 rounded-xl bg-surface-muted border border-border space-y-3">
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
                   <div className="flex items-center gap-3">
                     <Avatar
                       name={`${selectedProfileStudent.first_name} ${selectedProfileStudent.last_name}`}
                       size="lg"
                     />
                     <div className="min-w-0">
-                      <h3 className="text-sm font-bold text-text truncate">
+                      <h3 className="text-sm font-bold text-slate-900 truncate">
                         {selectedProfileStudent.first_name} {selectedProfileStudent.last_name}
                       </h3>
-                      <div className="text-text-muted font-mono text-[11px]">
+                      <div className="text-slate-500 font-mono text-[11px]">
                         {selectedProfileStudent.roll_number || selectedProfileStudent.student_code}
                       </div>
-                      <div className="text-text-muted text-[11px] truncate">
+                      <div className="text-slate-500 text-[11px] truncate">
                         {selectedProfileStudent.email}
                       </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/60 text-[11px]">
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-[11px]">
                     <div>
-                      <span className="text-text-muted">Class: </span>
-                      <span className="font-semibold text-text">{selectedProfileStudent.class_name}</span>
+                      <span className="text-slate-400">Class: </span>
+                      <span className="font-semibold text-slate-800">{selectedProfileStudent.class_name}</span>
                     </div>
                     <div>
-                      <span className="text-text-muted">Section: </span>
-                      <span className="font-semibold text-text">{selectedProfileStudent.section || 'A'}</span>
+                      <span className="text-slate-400">Section: </span>
+                      <span className="font-semibold text-slate-800">{selectedProfileStudent.section || 'A'}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Face Enrollment Status with Re-enroll action */}
-                <div className="p-3.5 rounded-xl border border-border bg-surface shadow-xs space-y-2">
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-xs space-y-2">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="font-semibold text-text text-xs">Face Biometrics</div>
-                      <div className="text-[11px] text-text-muted">Automated Camera Verification</div>
+                      <div className="font-semibold text-slate-900 text-xs">Face Biometrics</div>
+                      <div className="text-[11px] text-slate-500">Automated Camera Verification</div>
                     </div>
                     <StatusBadge
                       status={selectedProfileStudent.enrollment_status || 'NOT_ENROLLED'}
@@ -1358,15 +1341,15 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                     />
                   </div>
 
-                  <div className="pt-2 border-t border-border flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-text-muted">
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-slate-500">
                       {selectedProfileStudent.enrollment_status === 'ENROLLED'
                         ? 'Biometrics active across all sessions'
                         : 'Face sample required for automated attendance'}
                     </span>
                     <button
                       onClick={() => openFaceEnrollmentModal(selectedProfileStudent)}
-                      className="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs transition"
+                      className="px-2.5 py-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs transition"
                     >
                       {selectedProfileStudent.enrollment_status === 'ENROLLED' ? 'Re-enroll' : 'Enroll Now'}
                     </button>
@@ -1374,10 +1357,10 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                 </div>
 
                 {/* Attendance Summary */}
-                <div className="p-3.5 rounded-xl border border-border bg-surface space-y-2.5 shadow-xs">
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-white space-y-2.5 shadow-xs">
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-text text-xs">Overall Attendance</span>
-                    <span className="font-black text-sm text-text">
+                    <span className="font-semibold text-slate-800 text-xs">Overall Attendance</span>
+                    <span className="font-black text-sm text-slate-900">
                       {profileAttendance ? `${profileAttendance.attendance_rate_pct}%` : '—'}
                     </span>
                   </div>
@@ -1407,15 +1390,15 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                 {/* Recent Attendance History Table */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <h4 className="font-bold text-text text-xs flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-text-muted" />
+                    <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-slate-500" />
                       <span>Recent Attendance</span>
                     </h4>
                     {onNavigate && (
                       <button
                         type="button"
                         onClick={() => onNavigate('attendance', selectedProfileStudent.id)}
-                        className="text-[11px] text-indigo-600 hover:text-indigo-700 font-medium hover:underline inline-flex items-center"
+                        className="text-[11px] text-blue-600 hover:text-blue-700 font-medium hover:underline inline-flex items-center"
                       >
                         Full Records &rarr;
                       </button>
@@ -1423,29 +1406,29 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                   </div>
 
                   {loadingProfileAttendance ? (
-                    <div className="py-6 text-center text-text-muted text-xs">Loading records...</div>
+                    <div className="py-6 text-center text-slate-400 text-xs">Loading records...</div>
                   ) : !profileAttendance || profileAttendance.records.length === 0 ? (
-                    <div className="py-6 text-center text-text-muted text-xs border border-dashed border-border rounded-lg">
+                    <div className="py-6 text-center text-slate-400 text-xs border border-dashed border-slate-200 rounded-lg">
                       No attendance sessions recorded yet.
                     </div>
                   ) : (
-                    <div className="border border-border rounded-lg overflow-hidden">
+                    <div className="border border-slate-200 rounded-lg overflow-hidden">
                       <table className="w-full text-left text-xs">
-                        <thead className="bg-surface-muted border-b border-border text-text-muted text-[10px] font-semibold">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[10px] font-semibold">
                           <tr>
                             <th className="px-3 py-2">Date</th>
                             <th className="px-3 py-2">Subject / Class</th>
                             <th className="px-3 py-2 text-right">Status</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-border">
+                        <tbody className="divide-y divide-slate-100">
                           {profileAttendance.records.slice(0, 8).map((rec) => {
                             return (
-                              <tr key={rec.id} className="hover:bg-surface-muted">
-                                <td className="px-3 py-2 text-text-muted font-mono text-[11px]">
+                              <tr key={rec.id} className="hover:bg-slate-50">
+                                <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
                                   {formatDateShort(rec.first_seen || rec.created_at)}
                                 </td>
-                                <td className="px-3 py-2 text-text font-medium truncate max-w-[130px]">
+                                <td className="px-3 py-2 text-slate-800 font-medium truncate max-w-[130px]">
                                   {rec.remarks && rec.remarks.startsWith('Class') ? rec.remarks : 'Lecture'}
                                 </td>
                                 <td className="px-3 py-2 text-right">
@@ -1462,11 +1445,11 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
               </div>
 
               {/* Drawer Bottom Actions */}
-              <div className="p-4 border-t border-border flex items-center justify-between gap-2 bg-surface-muted">
+              <div className="p-4 border-t border-slate-100 flex items-center justify-between gap-2 bg-slate-50">
                 <button
                   type="button"
                   onClick={() => openFaceEnrollmentModal(selectedProfileStudent)}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition"
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
                 >
                   <Camera className="w-3.5 h-3.5" />
                   <span>
@@ -1477,9 +1460,9 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                 <button
                   type="button"
                   onClick={() => openEditModal(selectedProfileStudent)}
-                  className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg border border-border bg-surface hover:bg-surface-muted text-text text-xs font-semibold shadow-xs transition"
+                  className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs transition"
                 >
-                  <Edit2 className="w-3.5 h-3.5 text-text-muted" />
+                  <Edit2 className="w-3.5 h-3.5 text-slate-500" />
                   <span>Edit Student</span>
                 </button>
               </div>
@@ -1493,20 +1476,20 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {isEnrollModalOpen && enrollStudent && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 select-none">
-          <div className="bg-surface border border-border rounded-2xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] flex flex-col">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] flex flex-col">
             {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-border pb-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
-                <h3 className="font-bold text-text text-sm sm:text-base">
+                <h3 className="font-bold text-slate-900 text-sm sm:text-base">
                   Guided Face Enrollment
                 </h3>
-                <p className="text-sm text-text-muted mt-2">
+                <p className="text-xs text-slate-500 mt-0.5">
                   {enrollStudent.first_name} {enrollStudent.last_name} ({enrollStudent.roll_number || enrollStudent.student_code}) • Class {enrollStudent.class_name}
                 </p>
               </div>
               <button
                 onClick={closeFaceEnrollmentModal}
-                className="text-text-muted hover:text-text-muted p-1.5 rounded-lg hover:bg-surface-muted transition"
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1526,10 +1509,10 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                 {/* Step Progress Dots & Indicator */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-indigo-600">
+                    <span className="font-bold text-blue-600">
                       Step {currentAngleIndex + 1} of {ENROLLMENT_ANGLES.length}
                     </span>
-                    <span className="text-text-muted font-semibold">
+                    <span className="text-slate-600 font-semibold">
                       {ENROLLMENT_ANGLES[currentAngleIndex].name}
                     </span>
                   </div>
@@ -1549,8 +1532,8 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                             isCaptured
                               ? 'bg-emerald-500'
                               : isCurrent
-                              ? 'bg-indigo-600 ring-2 ring-indigo-300 ring-offset-1'
-                              : 'bg-surface-muted'
+                              ? 'bg-blue-600 ring-2 ring-blue-300 ring-offset-1'
+                              : 'bg-slate-200'
                           }`}
                           title={`${angle.name} ${isCaptured ? '(Captured)' : ''}`}
                         />
@@ -1560,17 +1543,17 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                 </div>
 
                 {/* Friendly Instructional Guidance Banner */}
-                <div className="bg-surface-muted border border-border rounded-xl p-3 text-center space-y-0.5 shadow-2xs">
-                  <div className="text-xs sm:text-sm font-bold text-text">
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center space-y-0.5 shadow-2xs">
+                  <div className="text-xs sm:text-sm font-bold text-slate-900">
                     {ENROLLMENT_ANGLES[currentAngleIndex].instruction}
                   </div>
-                  <div className="text-[11px] text-text-muted">
+                  <div className="text-[11px] text-slate-500">
                     {ENROLLMENT_ANGLES[currentAngleIndex].hint}
                   </div>
                 </div>
 
                 {/* Video Feed with Oval Guide Reticle */}
-                <div className="relative aspect-video bg-black rounded-xl overflow-hidden flex items-center justify-center border border-border shadow-inner">
+                <div className="relative aspect-video bg-black rounded-xl overflow-hidden flex items-center justify-center border border-slate-800 shadow-inner">
                   <video
                     ref={videoRef}
                     autoPlay
@@ -1619,31 +1602,31 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                 {/* Clean Quality & Centering Indicators Bar (Not squished pills) */}
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   {/* Indicator 1: Face Detected */}
-                  <div className="p-2 rounded-lg border border-border bg-surface-muted flex items-center justify-center gap-1.5">
+                  <div className="p-2 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center gap-1.5">
                     <span
                       className={`w-2 h-2 rounded-full ${
                         faceDetected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'
                       }`}
                     />
-                    <span className="text-text-muted font-medium">
-                      Face: <strong className="text-text">{faceDetected ? 'Detected' : 'Searching'}</strong>
+                    <span className="text-slate-600 font-medium">
+                      Face: <strong className="text-slate-900">{faceDetected ? 'Detected' : 'Searching'}</strong>
                     </span>
                   </div>
 
                   {/* Indicator 2: Position */}
-                  <div className="p-2 rounded-lg border border-border bg-surface-muted flex items-center justify-center gap-1.5">
+                  <div className="p-2 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center gap-1.5">
                     <span
                       className={`w-2 h-2 rounded-full ${
                         facePosition === 'Centered' ? 'bg-emerald-500' : 'bg-slate-400'
                       }`}
                     />
-                    <span className="text-text-muted font-medium">
-                      Position: <strong className="text-text">{facePosition}</strong>
+                    <span className="text-slate-600 font-medium">
+                      Position: <strong className="text-slate-900">{facePosition}</strong>
                     </span>
                   </div>
 
                   {/* Indicator 3: Lighting */}
-                  <div className="p-2 rounded-lg border border-border bg-surface-muted flex items-center justify-center gap-1.5">
+                  <div className="p-2 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center gap-1.5">
                     <span
                       className={`w-2 h-2 rounded-full ${
                         faceQuality === 'Good'
@@ -1653,15 +1636,15 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                           : 'bg-amber-400'
                       }`}
                     />
-                    <span className="text-text-muted font-medium">
-                      Lighting: <strong className="text-text">{faceQuality}</strong>
+                    <span className="text-slate-600 font-medium">
+                      Lighting: <strong className="text-slate-900">{faceQuality}</strong>
                     </span>
                   </div>
                 </div>
 
                 {/* Captured Angle Thumbnail Strip */}
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[11px] text-text-muted">
+                  <div className="flex items-center justify-between text-[11px] text-slate-500">
                     <span>Captured Angles (click to re-take):</span>
                     <span>{Object.keys(capturedSamples).length} of 7 completed</span>
                   </div>
@@ -1678,10 +1661,10 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                           onClick={() => handleRetakeAngle(idx)}
                           className={`group relative rounded-lg border overflow-hidden p-1 flex flex-col items-center justify-center text-center transition aspect-square ${
                             isCurrent
-                              ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-400'
+                              ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-400'
                               : sample
                               ? 'border-emerald-300 bg-emerald-50/40 hover:border-emerald-400'
-                              : 'border-border bg-surface-muted hover:bg-surface-muted'
+                              : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
                           }`}
                         >
                           {sample ? (
@@ -1696,7 +1679,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                               </div>
                             </>
                           ) : (
-                            <div className="flex flex-col items-center justify-center p-1 text-[10px] text-text-muted leading-tight">
+                            <div className="flex flex-col items-center justify-center p-1 text-[10px] text-slate-400 leading-tight">
                               <span className="font-semibold">{idx + 1}</span>
                               <span className="text-[9px] truncate w-full">{angle.name.split(' ')[0]}</span>
                             </div>
@@ -1708,14 +1691,14 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                 </div>
 
                 {/* Primary Action Controls */}
-                <div className="flex items-center justify-between pt-2 border-t border-border">
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
                   <button
                     type="button"
                     onClick={() => {
                       closeFaceEnrollmentModal();
                       openQrEnrollModal(enrollStudent);
                     }}
-                    className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1.5"
+                    className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1.5"
                   >
                     <Smartphone className="w-3.5 h-3.5" />
                     <span>Enroll via Phone QR</span>
@@ -1725,7 +1708,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                     <button
                       type="button"
                       onClick={handleSkipAngle}
-                      className="px-3 py-1.5 rounded-lg border border-border text-text-muted hover:bg-surface-muted text-xs font-semibold transition"
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold transition"
                     >
                       Skip Angle
                     </button>
@@ -1734,7 +1717,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                       type="button"
                       onClick={handleCaptureCurrentAngle}
                       disabled={isCapturingSample || !cameraActive}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50"
                     >
                       {isCapturingSample ? (
                         <>
@@ -1760,42 +1743,42 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                   <div className="w-11 h-11 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center mx-auto shadow-2xs">
                     <CheckCircle2 className="w-6 h-6" />
                   </div>
-                  <h4 className="text-base font-bold text-text">Multi-Angle Enrollment Complete</h4>
-                  <p className="text-xs text-text-muted max-w-sm mx-auto">
+                  <h4 className="text-base font-bold text-slate-900">Multi-Angle Enrollment Complete</h4>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
                     All 7 facial angles were captured and embedded into the student profile.
                   </p>
                 </div>
 
                 {/* 7 Captured Thumbnails Grid */}
-                <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 p-3 bg-surface-muted border border-border rounded-xl">
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
                   {ENROLLMENT_ANGLES.map((angle, idx) => {
                     const sample = capturedSamples[idx];
 
                     return (
                       <div key={angle.id} className="space-y-1 text-center">
-                        <div className="aspect-square bg-surface-muted rounded-lg overflow-hidden border border-border relative shadow-2xs">
+                        <div className="aspect-square bg-slate-200 rounded-lg overflow-hidden border border-slate-300 relative shadow-2xs">
                           {sample ? (
                             <img src={sample.dataUrl} alt={angle.name} className="w-full h-full object-cover" />
                           ) : (
-                            <div className="w-full h-full flex items-center justify-center text-text-muted text-[10px]">
+                            <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px]">
                               Skipped
                             </div>
                           )}
                         </div>
-                        <div className="text-[10px] font-semibold text-text truncate">{angle.name.split(' ')[0]}</div>
+                        <div className="text-[10px] font-semibold text-slate-700 truncate">{angle.name.split(' ')[0]}</div>
                       </div>
                     );
                   })}
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                   <button
                     type="button"
                     onClick={() => {
                       setEnrollStep('camera');
                       setCurrentAngleIndex(0);
                     }}
-                    className="px-3.5 py-2 rounded-lg border border-border text-text hover:bg-surface-muted text-xs font-semibold transition"
+                    className="px-3.5 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition"
                   >
                     Re-capture Angles
                   </button>
@@ -1803,7 +1786,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                   <button
                     type="button"
                     onClick={handleCompleteEnrollment}
-                    className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition"
+                    className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
                   >
                     <span>Complete Enrollment</span>
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -1819,15 +1802,15 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                   <Check className="w-7 h-7" />
                 </div>
                 <div>
-                  <h4 className="text-base font-bold text-text">Student Enrolled Successfully</h4>
-                  <p className="text-xs text-text-muted mt-1 max-w-sm mx-auto">
+                  <h4 className="text-base font-bold text-slate-900">Student Enrolled Successfully</h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
                     {enrollStudent.first_name} is now registered with active facial biometrics for automated classroom attendance.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={closeFaceEnrollmentModal}
-                  className="px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition"
+                  className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
                 >
                   Done
                 </button>
@@ -1842,10 +1825,10 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <h3 className="font-bold text-text text-sm">Register student</h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-text-muted hover:text-text-muted p-1">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-slate-900 text-sm">Register Student</h3>
+              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -1859,7 +1842,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
             <form onSubmit={handleCreateSubmit} className="space-y-3 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="font-semibold text-text">First Name *</label>
+                  <label className="font-semibold text-slate-700">First Name *</label>
                   <input
                     type="text"
                     name="first_name"
@@ -1867,11 +1850,11 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                     value={formData.first_name}
                     onChange={handleFormChange}
                     placeholder="e.g. Rahul"
-                    className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="font-semibold text-text">Last Name *</label>
+                  <label className="font-semibold text-slate-700">Last Name *</label>
                   <input
                     type="text"
                     name="last_name"
@@ -1879,14 +1862,14 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                     value={formData.last_name}
                     onChange={handleFormChange}
                     placeholder="e.g. Sharma"
-                    className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="font-semibold text-text">Roll Number *</label>
+                  <label className="font-semibold text-slate-700">Roll Number *</label>
                   <input
                     type="text"
                     name="roll_number"
@@ -1894,11 +1877,11 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                     value={formData.roll_number}
                     onChange={handleFormChange}
                     placeholder="22CSE041"
-                    className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="font-semibold text-text">Student ID *</label>
+                  <label className="font-semibold text-slate-700">Student ID *</label>
                   <input
                     type="text"
                     name="student_code"
@@ -1906,13 +1889,13 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                     value={formData.student_code}
                     onChange={handleFormChange}
                     placeholder="STU-041"
-                    className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="font-semibold text-text">Email Address *</label>
+                <label className="font-semibold text-slate-700">Email Address *</label>
                 <input
                   type="email"
                   name="email"
@@ -1920,48 +1903,48 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                   value={formData.email}
                   onChange={handleFormChange}
                   placeholder="rahul.sharma@campus.edu"
-                  className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1 col-span-2">
-                  <label className="font-semibold text-text">Class Name</label>
+                  <label className="font-semibold text-slate-700">Class Name</label>
                   <input
                     type="text"
                     name="class_name"
                     value={formData.class_name}
                     onChange={handleFormChange}
                     placeholder="CSE-4A"
-                    className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                   <StudentBatchSelect className={formData.class_name} value={formData.batch_id} onChange={batch_id => setFormData(prev => ({...prev,batch_id}))} />
                 </div>
                 <div className="space-y-1">
-                  <label className="font-semibold text-text">Section</label>
+                  <label className="font-semibold text-slate-700">Section</label>
                   <input
                     type="text"
                     name="section"
                     value={formData.section}
                     onChange={handleFormChange}
                     placeholder="A"
-                    className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-3.5 py-1.5 rounded-lg border border-border hover:bg-surface-muted text-text font-semibold"
+                  className="px-3.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={formSubmitting}
-                  className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-xs disabled:opacity-50"
+                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs disabled:opacity-50"
                 >
                   Register & Continue
                 </button>
@@ -1976,10 +1959,10 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {isEditModalOpen && activeStudent && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <h3 className="font-bold text-text text-sm">Edit Student</h3>
-              <button onClick={() => setIsEditModalOpen(false)} className="text-text-muted hover:text-text-muted p-1">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-slate-900 text-sm">Edit Student</h3>
+              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -1987,74 +1970,74 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
             <form onSubmit={handleUpdateSubmit} className="space-y-3 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="font-semibold text-text">First Name</label>
+                  <label className="font-semibold text-slate-700">First Name</label>
                   <input
                     type="text"
                     name="first_name"
                     value={formData.first_name}
                     onChange={handleFormChange}
-                    className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="font-semibold text-text">Last Name</label>
+                  <label className="font-semibold text-slate-700">Last Name</label>
                   <input
                     type="text"
                     name="last_name"
                     value={formData.last_name}
                     onChange={handleFormChange}
-                    className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="font-semibold text-text">Email Address</label>
+                <label className="font-semibold text-slate-700">Email Address</label>
                 <input
                   type="email"
                   name="email"
                   value={formData.email}
                   onChange={handleFormChange}
-                  className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="font-semibold text-text">Class</label>
+                  <label className="font-semibold text-slate-700">Class</label>
                   <input
                     type="text"
                     name="class_name"
                     value={formData.class_name}
                     onChange={handleFormChange}
-                    className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                   <StudentBatchSelect className={formData.class_name} value={formData.batch_id} onChange={batch_id => setFormData(prev => ({...prev,batch_id}))} />
                 </div>
                 <div className="space-y-1">
-                  <label className="font-semibold text-text">Section</label>
+                  <label className="font-semibold text-slate-700">Section</label>
                   <input
                     type="text"
                     name="section"
                     value={formData.section}
                     onChange={handleFormChange}
-                    className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsEditModalOpen(false)}
-                  className="px-3.5 py-1.5 rounded-lg border border-border hover:bg-surface-muted text-text font-semibold"
+                  className="px-3.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={formSubmitting}
-                  className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-xs disabled:opacity-50"
+                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs disabled:opacity-50"
                 >
                   Save Changes
                 </button>
@@ -2069,20 +2052,20 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {isDeleteModalOpen && activeStudent && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-2xl max-w-sm w-full p-5 shadow-xl text-center space-y-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-sm w-full p-5 shadow-xl text-center space-y-4">
             <div className="w-10 h-10 rounded-full bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 mx-auto">
               <AlertTriangle className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-text text-sm">Delete Student</h3>
-              <p className="text-xs text-text-muted mt-1">
+              <h3 className="font-bold text-slate-900 text-sm">Delete Student</h3>
+              <p className="text-xs text-slate-500 mt-1">
                 Are you sure you want to delete {activeStudent.first_name} {activeStudent.last_name} ({activeStudent.roll_number || activeStudent.student_code})? This will also remove biometric vectors.
               </p>
             </div>
             <div className="flex items-center justify-center gap-2 pt-2">
               <button
                 onClick={() => setIsDeleteModalOpen(false)}
-                className="px-3.5 py-1.5 rounded-lg border border-border text-text hover:bg-surface-muted text-xs font-semibold"
+                className="px-3.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold"
               >
                 Cancel
               </button>
@@ -2103,35 +2086,35 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {isQrModalOpen && activeStudent && qrCodeUrl && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-2xl max-w-sm w-full p-5 shadow-2xl text-center space-y-4">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <h3 className="font-bold text-text text-sm">Mobile Face Enrollment</h3>
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-sm w-full p-5 shadow-2xl text-center space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-slate-900 text-sm">Mobile Face Enrollment</h3>
               <button
                 onClick={() => {
                   setIsQrModalOpen(false);
                   loadData();
                 }}
-                className="text-text-muted hover:text-text-muted p-1"
+                className="text-slate-400 hover:text-slate-600 p-1"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="bg-surface-muted p-3.5 rounded-2xl border border-border inline-block shadow-2xs">
+            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 inline-block shadow-2xs">
               <img src={qrCodeUrl} alt="QR Code" className="w-48 h-48 mx-auto rounded-lg" />
             </div>
 
             <div className="space-y-1.5">
               <div className="flex items-center justify-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-indigo-600 animate-ping" />
-                <span className="text-xs font-bold text-text">
+                <span className="w-2 h-2 rounded-full bg-blue-600 animate-ping" />
+                <span className="text-xs font-bold text-slate-900">
                   {activeStudent.first_name} {activeStudent.last_name}
                 </span>
-                <span className="text-[11px] text-text-muted font-mono">
+                <span className="text-[11px] text-slate-400 font-mono">
                   ({activeStudent.roll_number || activeStudent.student_code})
                 </span>
               </div>
-              <p className="text-[11px] text-text-muted max-w-xs mx-auto">
+              <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
                 Scan this QR code with the student&apos;s phone to complete multi-angle face enrollment directly on their device.
               </p>
             </div>
@@ -2144,16 +2127,16 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
             </div>
 
             {/* Link Copy Bar */}
-            <div className="flex items-center gap-1.5 bg-surface-muted border border-border rounded-lg p-1.5">
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg p-1.5">
               <input
                 type="text"
                 readOnly
                 value={mobileEnrollLink}
-                className="bg-transparent text-[11px] text-text-muted font-mono flex-1 outline-none truncate px-1"
+                className="bg-transparent text-[11px] text-slate-600 font-mono flex-1 outline-none truncate px-1"
               />
               <button
                 onClick={handleCopyQrLink}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-surface border border-border hover:bg-surface-muted text-text text-xs font-semibold shadow-2xs transition"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition"
               >
                 {isCopiedQr ? (
                   <>
@@ -2174,7 +2157,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                 setIsQrModalOpen(false);
                 loadData();
               }}
-              className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition"
+              className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
             >
               Done & Refresh Directory
             </button>

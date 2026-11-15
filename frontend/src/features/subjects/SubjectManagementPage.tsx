@@ -1,4 +1,3 @@
-import { useDialogFeedback } from '../../components/common/useDialogFeedback';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   BookOpen,
@@ -13,6 +12,7 @@ import {
   Clock,
   Award,
   Calendar,
+  Layers,
   CheckCircle2,
   Eye,
   ChevronRight,
@@ -38,11 +38,10 @@ import {
 import { formatApiErrorMessage } from '../../utils/apiError';
 
 interface SubjectManagementPageProps {
-  onNavigate?: (tab: string, extra?: string) => void;
+  onNavigate?: (tab: string, extra?: any) => void;
 }
 
 export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ onNavigate }) => {
-  const { confirmAction, notify, feedback } = useDialogFeedback();
   const [activeTab, setActiveTab] = useState<'subjects' | 'classes' | 'timetable'>('subjects');
 
   // Subjects state
@@ -97,7 +96,6 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
   const [timetableEntries, setTimetableEntries] = useState<TimetableEntry[]>([]);
   const [loadingTimetable, setLoadingTimetable] = useState<boolean>(false);
 
-  const [loadError, setLoadError] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadSubjects = useCallback(async () => {
@@ -111,7 +109,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       );
       setSubjects(data);
     } catch (err) {
-      setLoadError(formatApiErrorMessage(err, 'Unable to load this view. Please try again.'));
+      console.error('Failed to load subjects:', err);
     } finally {
       setLoadingSubjects(false);
     }
@@ -123,7 +121,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       const data = await fetchClasses();
       setClasses(data);
     } catch (err) {
-      setLoadError(formatApiErrorMessage(err, 'Unable to load classes. Please try again.'));
+      console.error('Failed to load classes:', err);
     } finally {
       setLoadingClasses(false);
     }
@@ -180,7 +178,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       setEditingSubject(null);
       loadSubjects();
       loadClasses();
-    } catch (err: unknown) {
+    } catch (err: any) {
       setErrorMessage(
         formatApiErrorMessage(err, 'Failed to save subject. Make sure the course code is unique.')
       );
@@ -190,7 +188,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
   // Handle Delete / Deactivate Subject
   const handleDeleteSubject = async (subj: Subject) => {
     if (
-      await confirmAction(
+      window.confirm(
         subj.total_sessions_count > 0
           ? `Subject "${subj.code}" has ${subj.total_sessions_count} sessions. It will be marked INACTIVE to preserve historical attendance. Proceed?`
           : `Are you sure you want to delete course "${subj.code} - ${subj.name}"?`
@@ -201,7 +199,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
         loadSubjects();
         loadClasses();
       } catch (err) {
-        notify(formatApiErrorMessage(err, 'Failed to delete/deactivate subject.'));
+        alert(formatApiErrorMessage(err, 'Failed to delete/deactivate subject.'));
       }
     }
   };
@@ -219,7 +217,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       setIsClassModalOpen(false);
       setEditingClass(null);
       loadClasses();
-    } catch (err: unknown) {
+    } catch (err: any) {
       setErrorMessage(
         formatApiErrorMessage(err, 'Failed to save class. Make sure the class name is unique.')
       );
@@ -229,7 +227,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
   // Handle Delete Class
   const handleDeleteClass = async (clsObj: ClassSection) => {
     if (
-      await confirmAction(
+      window.confirm(
         `Are you sure you want to delete class "${clsObj.name}"? All timetable slots for this class will also be removed.`
       )
     ) {
@@ -237,7 +235,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
         await deleteClass(clsObj.id);
         loadClasses();
       } catch (err) {
-        notify('Failed to delete class.');
+        alert('Failed to delete class.');
       }
     }
   };
@@ -322,26 +320,24 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
 
   return (
     <div className="space-y-6">
-      {feedback}
-      {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-danger/10 p-4 text-sm text-danger"><p>{loadError}</p><button className="min-h-11 font-semibold underline" onClick={() => {setLoadError('');void loadSubjects();}}>Retry</button></div>}
       <div className="flex flex-wrap gap-3 items-center"><label>Search academics<input className="ml-2 rounded border p-2" value={query} onChange={e => {setQuery(e.target.value);setPage(0);}} /></label><button disabled={!page} onClick={() => setPage(page-1)}>Previous</button><span>Page {page+1}</span><button disabled={(page+1)*10>=Math.max(filteredSubjects.length,filteredClasses.length)} onClick={() => setPage(page+1)}>Next</button></div>
       {/* Top Header & Tab Navigation */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-text tracking-tight">Academic Curriculum & Schedule</h1>
-          <p className="text-sm text-text-muted mt-0.5">
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Academic Curriculum & Schedule</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
             Official curriculum structure, courses, contact hours, and timetable scheduling.
           </p>
         </div>
 
         {/* Tab Toggle */}
-        <div className="flex items-center bg-surface-muted p-1 rounded-xl border border-border shadow-inner">
+        <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
           <button
             onClick={() => setActiveTab('subjects')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition ${
               activeTab === 'subjects'
-                ? 'bg-surface text-indigo-700 shadow-sm'
-                : 'text-text-muted hover:text-text'
+                ? 'bg-white text-blue-700 shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <BookOpen className="w-3.5 h-3.5" />
@@ -351,8 +347,8 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
             onClick={() => setActiveTab('classes')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition ${
               activeTab === 'classes'
-                ? 'bg-surface text-indigo-700 shadow-sm'
-                : 'text-text-muted hover:text-text'
+                ? 'bg-white text-blue-700 shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <GraduationCap className="w-3.5 h-3.5" />
@@ -362,8 +358,8 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
             onClick={() => setActiveTab('timetable')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition ${
               activeTab === 'timetable'
-                ? 'bg-surface text-indigo-700 shadow-sm'
-                : 'text-text-muted hover:text-text'
+                ? 'bg-white text-blue-700 shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <Calendar className="w-3.5 h-3.5" />
@@ -372,17 +368,26 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface p-4">
-        <div>
-          <h2 className="text-sm font-semibold text-text">Curriculum</h2>
-          <p className="mt-1 text-sm text-text-muted">{subjects.length} courses · {totalCurriculumCredits} credits</p>
+      {/* Curriculum Summary Banner */}
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-5 text-white shadow-md flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-xs font-semibold text-blue-100 uppercase tracking-wider">
+            <Layers className="w-3.5 h-3.5" />
+            <span>Department of Computer Engineering</span>
+            <span>·</span>
+            <span>Class: TE-B</span>
+          </div>
+          <h2 className="text-lg font-bold">Official Academic Curriculum (Effective: 15/06/2026)</h2>
+          <p className="text-xs text-blue-100">
+            Total Credits: <span className="font-bold text-white">{totalCurriculumCredits} Credits</span> across <span className="font-bold text-white">{subjects.length} Course Units</span>.
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
           {activeTab === 'subjects' && (
             <button
               onClick={openAddSubjectModal}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-surface text-indigo-700 hover:bg-indigo-50 font-bold text-xs shadow-sm transition"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs shadow-sm transition"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Add Course</span>
@@ -391,7 +396,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
           {activeTab === 'classes' && (
             <button
               onClick={openAddClassModal}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-surface text-indigo-700 hover:bg-indigo-50 font-bold text-xs shadow-sm transition"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs shadow-sm transition"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Add Class Section</span>
@@ -404,16 +409,16 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       {activeTab === 'subjects' && (
         <div className="space-y-4">
           {/* Filters & Search */}
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-surface p-3.5 rounded-2xl border border-border shadow-sm text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm text-xs">
             <div className="flex items-center gap-2 flex-1 max-w-sm">
               <div className="relative w-full">
-                <Search className="w-4 h-4 text-text-muted absolute left-3 top-2.5" />
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
                   type="text"
                   placeholder="Search by course code or name..."
                   value={subjectSearch}
                   onChange={(e) => setSubjectSearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-surface-muted border border-border rounded-xl text-xs focus:outline-none focus:border-indigo-500"
+                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-blue-500"
                 />
               </div>
             </div>
@@ -422,7 +427,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
               <select
                 value={verticalFilter}
                 onChange={(e) => setVerticalFilter(e.target.value)}
-                className="px-3 py-2 bg-surface-muted border border-border rounded-xl text-xs font-semibold text-text focus:outline-none focus:border-indigo-500"
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:border-blue-500"
               >
                 <option value="">All Verticals</option>
                 <option value="PCC">PCC (Core)</option>
@@ -435,7 +440,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-3 py-2 bg-surface-muted border border-border rounded-xl text-xs font-semibold text-text focus:outline-none focus:border-indigo-500"
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:border-blue-500"
               >
                 <option value="">All Statuses</option>
                 <option value="ACTIVE">ACTIVE</option>
@@ -444,7 +449,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
 
               <button
                 onClick={loadSubjects}
-                className="p-2 rounded-xl bg-surface-muted hover:bg-surface-muted text-text-muted transition"
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
                 title="Refresh Courses"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -453,22 +458,22 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
           </div>
 
           {/* Subjects Table */}
-          <div className="bg-surface rounded-2xl border border-border shadow-sm overflow-hidden">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             {loadingSubjects ? (
-              <div className="p-12 text-center text-text-muted text-xs flex items-center justify-center gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
+              <div className="p-12 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
                 <span>Loading courses...</span>
               </div>
             ) : filteredSubjects.length === 0 ? (
-              <div className="p-12 text-center text-text-muted text-xs space-y-2">
+              <div className="p-12 text-center text-slate-400 text-xs space-y-2">
                 <BookOpen className="w-8 h-8 text-slate-300 mx-auto" />
-                <p className="font-semibold text-text">No Courses Found</p>
-                <p className="text-[11px] text-text-muted">No academic subjects match the current filters.</p>
+                <p className="font-semibold text-slate-700">No Courses Found</p>
+                <p className="text-[11px] text-slate-400">No academic subjects match the current filters.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-surface-muted border-b border-border text-text-muted font-bold uppercase text-[10px] tracking-wider">
+                  <thead className="bg-slate-50 border-b border-slate-100 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
                     <tr>
                       <th className="py-3.5 px-4">Course Code</th>
                       <th className="py-3.5 px-4">Course Name</th>
@@ -481,23 +486,23 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                       <th className="py-3.5 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border">
+                  <tbody className="divide-y divide-slate-100">
                     {filteredSubjects.slice(page*10,page*10+10).map((s) => (
-                      <tr key={s.id} className="hover:bg-surface-muted/75 transition">
-                        <td className="py-3.5 px-4 font-mono font-bold text-indigo-700">
+                      <tr key={s.id} className="hover:bg-slate-50/75 transition">
+                        <td className="py-3.5 px-4 font-mono font-bold text-blue-700">
                           {s.code}
                         </td>
-                        <td className="py-3.5 px-4 font-semibold text-text">
+                        <td className="py-3.5 px-4 font-semibold text-slate-900">
                           <div>{s.name}</div>
                           {s.short_name && (
-                            <span className="text-[10px] text-text-muted font-normal">({s.short_name})</span>
+                            <span className="text-[10px] text-slate-400 font-normal">({s.short_name})</span>
                           )}
                         </td>
                         <td className="py-3.5 px-4">
                           <span
                             className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
                               s.vertical === 'PCC'
-                                ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                ? 'bg-blue-50 text-blue-700 border border-blue-200'
                                 : s.vertical === 'PEC'
                                 ? 'bg-purple-50 text-purple-700 border border-purple-200'
                                 : s.vertical === 'MDM'
@@ -510,25 +515,25 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                             {s.vertical || 'CORE'}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 text-text-muted font-mono text-[11px]">
+                        <td className="py-3.5 px-4 text-slate-600 font-mono text-[11px]">
                           {s.theory_hours || 0}T · {s.tutorial_hours || 0}Tu · {s.practical_hours || 0}P
                         </td>
-                        <td className="py-3.5 px-4 text-text-muted font-mono text-[11px]">
+                        <td className="py-3.5 px-4 text-slate-600 font-mono text-[11px]">
                           {s.theory_credits || 0} · {s.tutorial_credits || 0} · {s.practical_credits || 0}
                         </td>
                         <td className="py-3.5 px-4">
-                          <span className="inline-flex items-center gap-1 font-bold text-text bg-surface-muted px-2.5 py-1 rounded-lg">
+                          <span className="inline-flex items-center gap-1 font-bold text-slate-900 bg-slate-100 px-2.5 py-1 rounded-lg">
                             <Award className="w-3 h-3 text-amber-500" />
                             <span>{s.credits} Credits</span>
                           </span>
                         </td>
                         <td className="py-3.5 px-4">
                           {s.assigned_classes && s.assigned_classes.length > 0 ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-surface-muted text-text font-bold text-[10px]">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-bold text-[10px]">
                               {s.assigned_classes.join(', ')}
                             </span>
                           ) : (
-                            <span className="text-text-muted font-normal">TE-B</span>
+                            <span className="text-slate-400 font-normal">TE-B</span>
                           )}
                         </td>
                         <td className="py-3.5 px-4">
@@ -536,7 +541,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
                               s.status === 'ACTIVE'
                                 ? 'bg-emerald-50 text-emerald-700'
-                                : 'bg-surface-muted text-text-muted'
+                                : 'bg-slate-100 text-slate-600'
                             }`}
                           >
                             <span
@@ -550,21 +555,21 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                         <td className="py-3.5 px-4 text-right space-x-1">
                           <button
                             onClick={() => setViewingSubject(s)}
-                            className="p-1.5 rounded-lg text-text-muted hover:text-indigo-600 hover:bg-indigo-50 transition"
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition"
                             title="View Course Structure Details"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => openEditSubjectModal(s)}
-                            className="p-1.5 rounded-lg text-text-muted hover:text-amber-600 hover:bg-amber-50 transition"
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-amber-600 hover:bg-amber-50 transition"
                             title="Edit Course"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => handleDeleteSubject(s)}
-                            className="p-1.5 rounded-lg text-text-muted hover:text-rose-600 hover:bg-rose-50 transition"
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition"
                             title="Delete Course"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -585,25 +590,25 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {loadingClasses ? (
-              <div className="col-span-full p-12 text-center text-text-muted text-xs flex items-center justify-center gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
+              <div className="col-span-full p-12 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
                 <span>Loading classes...</span>
               </div>
             ) : classes.length === 0 ? (
-              <div className="col-span-full bg-surface p-12 text-center text-text-muted text-xs rounded-2xl border border-border space-y-2">
+              <div className="col-span-full bg-white p-12 text-center text-slate-400 text-xs rounded-2xl border border-slate-200 space-y-2">
                 <GraduationCap className="w-8 h-8 text-slate-300 mx-auto" />
-                <p className="font-semibold text-text">No Classes Found</p>
-                <p className="text-[11px] text-text-muted">Click "Add Class Section" to create an academic class.</p>
+                <p className="font-semibold text-slate-700">No Classes Found</p>
+                <p className="text-[11px] text-slate-400">Click "Add Class Section" to create an academic class.</p>
               </div>
             ) : (
               filteredClasses.slice(page*10,page*10+10).map((clsObj) => (
                 <div
                   key={clsObj.id}
-                  className="bg-surface rounded-2xl border border-border p-5 shadow-sm space-y-4 hover:border-indigo-300 transition flex flex-col justify-between"
+                  className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4 hover:border-blue-300 transition flex flex-col justify-between"
                 >
                   <div className="space-y-2.5">
                     <div className="flex items-center justify-between">
-                      <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-bold text-xs">
+                      <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-bold text-xs">
                         {clsObj.name}
                       </span>
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700">
@@ -613,42 +618,42 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                     </div>
 
                     <div>
-                      <h3 className="font-bold text-base text-text">{clsObj.department}</h3>
-                      <p className="text-xs text-text-muted font-medium">
-                        Effective From: <span className="text-text font-bold">{clsObj.effective_from || '15/06/2026'}</span>
+                      <h3 className="font-bold text-base text-slate-900">{clsObj.department}</h3>
+                      <p className="text-xs text-slate-500 font-medium">
+                        Effective From: <span className="text-slate-800 font-bold">{clsObj.effective_from || '15/06/2026'}</span>
                       </p>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border text-xs">
-                      <div className="bg-surface-muted p-2.5 rounded-xl text-center">
-                        <div className="text-[10px] text-text-muted uppercase font-bold">Curriculum</div>
-                        <div className="font-bold text-text text-sm mt-0.5">
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
+                      <div className="bg-slate-50 p-2.5 rounded-xl text-center">
+                        <div className="text-[10px] text-slate-400 uppercase font-bold">Curriculum</div>
+                        <div className="font-bold text-slate-900 text-sm mt-0.5">
                           {clsObj.total_curriculum_credits || 22} Credits
                         </div>
                       </div>
-                      <div className="bg-surface-muted p-2.5 rounded-xl text-center">
-                        <div className="text-[10px] text-text-muted uppercase font-bold">Subjects</div>
-                        <div className="font-bold text-text text-sm mt-0.5">
+                      <div className="bg-slate-50 p-2.5 rounded-xl text-center">
+                        <div className="text-[10px] text-slate-400 uppercase font-bold">Subjects</div>
+                        <div className="font-bold text-slate-900 text-sm mt-0.5">
                           {clsObj.subject_count || 7} Courses
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-3 border-t border-border text-xs">
-                    <span className="text-text-muted font-medium">
-                      Enrolled: <span className="font-bold text-text">{clsObj.student_count} Students</span>
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
+                    <span className="text-slate-500 font-medium">
+                      Enrolled: <span className="font-bold text-slate-800">{clsObj.student_count} Students</span>
                     </span>
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => setViewingClass(clsObj)}
-                        className="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold text-xs transition"
+                        className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-xs transition"
                       >
                         View Details
                       </button>
                       <button
                         onClick={() => handleDeleteClass(clsObj)}
-                        className="p-1.5 rounded-lg text-text-muted hover:text-rose-600 hover:bg-rose-50 transition"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
                         title="Delete Class"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -665,21 +670,21 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       {/* TAB 3: WEEKLY TIMETABLE GRID */}
       {activeTab === 'timetable' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface p-4 rounded-2xl border border-border shadow-sm text-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-xs">
             <div>
-              <div className="flex items-center gap-2 text-xs font-bold text-indigo-700 uppercase">
-                <Calendar className="w-4 h-4 text-indigo-600" />
+              <div className="flex items-center gap-2 text-xs font-bold text-blue-700 uppercase">
+                <Calendar className="w-4 h-4 text-blue-600" />
                 <span>Department of Computer Engineering · Class: TE-B</span>
               </div>
-              <p className="text-[11px] text-text-muted mt-0.5 font-medium">
-                Effective From: <span className="font-bold text-text">15/06/2026</span> · Standard Weekly Timetable
+              <p className="text-[11px] text-slate-500 mt-0.5 font-medium">
+                Effective From: <span className="font-bold text-slate-800">15/06/2026</span> · Standard Weekly Timetable
               </p>
             </div>
 
             {onNavigate && (
               <button
                 onClick={() => onNavigate('timetable')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold border border-indigo-200 transition text-xs"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold border border-blue-200 transition text-xs"
               >
                 <span>Open Full Timetable View</span>
                 <ChevronRight className="w-3.5 h-3.5" />
@@ -688,28 +693,28 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
           </div>
 
           {/* Real Table Grid */}
-          <div className="bg-surface rounded-2xl border border-border shadow-sm overflow-hidden">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             {loadingTimetable ? (
-              <div className="p-12 text-center text-text-muted text-xs flex items-center justify-center gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
+              <div className="p-12 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
                 <span>Loading timetable schedule...</span>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-left min-w-[850px]">
                   <thead>
-                    <tr className="bg-surface-muted border-b border-border text-text text-xs font-bold">
-                      <th className="py-3 px-3 w-36 text-text-muted font-mono text-[10px] uppercase tracking-wider border-r border-border text-center">
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 text-xs font-bold">
+                      <th className="py-3 px-3 w-36 text-slate-500 font-mono text-[10px] uppercase tracking-wider border-r border-slate-200 text-center">
                         TIME
                       </th>
                     {daysOfWeek.map((day) => (
-                      <th key={day} className="py-3 px-3 border-r border-border last:border-r-0 font-bold">
+                      <th key={day} className="py-3 px-3 border-r border-slate-200 last:border-r-0 font-bold">
                         {day.toUpperCase()}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border text-text text-xs">
+                <tbody className="divide-y divide-slate-200 text-slate-800 text-xs">
                   {[
                     { start: '09:00', end: '10:00' },
                     { start: '10:00', end: '11:00' },
@@ -720,8 +725,8 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                     { start: '15:00', end: '16:00' },
                     { start: '16:00', end: '17:00' },
                   ].map((period) => (
-                    <tr key={period.start} className="hover:bg-surface-muted/40 transition">
-                      <td className="py-2.5 px-2 w-36 border-r border-border bg-surface-muted/50 text-center font-mono text-[11px] text-text-muted font-bold align-middle">
+                    <tr key={period.start} className="hover:bg-slate-50/40 transition">
+                      <td className="py-2.5 px-2 w-36 border-r border-slate-200 bg-slate-50/50 text-center font-mono text-[11px] text-slate-600 font-bold align-middle">
                         {period.start} – {period.end}
                       </td>
                       {daysOfWeek.map((day) => {
@@ -733,7 +738,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
 
                         if (period.isBreak || (entries.length === 1 && entries[0].entry_type === 'BREAK')) {
                           return (
-                            <td key={day} className="p-2 border-r border-border last:border-r-0 align-top">
+                            <td key={day} className="p-2 border-r border-slate-200 last:border-r-0 align-top">
                               <div className="h-full min-h-[72px] bg-amber-50/60 border border-amber-200 rounded-xl flex items-center justify-center p-2 text-center text-amber-800 font-bold text-[11px]">
                                 LUNCH BREAK
                               </div>
@@ -743,8 +748,8 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
 
                         if (entries.length === 0) {
                           return (
-                            <td key={day} className="p-2 border-r border-border last:border-r-0 align-top">
-                              <div className="h-full min-h-[72px] bg-surface-muted/30 border border-dashed border-border rounded-xl flex items-center justify-center text-slate-300 text-xs">
+                            <td key={day} className="p-2 border-r border-slate-200 last:border-r-0 align-top">
+                              <div className="h-full min-h-[72px] bg-slate-50/30 border border-dashed border-slate-200 rounded-xl flex items-center justify-center text-slate-300 text-xs">
                                 —
                               </div>
                             </td>
@@ -753,17 +758,17 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
 
                         if (entries.length > 1) {
                           return (
-                            <td key={day} className="p-2 border-r border-border last:border-r-0 align-top">
+                            <td key={day} className="p-2 border-r border-slate-200 last:border-r-0 align-top">
                               <div className="h-full min-h-[72px] flex flex-col gap-1">
                                 {entries.map((ent) => (
                                   <div
                                     key={ent.id}
                                     className={`p-1.5 rounded-lg border text-[10px] flex items-center justify-between ${
-                                      ent.batch === 'B1' ? 'bg-indigo-50/70 border-indigo-200 text-indigo-900' : 'bg-indigo-50/70 border-indigo-200 text-indigo-900'
+                                      ent.batch === 'B1' ? 'bg-blue-50/70 border-blue-200 text-blue-900' : 'bg-indigo-50/70 border-indigo-200 text-indigo-900'
                                     }`}
                                   >
                                     <span className="font-bold truncate">{ent.label}</span>
-                                    <span className="px-1 py-0.2 rounded font-mono font-bold bg-surface/80 shrink-0">
+                                    <span className="px-1 py-0.2 rounded font-mono font-bold bg-white/80 shrink-0">
                                       {ent.room || ent.batch}
                                     </span>
                                   </div>
@@ -777,18 +782,18 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                         const isActivity = ent.entry_type === 'ACTIVITY';
 
                         return (
-                          <td key={day} className="p-2 border-r border-border last:border-r-0 align-top">
+                          <td key={day} className="p-2 border-r border-slate-200 last:border-r-0 align-top">
                             <div
                               className={`h-full min-h-[72px] p-2 rounded-xl border flex flex-col justify-between text-xs ${
                                 isActivity
-                                  ? 'bg-surface-muted/70 border-border text-text'
-                                  : 'bg-surface border-border text-text hover:border-indigo-300'
+                                  ? 'bg-slate-100/70 border-slate-200 text-slate-800'
+                                  : 'bg-white border-slate-200 text-slate-900 hover:border-blue-300'
                               }`}
                             >
                               <div className="font-bold text-[11px] leading-tight">{ent.label}</div>
-                              <div className="flex items-center justify-between text-[10px] text-text-muted pt-1 border-t border-border mt-1">
+                              <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-100 mt-1">
                                 <span>{ent.room || (isActivity ? 'Activity' : 'Class')}</span>
-                                {ent.batch && <span className="font-bold text-indigo-600">Batch {ent.batch}</span>}
+                                {ent.batch && <span className="font-bold text-blue-600">Batch {ent.batch}</span>}
                               </div>
                             </div>
                           </td>
@@ -807,20 +812,20 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       {/* MODAL: VIEW SUBJECT DETAIL */}
       {viewingSubject && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-surface rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-border">
-            <div className="flex items-center justify-between border-b border-border pb-3">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs">
                   {viewingSubject.vertical || 'PCC'}
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-text">{viewingSubject.name}</h3>
-                  <p className="text-xs text-indigo-600 font-mono font-bold">{viewingSubject.code}</p>
+                  <h3 className="font-bold text-base text-slate-900">{viewingSubject.name}</h3>
+                  <p className="text-xs text-blue-600 font-mono font-bold">{viewingSubject.code}</p>
                 </div>
               </div>
               <button
                 onClick={() => setViewingSubject(null)}
-                className="p-1 text-text-muted hover:text-text-muted rounded-lg"
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -828,72 +833,72 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
 
             <div className="space-y-4 text-xs">
               {/* Department & Track */}
-              <div className="grid grid-cols-2 gap-3 bg-surface-muted p-3.5 rounded-xl border border-border">
+              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-100">
                 <div>
-                  <div className="text-[10px] text-text-muted uppercase font-bold">Department</div>
-                  <div className="font-bold text-text text-xs mt-0.5">{viewingSubject.department}</div>
+                  <div className="text-[10px] text-slate-400 uppercase font-bold">Department</div>
+                  <div className="font-bold text-slate-800 text-xs mt-0.5">{viewingSubject.department}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] text-text-muted uppercase font-bold">Vertical Track</div>
-                  <div className="font-bold text-text text-xs mt-0.5">{viewingSubject.vertical || 'PCC (Program Core Course)'}</div>
+                  <div className="text-[10px] text-slate-400 uppercase font-bold">Vertical Track</div>
+                  <div className="font-bold text-slate-800 text-xs mt-0.5">{viewingSubject.vertical || 'PCC (Program Core Course)'}</div>
                 </div>
               </div>
 
               {/* Contact Hours Breakdown */}
               <div className="space-y-1.5">
-                <div className="text-[11px] font-bold text-text flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                <div className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-blue-600" />
                   <span>Contact Hours</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="bg-indigo-50/60 p-2 rounded-xl border border-indigo-100">
-                    <div className="text-[10px] text-indigo-600 font-bold">Theory</div>
-                    <div className="text-sm font-bold text-text mt-0.5">{viewingSubject.theory_hours || 0} Hours</div>
+                  <div className="bg-blue-50/60 p-2 rounded-xl border border-blue-100">
+                    <div className="text-[10px] text-blue-600 font-bold">Theory</div>
+                    <div className="text-sm font-bold text-slate-900 mt-0.5">{viewingSubject.theory_hours || 0} Hours</div>
                   </div>
-                  <div className="bg-indigo-50/60 p-2 rounded-xl border border-indigo-100">
-                    <div className="text-[10px] text-indigo-600 font-bold">Tutorial</div>
-                    <div className="text-sm font-bold text-text mt-0.5">{viewingSubject.tutorial_hours || 0} Hours</div>
+                  <div className="bg-blue-50/60 p-2 rounded-xl border border-blue-100">
+                    <div className="text-[10px] text-blue-600 font-bold">Tutorial</div>
+                    <div className="text-sm font-bold text-slate-900 mt-0.5">{viewingSubject.tutorial_hours || 0} Hours</div>
                   </div>
-                  <div className="bg-indigo-50/60 p-2 rounded-xl border border-indigo-100">
-                    <div className="text-[10px] text-indigo-600 font-bold">Practical</div>
-                    <div className="text-sm font-bold text-text mt-0.5">{viewingSubject.practical_hours || 0} Hours</div>
+                  <div className="bg-blue-50/60 p-2 rounded-xl border border-blue-100">
+                    <div className="text-[10px] text-blue-600 font-bold">Practical</div>
+                    <div className="text-sm font-bold text-slate-900 mt-0.5">{viewingSubject.practical_hours || 0} Hours</div>
                   </div>
                 </div>
               </div>
 
               {/* Credits Breakdown */}
               <div className="space-y-1.5">
-                <div className="text-[11px] font-bold text-text flex items-center gap-1.5">
+                <div className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
                   <Award className="w-3.5 h-3.5 text-amber-500" />
                   <span>Credits Allotted</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="bg-amber-50/60 p-2 rounded-xl border border-amber-100">
                     <div className="text-[10px] text-amber-700 font-bold">Theory</div>
-                    <div className="text-sm font-bold text-text mt-0.5">{viewingSubject.theory_credits || 0}</div>
+                    <div className="text-sm font-bold text-slate-900 mt-0.5">{viewingSubject.theory_credits || 0}</div>
                   </div>
                   <div className="bg-amber-50/60 p-2 rounded-xl border border-amber-100">
                     <div className="text-[10px] text-amber-700 font-bold">Tutorial</div>
-                    <div className="text-sm font-bold text-text mt-0.5">{viewingSubject.tutorial_credits || 0}</div>
+                    <div className="text-sm font-bold text-slate-900 mt-0.5">{viewingSubject.tutorial_credits || 0}</div>
                   </div>
                   <div className="bg-amber-50/60 p-2 rounded-xl border border-amber-100">
                     <div className="text-[10px] text-amber-700 font-bold">Practical</div>
-                    <div className="text-sm font-bold text-text mt-0.5">{viewingSubject.practical_credits || 0}</div>
+                    <div className="text-sm font-bold text-slate-900 mt-0.5">{viewingSubject.practical_credits || 0}</div>
                   </div>
                 </div>
               </div>
 
               {/* Total Summary */}
-              <div className="flex items-center justify-between p-3.5 bg-indigo-600 text-white rounded-xl font-bold shadow-sm">
+              <div className="flex items-center justify-between p-3.5 bg-blue-600 text-white rounded-xl font-bold shadow-sm">
                 <span>Total Course Credits</span>
                 <span className="text-base">{viewingSubject.credits} Credits</span>
               </div>
             </div>
 
-            <div className="pt-3 border-t border-border flex justify-end">
+            <div className="pt-3 border-t border-slate-100 flex justify-end">
               <button
                 onClick={() => setViewingSubject(null)}
-                className="px-4 py-2 rounded-xl bg-surface-muted hover:bg-surface-muted text-text font-bold text-xs transition"
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition"
               >
                 Close
               </button>
@@ -905,22 +910,22 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       {/* MODAL: VIEW CLASS DETAIL */}
       {viewingClass && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-surface rounded-2xl max-w-xl w-full p-6 space-y-5 shadow-2xl border border-border">
-            <div className="flex items-center justify-between border-b border-border pb-3">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 space-y-5 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
-                <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow">
+                <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow">
                   {viewingClass.name}
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-text">{viewingClass.department}</h3>
-                  <p className="text-xs text-text-muted">
-                    Class: <span className="font-bold text-indigo-700">{viewingClass.name}</span> · Effective: <span className="font-bold text-text">{viewingClass.effective_from || '15/06/2026'}</span>
+                  <h3 className="font-bold text-base text-slate-900">{viewingClass.department}</h3>
+                  <p className="text-xs text-slate-500">
+                    Class: <span className="font-bold text-blue-700">{viewingClass.name}</span> · Effective: <span className="font-bold text-slate-800">{viewingClass.effective_from || '15/06/2026'}</span>
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setViewingClass(null)}
-                className="p-1 text-text-muted hover:text-text-muted rounded-lg"
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -929,40 +934,40 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
             <div className="space-y-4 text-xs">
               {/* Quick Metrics */}
               <div className="grid grid-cols-3 gap-3 text-center">
-                <div className="bg-surface-muted p-3 rounded-xl border border-border">
-                  <div className="text-[10px] text-text-muted uppercase font-bold">Total Credits</div>
-                  <div className="text-base font-bold text-indigo-600 mt-0.5">{totalCurriculumCredits} Credits</div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold">Total Credits</div>
+                  <div className="text-base font-bold text-blue-600 mt-0.5">{totalCurriculumCredits} Credits</div>
                 </div>
-                <div className="bg-surface-muted p-3 rounded-xl border border-border">
-                  <div className="text-[10px] text-text-muted uppercase font-bold">Curriculum Units</div>
-                  <div className="text-base font-bold text-text mt-0.5">{subjects.length} Subjects</div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold">Curriculum Units</div>
+                  <div className="text-base font-bold text-slate-900 mt-0.5">{subjects.length} Subjects</div>
                 </div>
-                <div className="bg-surface-muted p-3 rounded-xl border border-border">
-                  <div className="text-[10px] text-text-muted uppercase font-bold">Enrolled Students</div>
-                  <div className="text-base font-bold text-text mt-0.5">{viewingClass.student_count}</div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold">Enrolled Students</div>
+                  <div className="text-base font-bold text-slate-900 mt-0.5">{viewingClass.student_count}</div>
                 </div>
               </div>
 
               {/* Assigned Subjects Roster */}
               <div className="space-y-2">
-                <div className="font-bold text-text flex items-center justify-between text-xs">
+                <div className="font-bold text-slate-800 flex items-center justify-between text-xs">
                   <span>Assigned Curriculum Courses</span>
-                  <span className="text-text-muted font-normal">7 of 7 Courses linked</span>
+                  <span className="text-slate-400 font-normal">7 of 7 Courses linked</span>
                 </div>
                 <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
                   {subjects.map((s) => (
                     <div
                       key={s.id}
-                      className="p-2.5 rounded-xl border border-border bg-surface-muted/60 flex items-center justify-between text-xs"
+                      className="p-2.5 rounded-xl border border-slate-100 bg-slate-50/60 flex items-center justify-between text-xs"
                     >
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                         <div>
-                          <span className="font-mono font-bold text-indigo-700 mr-2">{s.code}</span>
-                          <span className="font-medium text-text">{s.name}</span>
+                          <span className="font-mono font-bold text-blue-700 mr-2">{s.code}</span>
+                          <span className="font-medium text-slate-900">{s.name}</span>
                         </div>
                       </div>
-                      <span className="font-bold text-text bg-surface px-2 py-0.5 rounded border text-[11px]">
+                      <span className="font-bold text-slate-700 bg-white px-2 py-0.5 rounded border text-[11px]">
                         {s.credits} Credits
                       </span>
                     </div>
@@ -971,20 +976,20 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
               </div>
             </div>
 
-            <div className="pt-3 border-t border-border flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
               <button
                 onClick={() => {
                   setViewingClass(null);
                   setActiveTab('timetable');
                 }}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold text-xs transition"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-xs transition"
               >
                 <Calendar className="w-3.5 h-3.5" />
                 <span>View Timetable</span>
               </button>
               <button
                 onClick={() => setViewingClass(null)}
-                className="px-4 py-2 rounded-xl bg-surface-muted hover:bg-surface-muted text-text font-bold text-xs transition"
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition"
               >
                 Close
               </button>
@@ -996,14 +1001,14 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       {/* MODAL: ADD / EDIT SUBJECT */}
       {isSubjectModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-surface rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-border max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <h3 className="font-bold text-base text-text">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-base text-slate-900">
                 {editingSubject ? 'Edit Academic Course' : 'Register New Course'}
               </h3>
               <button
                 onClick={() => setIsSubjectModalOpen(false)}
-                className="p-1 text-text-muted hover:text-text-muted rounded-lg"
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1019,22 +1024,22 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
             <form onSubmit={handleSubjectSubmit} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-text mb-1">Course Code *</label>
+                  <label className="block font-bold text-slate-700 mb-1">Course Code *</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. 24CSPC501C"
                     value={subjectForm.code}
                     onChange={(e) => setSubjectForm({ ...subjectForm, code: e.target.value })}
-                    className="w-full px-3 py-2 bg-surface-muted border border-border rounded-xl focus:outline-none focus:border-indigo-500 font-mono uppercase font-bold"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 font-mono uppercase font-bold"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-text mb-1">Vertical Track *</label>
+                  <label className="block font-bold text-slate-700 mb-1">Vertical Track *</label>
                   <select
                     value={subjectForm.vertical}
                     onChange={(e) => setSubjectForm({ ...subjectForm, vertical: e.target.value })}
-                    className="w-full px-3 py-2 bg-surface-muted border border-border rounded-xl focus:outline-none focus:border-indigo-500 font-semibold"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 font-semibold"
                   >
                     <option value="PCC">PCC (Program Core Course)</option>
                     <option value="PEC">PEC (Program Elective Course)</option>
@@ -1046,43 +1051,43 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
               </div>
 
               <div>
-                <label className="block font-bold text-text mb-1">Course Name *</label>
+                <label className="block font-bold text-slate-700 mb-1">Course Name *</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Theoretical Computer Science"
                   value={subjectForm.name}
                   onChange={(e) => setSubjectForm({ ...subjectForm, name: e.target.value })}
-                  className="w-full px-3 py-2 bg-surface-muted border border-border rounded-xl focus:outline-none focus:border-indigo-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-text mb-1">Abbreviation</label>
+                  <label className="block font-bold text-slate-700 mb-1">Abbreviation</label>
                   <input
                     type="text"
                     placeholder="e.g. TCS"
                     value={subjectForm.short_name || ''}
                     onChange={(e) => setSubjectForm({ ...subjectForm, short_name: e.target.value })}
-                    className="w-full px-3 py-2 bg-surface-muted border border-border rounded-xl focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-text mb-1">Department *</label>
+                  <label className="block font-bold text-slate-700 mb-1">Department *</label>
                   <input
                     type="text"
                     required
                     value={subjectForm.department}
                     onChange={(e) => setSubjectForm({ ...subjectForm, department: e.target.value })}
-                    className="w-full px-3 py-2 bg-surface-muted border border-border rounded-xl focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
 
               {/* Contact Hours */}
               <div className="space-y-1">
-                <label className="block font-bold text-text">Contact Hours (Theory / Tutorial / Practical)</label>
+                <label className="block font-bold text-slate-700">Contact Hours (Theory / Tutorial / Practical)</label>
                 <div className="grid grid-cols-3 gap-2">
                   <input
                     type="number"
@@ -1091,7 +1096,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                     placeholder="Theory"
                     value={subjectForm.theory_hours}
                     onChange={(e) => setSubjectForm({ ...subjectForm, theory_hours: parseInt(e.target.value) || 0 })}
-                    className="px-3 py-2 bg-surface-muted border border-border rounded-xl text-center font-bold"
+                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold"
                   />
                   <input
                     type="number"
@@ -1100,7 +1105,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                     placeholder="Tutorial"
                     value={subjectForm.tutorial_hours}
                     onChange={(e) => setSubjectForm({ ...subjectForm, tutorial_hours: parseInt(e.target.value) || 0 })}
-                    className="px-3 py-2 bg-surface-muted border border-border rounded-xl text-center font-bold"
+                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold"
                   />
                   <input
                     type="number"
@@ -1109,14 +1114,14 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                     placeholder="Practical"
                     value={subjectForm.practical_hours}
                     onChange={(e) => setSubjectForm({ ...subjectForm, practical_hours: parseInt(e.target.value) || 0 })}
-                    className="px-3 py-2 bg-surface-muted border border-border rounded-xl text-center font-bold"
+                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold"
                   />
                 </div>
               </div>
 
               {/* Credit Allocations */}
               <div className="space-y-1">
-                <label className="block font-bold text-text">Credit Allotted (Theory / Tutorial / Practical)</label>
+                <label className="block font-bold text-slate-700">Credit Allotted (Theory / Tutorial / Practical)</label>
                 <div className="grid grid-cols-3 gap-2">
                   <input
                     type="number"
@@ -1125,7 +1130,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                     placeholder="Theory Cr"
                     value={subjectForm.theory_credits}
                     onChange={(e) => setSubjectForm({ ...subjectForm, theory_credits: parseInt(e.target.value) || 0 })}
-                    className="px-3 py-2 bg-surface-muted border border-border rounded-xl text-center font-bold"
+                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold"
                   />
                   <input
                     type="number"
@@ -1134,7 +1139,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                     placeholder="Tut Cr"
                     value={subjectForm.tutorial_credits}
                     onChange={(e) => setSubjectForm({ ...subjectForm, tutorial_credits: parseInt(e.target.value) || 0 })}
-                    className="px-3 py-2 bg-surface-muted border border-border rounded-xl text-center font-bold"
+                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold"
                   />
                   <input
                     type="number"
@@ -1143,22 +1148,22 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                     placeholder="Prac Cr"
                     value={subjectForm.practical_credits}
                     onChange={(e) => setSubjectForm({ ...subjectForm, practical_credits: parseInt(e.target.value) || 0 })}
-                    className="px-3 py-2 bg-surface-muted border border-border rounded-xl text-center font-bold"
+                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-center font-bold"
                   />
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-border flex items-center justify-end gap-2">
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setIsSubjectModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-surface-muted hover:bg-surface-muted text-text font-bold transition"
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition shadow-sm"
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition shadow-sm"
                 >
                   {editingSubject ? 'Save Changes' : 'Create Course'}
                 </button>
@@ -1171,14 +1176,14 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       {/* MODAL: ADD / EDIT CLASS */}
       {isClassModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-surface rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-border">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <h3 className="font-bold text-base text-text">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-base text-slate-900">
                 {editingClass ? 'Edit Class Section' : 'Create Class Section'}
               </h3>
               <button
                 onClick={() => setIsClassModalOpen(false)}
-                className="p-1 text-text-muted hover:text-text-muted rounded-lg"
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1193,60 +1198,60 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
 
             <form onSubmit={handleClassSubmit} className="space-y-4 text-xs">
               <div>
-                <label className="block font-bold text-text mb-1">Class Name *</label>
+                <label className="block font-bold text-slate-700 mb-1">Class Name *</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. TE-B"
                   value={classForm.name}
                   onChange={(e) => setClassForm({ ...classForm, name: e.target.value })}
-                  className="w-full px-3 py-2 bg-surface-muted border border-border rounded-xl focus:outline-none focus:border-indigo-500 font-bold uppercase"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 font-bold uppercase"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-text mb-1">Department *</label>
+                <label className="block font-bold text-slate-700 mb-1">Department *</label>
                 <input
                   type="text"
                   required
                   value={classForm.department}
                   onChange={(e) => setClassForm({ ...classForm, department: e.target.value })}
-                  className="w-full px-3 py-2 bg-surface-muted border border-border rounded-xl focus:outline-none focus:border-indigo-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-text mb-1">Effective From</label>
+                  <label className="block font-bold text-slate-700 mb-1">Effective From</label>
                   <input
                     type="text"
                     value={classForm.effective_from || '15/06/2026'}
                     onChange={(e) => setClassForm({ ...classForm, effective_from: e.target.value })}
-                    className="w-full px-3 py-2 bg-surface-muted border border-border rounded-xl focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-text mb-1">Section</label>
+                  <label className="block font-bold text-slate-700 mb-1">Section</label>
                   <input
                     type="text"
                     value={classForm.section}
                     onChange={(e) => setClassForm({ ...classForm, section: e.target.value })}
-                    className="w-full px-3 py-2 bg-surface-muted border border-border rounded-xl focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-border flex items-center justify-end gap-2">
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setIsClassModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-surface-muted hover:bg-surface-muted text-text font-bold transition"
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition shadow-sm"
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition shadow-sm"
                 >
                   {editingClass ? 'Save Changes' : 'Create Class'}
                 </button>

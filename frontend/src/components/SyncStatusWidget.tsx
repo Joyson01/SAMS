@@ -52,7 +52,7 @@ export const SyncStatusWidget: React.FC = () => {
     <>
       <button
         onClick={() => setShowModal(true)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-border/80 text-xs text-slate-300 transition"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 text-xs text-slate-300 transition"
         title="Offline & Edge Sync Status"
       >
         {isOnline ? (
@@ -72,8 +72,8 @@ export const SyncStatusWidget: React.FC = () => {
       {/* Sync Status Drawer Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-border rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4 text-xs">
-            <div className="flex items-center justify-between border-b border-border pb-3">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4 text-xs">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 {isOnline ? (
                   <Cloud className="w-5 h-5 text-emerald-400" />
@@ -82,26 +82,26 @@ export const SyncStatusWidget: React.FC = () => {
                 )}
                 <div>
                   <h3 className="font-bold text-slate-100 text-sm">Edge Synchronization</h3>
-                  <span className="text-[10px] text-text-muted font-mono">
+                  <span className="text-[10px] text-slate-400 font-mono">
                     Mode: {isOnline ? 'Direct Cloud Sync' : 'Local SQLite Storage'}
                   </span>
                 </div>
               </div>
               <button
                 onClick={() => setShowModal(false)}
-                className="text-text-muted hover:text-slate-200"
+                className="text-slate-400 hover:text-slate-200"
               >
                 ✕
               </button>
             </div>
 
             <div className="grid grid-cols-2 gap-2.5">
-              <div className="bg-slate-800/80 p-3 rounded-xl border border-border/60">
-                <span className="text-text-muted block text-[10px]">Pending Uploads</span>
+              <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                <span className="text-slate-400 block text-[10px]">Pending Uploads</span>
                 <span className="text-lg font-bold text-amber-400">{pendingCount}</span>
               </div>
-              <div className="bg-slate-800/80 p-3 rounded-xl border border-border/60">
-                <span className="text-text-muted block text-[10px]">Synced Events</span>
+              <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                <span className="text-slate-400 block text-[10px]">Synced Events</span>
                 <span className="text-lg font-bold text-emerald-400">
                   {syncStatus?.synced_count || 0}
                 </span>
@@ -109,7 +109,7 @@ export const SyncStatusWidget: React.FC = () => {
             </div>
 
             {syncStatus?.last_synced_at && (
-              <div className="text-[11px] text-text-muted flex items-center gap-1.5">
+              <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
                 <span>
                   Last synced: {new Date(syncStatus.last_synced_at).toLocaleTimeString()}
@@ -117,7 +117,7 @@ export const SyncStatusWidget: React.FC = () => {
               </div>
             )}
 
-            <div className="pt-2 border-t border-border flex items-center justify-between gap-3">
+            <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-3">
               <button
                 onClick={handleManualSync}
                 disabled={isSyncing || !isOnline}

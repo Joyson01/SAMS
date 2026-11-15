@@ -1,13 +1,85 @@
-import React, { createContext, useContext } from 'react';
-const Labels = createContext<string[]>([]);
-function plainText(node: React.ReactNode): string { if (typeof node === 'string' || typeof node === 'number') return String(node); if (React.isValidElement<{children?: React.ReactNode}>(node)) return plainText(node.props.children); return React.Children.toArray(node).map(child => React.isValidElement<{children?: React.ReactNode}>(child) ? plainText(child.props.children) : String(child)).join(''); }
-export const Table: React.FC<React.TableHTMLAttributes<HTMLTableElement>> = ({children, className = '', ...props}) => {
- const labels: string[] = [];
- React.Children.forEach(children, child => {if (React.isValidElement<{children?: React.ReactNode}>(child) && child.type === TableHeader) React.Children.forEach(child.props.children, row => {if (React.isValidElement<{children?: React.ReactNode}>(row)) React.Children.forEach(row.props.children, cell => labels.push(plainText(cell)));});});
- return <Labels.Provider value={labels}><div className="w-full overflow-x-auto rounded-xl border border-border"><table className={`ui-table w-full border-collapse text-left text-sm text-text ${className}`} {...props}>{children}</table></div></Labels.Provider>;
+import React from 'react';
+
+export const Table: React.FC<React.TableHTMLAttributes<HTMLTableElement>> = ({
+  children,
+  className = '',
+  ...props
+}) => {
+  return (
+    <div className="w-full overflow-x-auto border border-slate-200 rounded-lg">
+      <table
+        className={`w-full text-left border-collapse text-xs sm:text-sm text-slate-700 ${className}`}
+        {...props}
+      >
+        {children}
+      </table>
+    </div>
+  );
 };
-export const TableHeader: React.FC<React.HTMLAttributes<HTMLTableSectionElement>> = ({children,className = '',...props}) => <thead className={`sticky top-0 z-10 border-b border-border bg-surface-muted text-xs font-medium text-text-muted ${className}`} {...props}>{children}</thead>;
-export const TableBody: React.FC<React.HTMLAttributes<HTMLTableSectionElement>> = ({children,className = '',...props}) => <tbody className={`divide-y divide-border bg-surface ${className}`} {...props}>{children}</tbody>;
-export const TableRow: React.FC<React.HTMLAttributes<HTMLTableRowElement>> = ({children,className = '',...props}) => {const labels = useContext(Labels); return <tr className={`transition-colors hover:bg-surface-muted focus-within:bg-surface-muted ${className}`} {...props}>{React.Children.map(children,(child,index) => React.isValidElement<{'data-label'?: string}>(child) && child.type === TableCell ? React.cloneElement(child, {'data-label':labels[index] || 'Details'}) : child)}</tr>;};
-export const TableHead: React.FC<React.ThHTMLAttributes<HTMLTableCellElement> & {onSort?: () => void; sortDirection?: 'asc' | 'desc'}> = ({children,className = '',onSort,sortDirection,...props}) => <th scope="col" aria-sort={sortDirection === 'asc' ? 'ascending' : sortDirection === 'desc' ? 'descending' : undefined} className={`px-4 py-3 font-medium ${className}`} {...props}>{onSort ? <button className="flex items-center gap-2" onClick={onSort}>{children}<span aria-hidden="true">{sortDirection === 'asc' ? '↑' : sortDirection === 'desc' ? '↓' : '↕'}</span></button> : children}</th>;
-export const TableCell: React.FC<React.TdHTMLAttributes<HTMLTableCellElement>> = ({children,className = '',...props}) => <td className={`px-4 py-3 ${className}`} {...props}>{children}</td>;
+
+export const TableHeader: React.FC<React.HTMLAttributes<HTMLTableSectionElement>> = ({
+  children,
+  className = '',
+  ...props
+}) => {
+  return (
+    <thead
+      className={`bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold text-[11px] uppercase tracking-wider ${className}`}
+      {...props}
+    >
+      {children}
+    </thead>
+  );
+};
+
+export const TableBody: React.FC<React.HTMLAttributes<HTMLTableSectionElement>> = ({
+  children,
+  className = '',
+  ...props
+}) => {
+  return (
+    <tbody className={`divide-y divide-slate-100 bg-white ${className}`} {...props}>
+      {children}
+    </tbody>
+  );
+};
+
+export const TableRow: React.FC<React.HTMLAttributes<HTMLTableRowElement>> = ({
+  children,
+  className = '',
+  ...props
+}) => {
+  return (
+    <tr
+      className={`transition-colors hover:bg-slate-50/70 focus-within:bg-slate-50/70 ${className}`}
+      {...props}
+    >
+      {children}
+    </tr>
+  );
+};
+
+export const TableHead: React.FC<React.ThHTMLAttributes<HTMLTableCellElement>> = ({
+  children,
+  className = '',
+  ...props
+}) => {
+  return (
+    <th className={`py-2.5 px-3.5 font-semibold text-slate-600 ${className}`} {...props}>
+      {children}
+    </th>
+  );
+};
+
+export const TableCell: React.FC<React.TdHTMLAttributes<HTMLTableCellElement>> = ({
+  children,
+  className = '',
+  ...props
+}) => {
+  return (
+    <td className={`py-2.5 px-3.5 text-slate-700 ${className}`} {...props}>
+      {children}
+    </td>
+  );
+};
+

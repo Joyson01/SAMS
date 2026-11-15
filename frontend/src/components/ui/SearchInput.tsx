@@ -31,12 +31,11 @@ export const SearchInput: React.FC<SearchInputProps> = ({
         }`}
       />
       <input
-        type="search"
-        aria-label={props['aria-label'] || placeholder}
+        type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className={`w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-8 text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
+        className={`w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-8 text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
           sizeVariant === 'sm' ? 'py-1.5 text-xs' : 'py-2 text-sm'
         }`}
         {...props}

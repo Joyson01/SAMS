@@ -70,7 +70,7 @@ export interface DashboardActivityItem {
   subtitle: string;
   timestamp: string;
   time_ago: string;
-  meta?: Record<string, unknown>;
+  meta?: Record<string, any>;
 }
 
 export interface DashboardExceptionItem {

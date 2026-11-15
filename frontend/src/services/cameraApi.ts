@@ -1,5 +1,5 @@
 import { apiClient } from './api';
-import { CameraCreatePayload, CameraDevice, CameraTestResult, ONVIFDiscoveryResponse } from '../types/camera';
+import { CameraCreatePayload, CameraDevice, CameraTestResult } from '../types/camera';
 
 export const fetchCameras = async (location?: string, assigned_class?: string): Promise<CameraDevice[]> => {
   const response = await apiClient.get<CameraDevice[]>('/cameras', {
@@ -46,7 +46,7 @@ export const stopCameraWorker = async (cameraId: string): Promise<void> => {
   await apiClient.post(`/cameras/${cameraId}/stop`);
 };
 
-export const discoverONVIFCameras = async (timeoutSec = 1.5): Promise<ONVIFDiscoveryResponse> => {
+export const discoverONVIFCameras = async (timeoutSec = 1.5): Promise<any> => {
   const response = await apiClient.get('/cameras/discover-onvif', {
     params: { timeout: timeoutSec },
   });

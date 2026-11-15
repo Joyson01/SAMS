@@ -10,7 +10,7 @@ export interface CameraDevice {
   target_fps: number;
   resolution: string;
   assigned_class?: string | null;
-  detection_zone?: Record<string, unknown> | null;
+  detection_zone?: Record<string, any> | null;
   is_connected: boolean;
   fps: number;
   seconds_since_last_frame?: number | null;
@@ -29,7 +29,7 @@ export interface CameraCreatePayload {
   target_fps?: number;
   resolution?: string;
   assigned_class?: string | null;
-  detection_zone?: Record<string, unknown> | null;
+  detection_zone?: Record<string, any> | null;
   is_active?: boolean;
 }
 

@@ -133,7 +133,6 @@ def recognize_photo(image, gallery):
                 det_size=settings.PHOTO_DET_SIZE,
                 tile_size=settings.PHOTO_TILE_SIZE,
                 overlap=settings.PHOTO_TILE_OVERLAP,
-                min_face_size=24,
             )
         pipeline = get_pipeline()
         results = []
@@ -159,8 +158,6 @@ def recognize_photo(image, gallery):
                 settings.PHOTO_MARGIN,
             )
             flags = []
-            if min(face.bbox.width, face.bbox.height) < 35:
-                flags.append("small_face")
             gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
             if float(gray.mean()) < 35:
                 flags.append("too_dark")

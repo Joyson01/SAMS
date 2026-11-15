@@ -50,9 +50,9 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
             videoRef.current.srcObject = stream;
             if (autoPlay) await videoRef.current.play();
           }
-        } catch (err: unknown) {
+        } catch (err: any) {
           console.warn('Webcam preview launch error:', err);
-          if (isMounted) setStreamError(err instanceof Error ? err.message : 'Could not access webcam stream.');
+          if (isMounted) setStreamError(err.message || 'Could not access webcam stream.');
         }
       };
 
@@ -121,13 +121,13 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
 
   return (
     <div
-      className={`relative bg-[#020617] rounded-xl overflow-hidden aspect-video flex items-center justify-center border border-slate-800 shadow-inner ${className}`}
+      className={`relative bg-slate-950 rounded-xl overflow-hidden aspect-video flex items-center justify-center border border-slate-800 shadow-inner ${className}`}
     >
       {camera.source_type === 'WEBCAM' ? (
         streamError ? (
           <div className="text-center p-4 space-y-2 text-slate-400">
             <AlertTriangle className="w-7 h-7 text-amber-500 mx-auto" />
-            <div className="text-xs font-semibold text-[#cbd5e1]">Webcam Unavailable</div>
+            <div className="text-xs font-semibold text-slate-300">Webcam Unavailable</div>
             <div className="text-[11px] text-slate-500 max-w-xs">{streamError}</div>
           </div>
         ) : (
@@ -163,7 +163,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
                   ) : (
                     <Radio className="w-8 h-8 mx-auto text-purple-400 animate-pulse" />
                   )}
-                  <div className="text-xs font-semibold text-[#e2e8f0]">
+                  <div className="text-xs font-semibold text-slate-200">
                     {camera.status === 'OFFLINE'
                       ? 'Camera Feed Offline'
                       : isNoFrame
@@ -190,7 +190,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
               ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/30'
               : isNoFrame
               ? 'bg-amber-950/80 text-amber-300 border-amber-500/30'
-              : 'bg-[#0f172a]/80 text-slate-400 border-slate-700/50'
+              : 'bg-slate-900/80 text-slate-400 border-slate-700/50'
           }`}
         >
           <span
@@ -207,7 +207,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
       </div>
 
       {/* Resolution & FPS Indicator Bottom Right */}
-      <div className="absolute bottom-3 right-3 px-2 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-mono text-[#cbd5e1] border border-white/10">
+      <div className="absolute bottom-3 right-3 px-2 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-mono text-slate-300 border border-white/10">
         {camera.resolution} · {camera.fps > 0 ? `${camera.fps} FPS` : `${camera.target_fps} FPS (Target)`}
       </div>
     </div>
