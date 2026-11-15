@@ -1,40 +1,88 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
 :root {
-  color-scheme: light;
+ color-scheme: light;
+ --background: 248 249 251; --surface: 255 255 255; --surface-muted: 243 244 246;
+ --border: 226 228 232; --text: 28 32 39; --text-muted: 86 94 107;
+ --primary: 79 70 229; --primary-foreground: 255 255 255;
+ --success: 4 120 87; --warning: 146 64 14; --danger: 190 18 60; --info: 29 78 216;
+ --radius-card: 1rem; --shadow-card: 0 2px 12px rgb(15 23 42 / .035); --z-header: 30; --z-dialog: 50; --z-toast: 60;
+ --slate-50: 248 249 251;
+ --slate-100: 243 244 246;
+ --slate-200: 226 228 232;
+ --slate-300: 203 213 225;
+ --slate-400: 100 116 139;
+ --slate-500: 100 116 139;
+ --slate-600: 71 85 105;
+ --slate-700: 51 65 85;
+ --slate-800: 30 41 59;
+ --slate-900: 15 23 42;
+ --slate-950: 2 6 23;
+ --indigo-50: 238 242 255;
+ --indigo-100: 224 231 255;
+ --indigo-200: 199 210 254;
+ --indigo-300: 165 180 252;
+ --indigo-400: 129 140 248;
+ --indigo-500: 99 102 241;
+ --indigo-600: 79 70 229;
+ --indigo-700: 67 56 202;
+ --indigo-800: 55 48 163;
+ --indigo-900: 49 46 129;
+ --indigo-950: 30 27 75;
 }
-
-body {
-  margin: 0;
-  padding: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
-  background-color: #f8fafc;
-  color: #0f172a;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+.dark { color-scheme: dark; --background: 23 25 29; --surface: 31 34 39; --surface-muted: 40 44 50; --border: 57 62 70; --text: 240 241 243; --text-muted: 174 181 192; --primary: 165 180 252; --primary-foreground: 30 27 75; --success: 110 231 183; --warning: 252 211 77; --danger: 253 164 175; --info: 147 197 253;
+ --slate-50: 23 25 29;
+ --slate-100: 40 44 50;
+ --slate-200: 57 62 70;
+ --slate-300: 71 85 105;
+ --slate-400: 148 163 184;
+ --slate-500: 172 187 207;
+ --slate-600: 203 213 225;
+ --slate-700: 226 232 240;
+ --slate-800: 235 241 249;
+ --slate-900: 241 245 249;
+ --slate-950: 248 250 252;
+ --indigo-50: 35 38 73; --indigo-100: 45 47 90; --indigo-200: 67 65 120; --indigo-700: 165 180 252; --indigo-800: 199 210 254; --indigo-900: 224 231 255;
 }
-
-/* Custom subtle scrollbars */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+@layer base {
+ body { margin: 0; font-family: 'Inter Variable', sans-serif; font-variant-numeric: tabular-nums; background: rgb(var(--background)); color: rgb(var(--text)); -webkit-font-smoothing: antialiased; }
+ button, input, select, textarea { font: inherit; }
+ button, select, input:not([type=checkbox]):not([type=radio]):not([type=range]), textarea { min-height: 44px; }
+ button:disabled { cursor: not-allowed; }
+ :focus-visible { outline: 3px solid rgb(var(--primary)); outline-offset: 3px; }
+ ::selection { background: rgb(var(--indigo-200)); }
 }
-
-::-webkit-scrollbar-track {
-  background: #f1f5f9;
+@layer utilities {
+ .bg-white { background-color: rgb(var(--surface)); }
+ .route-enter { animation: route-enter .18s cubic-bezier(0.22, 1, 0.36, 1); }
 }
-
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
+@media (min-width: 768px) { .sidebar-nav button { min-height: 36px; height: 36px; } }
+.lucide { stroke-width: 1.5; }
+@keyframes route-enter { from { opacity: .6; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-thumb { background: rgb(var(--border)); border-radius: 10px; }
+@media (max-width: 639px) {
+ .ui-table, .ui-table tbody, .ui-table tr, .ui-table td { display: block; width: 100%; }
+ .ui-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+ .ui-table tbody tr { padding: .5rem; }
+ .ui-table td { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .5rem; text-align: right; }
+ .ui-table td::before { content: attr(data-label); color: rgb(var(--text-muted)); font-size: .75rem; font-weight: 500; text-align: left; }
+ .ui-table td[colspan] { justify-content: center; text-align: center; }
+ .ui-table td[colspan]::before { display: none; }
+ .register-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; gap: 8px; }
+ .register-table td { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 4px; padding: 4px; text-align: left; min-width: 0; overflow-wrap: anywhere; }
+ .register-table td::before { font-size: 12px; font-weight: 400; }
+ .register-table td[colspan] { grid-column: 1 / -1; }
 }
-
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-/* Keyboard navigation remains visible on all workspace controls. */
-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
-button:disabled { cursor: not-allowed; opacity: .5; }
+/* Status tones retain readable foregrounds in either theme. */
+.dark .bg-emerald-50, .dark .bg-green-50 { background-color: #103b31; }
+.dark .text-emerald-700, .dark .text-green-700, .dark .text-emerald-600 { color: #6ee7b7; }
+.dark .bg-amber-50, .dark .bg-yellow-50 { background-color: #422e14; }
+.dark .text-amber-700, .dark .text-amber-800, .dark .text-amber-900, .dark .text-yellow-800 { color: #fcd34d; }
+.dark .bg-rose-50, .dark .bg-red-50 { background-color: #471c2d; }
+.dark .text-rose-600, .dark .text-rose-700, .dark .text-rose-800, .dark .text-red-700 { color: #fda4af; }
+.dark .bg-purple-50 { background-color: #372354; }
+.dark .text-purple-700 { color: #d8b4fe; }
+.dark .text-indigo-600 { color: rgb(var(--primary)); }

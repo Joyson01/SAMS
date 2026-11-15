@@ -9,9 +9,12 @@ from ai_engine.base import BoundingBox
 
 
 class PhotoDetector:
-    def __init__(self, detector=None, tile_size=640, overlap=0.20, det_size=1280):
+    def __init__(self, detector=None, tile_size=640, overlap=0.20, det_size=1280, min_face_size=35):
         if tile_size < 64 or not 0 <= overlap < 0.5:
             raise ValueError("Invalid photo tile configuration")
+        if min_face_size < 16:
+            raise ValueError("Minimum face size must be at least 16 pixels")
+        self.min_face_size = min_face_size
         self.detector = detector
         self.tile_size = tile_size
         self.overlap = overlap
@@ -24,7 +27,7 @@ class PhotoDetector:
         with self.lock:
             if self.detector is None:
                 self.detector = SCRFDFaceDetector(
-                    det_size=(self.det_size, self.det_size), min_face_size=35
+                    det_size=(self.det_size, self.det_size), min_face_size=self.min_face_size
                 )
             height, width = image.shape[:2]
             faces = list(self.detector.detect(image))
@@ -54,5 +57,5 @@ class PhotoDetector:
                                 )
                             )
             return apply_face_nms(
-                [f for f in faces if f.bbox.width >= 35 and f.bbox.height >= 35]
+                [f for f in faces if f.bbox.width >= self.min_face_size and f.bbox.height >= self.min_face_size]
             )

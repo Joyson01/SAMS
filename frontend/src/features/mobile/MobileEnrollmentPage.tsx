@@ -57,7 +57,7 @@ export const MobileEnrollmentPage: React.FC = () => {
   const captureCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const loopRef = useRef<any>(null);
+  const loopRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isScanningRef = useRef<boolean>(false);
 
   useEffect(() => {
@@ -211,9 +211,9 @@ export const MobileEnrollmentPage: React.FC = () => {
         videoRef.current.srcObject = stream;
       }
       setStatusMessage('Camera online. Detecting face...');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Camera error:', err);
-      setErrorMessage(`Camera error (${err.name}): Please ensure HTTPS and camera permissions.`);
+      setErrorMessage(`Camera error (${(err instanceof Error ? err.name : 'Error')}): Please ensure HTTPS and camera permissions.`);
     }
   };
 
@@ -283,7 +283,7 @@ export const MobileEnrollmentPage: React.FC = () => {
           setStatusType('warning');
           setStatusMessage(response.data.message || 'Face not clear. Please hold steady.');
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         setStatusType('warning');
         setStatusMessage(formatApiErrorMessage(err, 'Error processing sample.'));
       } finally {
@@ -293,11 +293,11 @@ export const MobileEnrollmentPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col justify-between p-4 max-w-md mx-auto font-sans">
+    <div className="min-h-screen bg-[#0f172a] text-white flex flex-col justify-between p-4 max-w-md mx-auto font-sans">
       {/* Top Header */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-3">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-xs text-white">
+          <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center font-bold text-xs text-white">
             AD
           </div>
           <div>
@@ -308,7 +308,7 @@ export const MobileEnrollmentPage: React.FC = () => {
 
         {student && (
           <div className="text-right">
-            <span className="text-xs font-semibold text-slate-200 block">
+            <span className="text-xs font-semibold text-[#e2e8f0] block">
               {student.first_name} {student.last_name}
             </span>
             <span className="text-[10px] text-slate-400 font-mono">{student.student_code}</span>
@@ -335,7 +335,7 @@ export const MobileEnrollmentPage: React.FC = () => {
               Your biometric profile has been successfully generated and verified. You can now use automated face attendance in class.
             </p>
           </div>
-          <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 font-mono">
+          <div className="p-3 rounded-xl bg-[#0f172a] border border-slate-800 text-xs text-[#cbd5e1] font-mono">
             {student?.first_name} {student?.last_name} ({student?.student_code})
           </div>
         </div>
@@ -368,7 +368,7 @@ export const MobileEnrollmentPage: React.FC = () => {
 
             {/* Instruction Overlay */}
             <div className="absolute bottom-3 inset-x-3 bg-black/75 backdrop-blur-md px-3 py-2 rounded-xl text-center border border-white/10">
-              <span className="text-xs font-semibold text-slate-200 block">
+              <span className="text-xs font-semibold text-[#e2e8f0] block">
                 {INSTRUCTIONS[sampleCount] || 'Hold steady'}
               </span>
               <span className="text-[10px] text-slate-400">
@@ -379,7 +379,7 @@ export const MobileEnrollmentPage: React.FC = () => {
             {/* Debug Toggle */}
             <button
               onClick={() => setDebugMode(!debugMode)}
-              className="absolute top-3 right-3 bg-black/60 px-2 py-1 rounded-full text-[10px] text-slate-300 flex items-center gap-1"
+              className="absolute top-3 right-3 bg-black/60 px-2 py-1 rounded-full text-[10px] text-[#cbd5e1] flex items-center gap-1"
             >
               <Activity className="w-3 h-3 text-blue-400" />
               <span>{debugMode ? 'Hide' : 'Debug'}</span>
@@ -387,7 +387,7 @@ export const MobileEnrollmentPage: React.FC = () => {
           </div>
 
           {debugMode && (
-            <div className="p-2 bg-slate-800 rounded-lg text-[10px] font-mono text-slate-300 flex justify-between">
+            <div className="p-2 bg-slate-800 rounded-lg text-[10px] font-mono text-[#cbd5e1] flex justify-between">
               <span>Latency: {latencyMs}ms</span>
               <span>Faces: {detectedFaces.length}</span>
               <span>Detector: SCRFD-10G</span>
@@ -401,7 +401,7 @@ export const MobileEnrollmentPage: React.FC = () => {
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                 : statusType === 'warning'
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                : 'bg-slate-800 text-slate-300 border border-slate-700'
+                : 'bg-slate-800 text-[#cbd5e1] border border-slate-700'
             }`}
           >
             {statusMessage}
@@ -415,7 +415,7 @@ export const MobileEnrollmentPage: React.FC = () => {
           <button
             onClick={handleCapture}
             disabled={capturing || !studentId}
-            className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition disabled:opacity-50"
+            className="w-full py-3.5 rounded-xl bg-primary hover:bg-primary font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition disabled:opacity-50"
           >
             {capturing ? (
               <>

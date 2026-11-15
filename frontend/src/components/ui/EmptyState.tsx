@@ -29,7 +29,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           {icon}
         </div>
       )}
-      <h4 className="text-sm font-bold text-slate-800 tracking-tight">{title}</h4>
+      <h4 className="text-sm font-semibold text-slate-800 tracking-tight">{title}</h4>
       {description && (
         <p className="text-xs text-slate-500 mt-1 max-w-sm leading-relaxed">{description}</p>
       )}

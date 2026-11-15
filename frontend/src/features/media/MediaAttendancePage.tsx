@@ -32,13 +32,14 @@ import {
 } from '../../services/mediaAttendanceApi';
 import {
   MediaAnalysisResponse,
+  DetectedMediaFaceItem,
   MediaJobResponse,
   SessionBiometricValidationResponse,
 } from '../../types/mediaAttendance';
 import { formatApiErrorMessage } from '../../utils/apiError';
 
 interface MediaAttendancePageProps {
-  onNavigate?: (tab: string, extra?: any) => void;
+  onNavigate?: (tab: string, extra?: string) => void;
 }
 
 const MAX_IMAGE_SIZE_MB = 20;
@@ -56,8 +57,8 @@ function drawCanvasRoundRect(
   h: number,
   r: number = 4
 ) {
-  if (typeof (ctx as any).roundRect === 'function') {
-    (ctx as any).roundRect(x, y, w, h, r);
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x, y, w, h, r);
   } else {
     ctx.beginPath();
     ctx.moveTo(x + r, y);
@@ -111,7 +112,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
   // Refs for cleanup and overlay canvas
   const imageOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const imagePreviewRef = useRef<HTMLImageElement>(null);
-  const pollIntervalRef = useRef<any>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeImageBlobUrlRef = useRef<string | null>(null);
   const activeVideoBlobUrlRef = useRef<string | null>(null);
 
@@ -129,7 +130,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
         } catch (_) {}
       }
       if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       }
     };
   }, []);
@@ -153,7 +154,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
       } else if (validSessions.length > 0) {
         setSelectedSessionId(validSessions[0].id);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load media attendance resources:', err);
       setErrorMessage('Failed to connect to backend server. Please verify services are running.');
     } finally {
@@ -194,7 +195,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
           if (updated) {
             setActiveVideoJob(updated);
             if (updated.status === 'COMPLETED' || updated.status === 'FAILED' || updated.status === 'CANCELLED') {
-              clearInterval(pollIntervalRef.current);
+              if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
               const refreshedJobs = await fetchMediaJobs();
               setJobs(Array.isArray(refreshedJobs) ? refreshedJobs : []);
               if (updated.status === 'COMPLETED') {
@@ -210,12 +211,12 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
       }, 1500);
     }
     return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (pollIntervalRef.current) if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, [activeVideoJob]);
 
   // Draw Bounding Boxes Over Image Preview
-  const drawImageBoundingBoxes = useCallback((faces: any[], imgEl: HTMLImageElement | null) => {
+  const drawImageBoundingBoxes = useCallback((faces: (DetectedMediaFaceItem & { confidence?: number })[], imgEl: HTMLImageElement | null) => {
     const canvas = imageOverlayCanvasRef.current;
     if (!canvas || !imgEl) return;
     const ctx = canvas.getContext('2d');
@@ -450,7 +451,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
       setActiveVideoJob(job);
       const refreshedJobs = await fetchMediaJobs();
       setJobs(Array.isArray(refreshedJobs) ? refreshedJobs : []);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error in processVideoAttendance:', err);
       const msg = formatApiErrorMessage(err, 'Failed to submit video for processing.');
       setErrorMessage(msg);
@@ -496,8 +497,8 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Media Attendance</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
+          <h1 className="text-2xl font-bold text-text tracking-tight">Media Attendance</h1>
+          <p className="text-sm text-text-muted mt-0.5">
             Process previously captured classroom group photos or pre-recorded lecture videos through the AI biometric engine.
           </p>
         </div>
@@ -505,7 +506,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
         {onNavigate && (
           <button
             onClick={() => onNavigate('attendance')}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition self-start sm:self-auto"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-surface-muted hover:bg-slate-200 text-text text-xs font-bold transition self-start sm:self-auto"
           >
             <span>View Attendance Sessions</span>
             <ArrowRight className="w-3.5 h-3.5" />
@@ -545,14 +546,14 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
       )}
 
       {/* Target Session Selection & Biometrics Readiness Card */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
+      <div className="bg-surface border border-border rounded-3xl p-6 shadow-sm space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-blue-600"></span>
-              <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Step 1: Select Attendance Session</span>
+              <span className="w-2 h-2 rounded-full bg-primary"></span>
+              <span className="text-xs font-bold text-text uppercase tracking-wider">Step 1: Select Attendance Session</span>
             </div>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-text-muted">
               Verified attendance records will be marked against the selected academic session.
             </p>
           </div>
@@ -570,7 +571,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                   setSelectedSessionId(e.target.value);
                   setErrorMessage(null);
                 }}
-                className="bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 shadow-xs"
+                className="bg-surface-muted border border-border rounded-2xl px-4 py-2.5 text-xs font-bold text-text focus:bg-surface focus:outline-none focus:border-blue-500 shadow-xs"
               >
                 {sessions.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -584,11 +585,11 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
 
         {/* Biometrics Readiness Info */}
         {sessionBiometrics && (
-          <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="pt-3 border-t border-border flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5 text-slate-700">
+              <div className="flex items-center gap-1.5 text-text">
                 <Users className="w-4 h-4 text-slate-400" />
-                <span>Enrolled Students: <strong className="text-slate-900">{sessionBiometrics.total_enrolled_students}</strong></span>
+                <span>Enrolled Students: <strong className="text-text">{sessionBiometrics.total_enrolled_students}</strong></span>
               </div>
               <div className="flex items-center gap-1.5 text-emerald-700">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -623,7 +624,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
       </div>
 
       {/* Mode Switcher Tabs */}
-      <div className="flex items-center gap-3 border-b border-slate-200 pb-3">
+      <div className="flex items-center gap-3 border-b border-border pb-3">
         <button
           onClick={() => {
             setActiveTab('IMAGE');
@@ -631,8 +632,8 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
           }}
           className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
             activeTab === 'IMAGE'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              ? 'bg-primary text-white shadow-sm'
+              : 'bg-surface text-text-muted hover:bg-surface-muted border border-border'
           }`}
         >
           <ImageIcon className="w-4 h-4" />
@@ -646,8 +647,8 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
           }}
           className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
             activeTab === 'VIDEO'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              ? 'bg-primary text-white shadow-sm'
+              : 'bg-surface text-text-muted hover:bg-surface-muted border border-border'
           }`}
         >
           <Film className="w-4 h-4" />
@@ -660,26 +661,26 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
       {/* ========================================================================= */}
       {activeTab === 'IMAGE' && (
         <div className="space-y-6">
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
+          <div className="bg-surface border border-border rounded-3xl p-6 shadow-sm space-y-4">
             <div className="space-y-1">
-              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <ImageIcon className="w-4 h-4 text-blue-600" />
+              <h2 className="text-base font-bold text-text flex items-center gap-2">
+                <ImageIcon className="w-4 h-4 text-primary" />
                 <span>Upload Classroom Photo</span>
               </h2>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-text-muted">
                 Upload a group classroom photo or portrait (JPEG, PNG, WEBP). Multiple students in a single frame are detected, aligned, quality-filtered, and evaluated independently.
               </p>
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-4 pt-2">
-              <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition border border-blue-200">
+              <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-primary text-xs font-bold transition border border-blue-200">
                 <Upload className="w-4 h-4" />
                 <span>Choose Image (JPG, PNG, WEBP)</span>
                 <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageSelect} className="hidden" />
               </label>
 
               {imageFile && (
-                <div className="text-xs font-mono text-slate-600 flex items-center gap-2">
+                <div className="text-xs font-mono text-text-muted flex items-center gap-2">
                   <span className="font-bold text-emerald-600 flex items-center gap-1">
                     <Check className="w-3.5 h-3.5" />
                     <span>Selected: {imageFile.name}</span>
@@ -696,7 +697,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
             {/* Image Preview & Bounding Box Overlay Canvas */}
             {imagePreviewUrl && (
               <div className="space-y-4 pt-2">
-                <div className="relative max-h-[500px] rounded-2xl overflow-hidden border border-slate-200 bg-slate-950 flex items-center justify-center shadow-inner">
+                <div className="relative max-h-[500px] rounded-2xl overflow-hidden border border-border bg-slate-950 flex items-center justify-center shadow-inner">
                   <img
                     ref={imagePreviewRef}
                     src={imagePreviewUrl}
@@ -720,8 +721,8 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                       onClick={() => setShowOverlays(!showOverlays)}
                       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
                         showOverlays
-                          ? 'bg-blue-50 text-blue-700 border-blue-200'
-                          : 'bg-slate-50 text-slate-600 border-slate-200'
+                          ? 'bg-blue-50 text-primary border-blue-200'
+                          : 'bg-surface-muted text-text-muted border-border'
                       }`}
                     >
                       {showOverlays ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
@@ -735,7 +736,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                   <button
                     onClick={handleAnalyzeImage}
                     disabled={analyzingImage || !selectedSessionId || (sessionBiometrics !== null && !sessionBiometrics.can_process)}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition disabled:opacity-50"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary hover:bg-primary text-white text-xs font-bold shadow-sm transition disabled:opacity-50"
                   >
                     {analyzingImage ? (
                       <>
@@ -756,15 +757,15 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
 
           {/* Image Analysis Results */}
           {imageResult && (
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5 animate-in fade-in-50">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="bg-surface border border-border rounded-3xl p-6 shadow-sm space-y-5 animate-in fade-in-50">
+              <div className="flex items-center justify-between border-b border-border pb-3">
                 <div>
-                  <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-blue-600" />
+                  <h3 className="text-base font-black text-text flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-primary" />
                     <span>Image Attendance Results</span>
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Session: <strong className="text-slate-800">{imageResult.session_subject}</strong> ({imageResult.session_class}) · Latency: {imageResult.processing_time_ms} ms
+                  <p className="text-xs text-text-muted mt-0.5">
+                    Session: <strong className="text-text">{imageResult.session_subject}</strong> ({imageResult.session_class}) · Latency: {imageResult.processing_time_ms} ms
                   </p>
                 </div>
                 <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200 flex items-center gap-1.5">
@@ -775,25 +776,25 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
 
               {/* Stat Summary Metrics */}
               <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-center">
-                <div className="bg-slate-50 border border-slate-200/70 rounded-2xl p-3">
+                <div className="bg-surface-muted border border-border/70 rounded-2xl p-3">
                   <div className="text-[10px] uppercase font-bold text-slate-400">Faces Detected</div>
-                  <div className="text-xl font-black text-slate-900 mt-1">{imageResult.faces_detected || 0}</div>
+                  <div className="text-xl font-black text-text mt-1">{imageResult.faces_detected || 0}</div>
                 </div>
                 <div className="bg-emerald-50/70 border border-emerald-200/60 rounded-2xl p-3">
                   <div className="text-[10px] uppercase font-bold text-emerald-600">Verified</div>
                   <div className="text-xl font-black text-emerald-700 mt-1">{imageResult.recognized_count || 0}</div>
                 </div>
                 <div className="bg-blue-50/70 border border-blue-200/60 rounded-2xl p-3">
-                  <div className="text-[10px] uppercase font-bold text-blue-600">Marked Present</div>
-                  <div className="text-xl font-black text-blue-700 mt-1">{imageResult.attendance_marked_count || 0}</div>
+                  <div className="text-[10px] uppercase font-bold text-primary">Marked Present</div>
+                  <div className="text-xl font-black text-primary mt-1">{imageResult.attendance_marked_count || 0}</div>
                 </div>
                 <div className="bg-amber-50/70 border border-amber-200/60 rounded-2xl p-3">
                   <div className="text-[10px] uppercase font-bold text-amber-600">Verifying</div>
                   <div className="text-xl font-black text-amber-700 mt-1">{imageResult.uncertain_count || 0}</div>
                 </div>
-                <div className="bg-slate-100 border border-slate-200 rounded-2xl p-3">
-                  <div className="text-[10px] uppercase font-bold text-slate-500">Unknown</div>
-                  <div className="text-xl font-black text-slate-700 mt-1">{imageResult.unknown_count || 0}</div>
+                <div className="bg-surface-muted border border-border rounded-2xl p-3">
+                  <div className="text-[10px] uppercase font-bold text-text-muted">Unknown</div>
+                  <div className="text-xl font-black text-text mt-1">{imageResult.unknown_count || 0}</div>
                 </div>
                 <div className="bg-rose-50/70 border border-rose-200/60 rounded-2xl p-3">
                   <div className="text-[10px] uppercase font-bold text-rose-600">Low Quality</div>
@@ -804,10 +805,10 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
               {/* Table of Recognized Students */}
               {Array.isArray(imageResult.recognized_students) && imageResult.recognized_students.length > 0 ? (
                 <div className="space-y-2">
-                  <h4 className="text-xs font-bold text-slate-800">Verified Students Marked Present</h4>
-                  <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+                  <h4 className="text-xs font-bold text-text">Verified Students Marked Present</h4>
+                  <div className="overflow-x-auto border border-border rounded-2xl">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-bold uppercase text-[10px]">
+                      <thead className="bg-surface-muted text-text-muted border-b border-border font-bold uppercase text-[10px]">
                         <tr>
                           <th className="p-3">Student Name</th>
                           <th className="p-3">Roll / Code</th>
@@ -817,11 +818,11 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                           <th className="p-3">Remarks</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                      <tbody className="divide-y divide-border text-text">
                         {imageResult.recognized_students.map((st, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50/70 transition">
-                            <td className="p-3 font-bold text-slate-900">{st.student_name}</td>
-                            <td className="p-3 font-mono text-[11px] text-slate-500">
+                          <tr key={idx} className="hover:bg-surface-muted/70 transition">
+                            <td className="p-3 font-bold text-text">{st.student_name}</td>
+                            <td className="p-3 font-mono text-[11px] text-text-muted">
                               {st.roll_number || st.student_code || '—'}
                             </td>
                             <td className="p-3 font-mono font-bold text-emerald-600">{st.confidence_pct}%</td>
@@ -843,15 +844,15 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                   </div>
                 </div>
               ) : (
-                <div className="p-6 text-center text-slate-400 text-xs border border-slate-200 rounded-2xl bg-slate-50">
+                <div className="p-6 text-center text-slate-400 text-xs border border-border rounded-2xl bg-surface-muted">
                   No registered student identities matched above the verified threshold in this photo.
                 </div>
               )}
 
               {/* Unresolved Faces Review Section */}
               {Array.isArray(imageResult.unresolved_faces) && imageResult.unresolved_faces.length > 0 && (
-                <div className="space-y-2 pt-3 border-t border-slate-100">
-                  <h4 className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                <div className="space-y-2 pt-3 border-t border-border">
+                  <h4 className="text-xs font-bold text-text flex items-center gap-2">
                     <HelpCircle className="w-3.5 h-3.5 text-amber-500" />
                     <span>Unresolved / Non-Enrolled Faces ({imageResult.unresolved_faces.length})</span>
                   </h4>
@@ -862,9 +863,9 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                     {imageResult.unresolved_faces.map((unres, idx) => (
                       <div
                         key={idx}
-                        className="p-3 rounded-2xl border border-slate-200 bg-slate-50/70 text-xs space-y-1"
+                        className="p-3 rounded-2xl border border-border bg-surface-muted/70 text-xs space-y-1"
                       >
-                        <div className="flex items-center justify-between font-bold text-slate-800">
+                        <div className="flex items-center justify-between font-bold text-text">
                           <span>{unres.face_id}</span>
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -872,13 +873,13 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                                 ? 'bg-rose-100 text-rose-800'
                                 : unres.status === 'VERIFYING'
                                 ? 'bg-amber-100 text-amber-800'
-                                : 'bg-slate-200 text-slate-700'
+                                : 'bg-slate-200 text-text'
                             }`}
                           >
                             {unres.status || unres.decision}
                           </span>
                         </div>
-                        <div className="text-[11px] text-slate-500 font-mono">
+                        <div className="text-[11px] text-text-muted font-mono">
                           Sharpness: {unres.quality_score} · Conf: {unres.confidence_pct}%
                         </div>
                         <div className="text-[10px] text-slate-400 truncate">{unres.rejection_reason}</div>
@@ -897,27 +898,27 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
       {/* ========================================================================= */}
       {activeTab === 'VIDEO' && (
         <div className="space-y-6">
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
+          <div className="bg-surface border border-border rounded-3xl p-6 shadow-sm space-y-4">
             <div className="space-y-1">
-              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Film className="w-4 h-4 text-blue-600" />
+              <h2 className="text-base font-bold text-text flex items-center gap-2">
+                <Film className="w-4 h-4 text-primary" />
                 <span>Upload Recorded Classroom Video</span>
               </h2>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-text-muted">
                 Upload a recorded lecture (MP4, AVI, MKV, WebM, MOV). Faces are tracked across frames with multi-frame verification, and exactly ONE attendance record is recorded per student.
               </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
               <div className="space-y-2">
-                <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition border border-blue-200">
+                <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-primary text-xs font-bold transition border border-blue-200">
                   <Upload className="w-4 h-4" />
                   <span>Choose Video File</span>
                   <input type="file" accept="video/mp4,video/avi,video/quicktime,video/webm,video/x-matroska" onChange={handleVideoSelect} className="hidden" />
                 </label>
 
                 {videoFile && (
-                  <div className="text-xs font-mono text-slate-600 space-y-0.5">
+                  <div className="text-xs font-mono text-text-muted space-y-0.5">
                     <div className="font-bold text-emerald-600 flex items-center gap-1">
                       <Check className="w-3.5 h-3.5" />
                       <span>{videoFile.name}</span>
@@ -932,9 +933,9 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                <label className="text-xs font-bold text-text flex items-center justify-between">
                   <span>Frame Sampling Rate</span>
-                  <span className="font-mono text-blue-600 font-bold">{sampleFps} FPS</span>
+                  <span className="font-mono text-primary font-bold">{sampleFps} FPS</span>
                 </label>
                 <input
                   type="range"
@@ -953,8 +954,8 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
 
             {/* Video Preview & Trigger */}
             {videoPreviewUrl && (
-              <div className="space-y-4 pt-3 border-t border-slate-100">
-                <div className="max-h-72 rounded-2xl overflow-hidden bg-black flex items-center justify-center border border-slate-200">
+              <div className="space-y-4 pt-3 border-t border-border">
+                <div className="max-h-72 rounded-2xl overflow-hidden bg-black flex items-center justify-center border border-border">
                   <video src={videoPreviewUrl} controls className="max-h-72 w-full object-contain" />
                 </div>
 
@@ -962,7 +963,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                   <button
                     onClick={handleAnalyzeVideo}
                     disabled={uploadingVideo || !selectedSessionId || (activeVideoJob !== null && activeVideoJob.status === 'PROCESSING') || (sessionBiometrics !== null && !sessionBiometrics.can_process)}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition disabled:opacity-50"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary hover:bg-primary text-white text-xs font-bold shadow-sm transition disabled:opacity-50"
                   >
                     {uploadingVideo ? (
                       <>
@@ -983,11 +984,11 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
 
           {/* Active Video Processing Job Progress Card */}
           {activeVideoJob && (
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4 animate-in fade-in-50">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="bg-surface border border-border rounded-3xl p-6 shadow-sm space-y-4 animate-in fade-in-50">
+              <div className="flex items-center justify-between border-b border-border pb-3">
                 <div className="space-y-0.5">
                   <div className="text-xs font-bold uppercase text-slate-400 tracking-wider">Video Job Status</div>
-                  <div className="text-base font-bold text-slate-900">{activeVideoJob.filename}</div>
+                  <div className="text-base font-bold text-text">{activeVideoJob.filename}</div>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -996,7 +997,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                       activeVideoJob.status === 'COMPLETED'
                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                         : activeVideoJob.status === 'PROCESSING' || activeVideoJob.status === 'QUEUED'
-                        ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                        ? 'bg-blue-50 text-primary border border-blue-200'
                         : 'bg-rose-50 text-rose-700 border border-rose-200'
                     }`}
                   >
@@ -1022,12 +1023,12 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
               {/* Progress Bar */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs font-bold">
-                  <span className="text-slate-600">Processing Progress</span>
-                  <span className="text-blue-600 font-mono">{(activeVideoJob.progress_pct || 0).toFixed(1)}%</span>
+                  <span className="text-text-muted">Processing Progress</span>
+                  <span className="text-primary font-mono">{(activeVideoJob.progress_pct || 0).toFixed(1)}%</span>
                 </div>
-                <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                <div className="w-full h-2.5 bg-surface-muted rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-blue-600 transition-all duration-300 rounded-full"
+                    className="h-full bg-primary transition-all duration-300 rounded-full"
                     style={{ width: `${Math.min(100, activeVideoJob.progress_pct || 0)}%` }}
                   />
                 </div>
@@ -1035,23 +1036,23 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
 
               {/* Live Counters */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center pt-2">
-                <div className="bg-slate-50 border border-slate-200/70 rounded-2xl p-3">
+                <div className="bg-surface-muted border border-border/70 rounded-2xl p-3">
                   <div className="text-[10px] uppercase font-bold text-slate-400">Frames Processed</div>
-                  <div className="text-lg font-bold text-slate-900 mt-0.5">
+                  <div className="text-lg font-bold text-text mt-0.5">
                     {activeVideoJob.frames_processed || 0} / {activeVideoJob.frames_total || 0}
                   </div>
                 </div>
-                <div className="bg-slate-50 border border-slate-200/70 rounded-2xl p-3">
+                <div className="bg-surface-muted border border-border/70 rounded-2xl p-3">
                   <div className="text-[10px] uppercase font-bold text-slate-400">Faces Tracked</div>
-                  <div className="text-lg font-bold text-slate-900 mt-0.5">{activeVideoJob.faces_detected_total || 0}</div>
+                  <div className="text-lg font-bold text-text mt-0.5">{activeVideoJob.faces_detected_total || 0}</div>
                 </div>
                 <div className="bg-emerald-50/70 border border-emerald-200/60 rounded-2xl p-3">
                   <div className="text-[10px] uppercase font-bold text-emerald-600">Students Verified</div>
                   <div className="text-lg font-bold text-emerald-700 mt-0.5">{activeVideoJob.recognized_count || 0}</div>
                 </div>
                 <div className="bg-blue-50/70 border border-blue-200/60 rounded-2xl p-3">
-                  <div className="text-[10px] uppercase font-bold text-blue-600">Attendance Marked</div>
-                  <div className="text-lg font-bold text-blue-700 mt-0.5">{activeVideoJob.attendance_marked_count || 0}</div>
+                  <div className="text-[10px] uppercase font-bold text-primary">Attendance Marked</div>
+                  <div className="text-lg font-bold text-primary mt-0.5">{activeVideoJob.attendance_marked_count || 0}</div>
                 </div>
               </div>
             </div>
@@ -1062,17 +1063,17 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
       {/* ========================================================================= */}
       {/* SECTION 3: MEDIA PROCESSING HISTORY TABLE */}
       {/* ========================================================================= */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+      <div className="bg-surface border border-border rounded-3xl p-6 shadow-sm space-y-4">
+        <div className="flex items-center justify-between border-b border-border pb-3">
           <div>
-            <h3 className="text-base font-bold text-slate-900">Media Attendance Processing History</h3>
+            <h3 className="text-base font-bold text-text">Media Attendance Processing History</h3>
             <p className="text-xs text-slate-400">
               Audit log of all image and video attendance jobs executed on this system.
             </p>
           </div>
           <button
             onClick={loadData}
-            className="p-2 text-slate-400 hover:text-slate-600 transition rounded-lg hover:bg-slate-100"
+            className="p-2 text-slate-400 hover:text-text-muted transition rounded-lg hover:bg-surface-muted"
             title="Refresh History"
           >
             <RefreshCw className="w-4 h-4" />
@@ -1082,15 +1083,15 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
         {jobs.length === 0 ? (
           <div className="p-12 text-center text-slate-400 text-xs space-y-2">
             <Film className="w-8 h-8 text-slate-300 mx-auto" />
-            <p className="font-bold text-slate-700">No media processing history yet</p>
+            <p className="font-bold text-text">No media processing history yet</p>
             <p className="text-slate-400 max-w-sm mx-auto">
               Upload a classroom image or lecture video to begin attendance processing.
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+          <div className="overflow-x-auto border border-border rounded-2xl">
             <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-bold uppercase text-[10px]">
+              <thead className="bg-surface-muted text-text-muted border-b border-border font-bold uppercase text-[10px]">
                 <tr>
                   <th className="p-3">Date</th>
                   <th className="p-3">Media</th>
@@ -1103,14 +1104,14 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                   <th className="p-3 text-center">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-border text-text">
                 {jobs.map((job) => (
-                  <tr key={job.id} className="hover:bg-slate-50/70 transition">
-                    <td className="p-3 whitespace-nowrap text-[11px] text-slate-500 font-mono">
+                  <tr key={job.id} className="hover:bg-surface-muted/70 transition">
+                    <td className="p-3 whitespace-nowrap text-[11px] text-text-muted font-mono">
                       {new Date(job.created_at).toLocaleString()}
                     </td>
                     <td className="p-3">
-                      <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                      <div className="font-bold text-text flex items-center gap-1.5">
                         {job.media_type === 'IMAGE' ? (
                           <ImageIcon className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                         ) : (
@@ -1121,7 +1122,7 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                       <div className="text-[10px] text-slate-400">{job.resolution || '—'}</div>
                     </td>
                     <td className="p-3">
-                      <div className="font-bold text-slate-800">{job.session_subject || 'Session'}</div>
+                      <div className="font-bold text-text">{job.session_subject || 'Session'}</div>
                       <div className="text-[10px] text-slate-400">{job.session_class || 'TE-B'}</div>
                     </td>
                     <td className="p-3">
@@ -1130,22 +1131,22 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                           job.status === 'COMPLETED'
                             ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                             : job.status === 'PROCESSING' || job.status === 'QUEUED'
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                            ? 'bg-blue-50 text-primary border border-blue-200'
                             : 'bg-rose-50 text-rose-700 border border-rose-200'
                         }`}
                       >
                         {job.status}
                       </span>
                     </td>
-                    <td className="p-3 text-right font-mono font-bold text-slate-800">{job.faces_detected_total || 0}</td>
+                    <td className="p-3 text-right font-mono font-bold text-text">{job.faces_detected_total || 0}</td>
                     <td className="p-3 text-right font-mono font-bold text-emerald-600">{job.recognized_count || 0}</td>
-                    <td className="p-3 text-right font-mono text-slate-500">{job.unknown_count || 0}</td>
-                    <td className="p-3 text-right font-mono font-bold text-blue-600">{job.attendance_marked_count || 0}</td>
+                    <td className="p-3 text-right font-mono text-text-muted">{job.unknown_count || 0}</td>
+                    <td className="p-3 text-right font-mono font-bold text-primary">{job.attendance_marked_count || 0}</td>
                     <td className="p-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <button
                           onClick={() => setSelectedJobDetails(job)}
-                          className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] font-bold transition border border-blue-200"
+                          className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-primary text-[11px] font-bold transition border border-blue-200"
                         >
                           View
                         </button>
@@ -1169,12 +1170,12 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
       {/* Detailed Job Results Modal */}
       {selectedJobDetails && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6 shadow-2xl space-y-5 animate-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="bg-surface rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6 shadow-2xl space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
-                <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                <h3 className="text-base font-black text-text flex items-center gap-2">
                   <span>Processing Summary</span>
-                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-surface-muted text-text">
                     {selectedJobDetails.media_type}
                   </span>
                 </h3>
@@ -1182,38 +1183,38 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
               </div>
               <button
                 onClick={() => setSelectedJobDetails(null)}
-                className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition"
+                className="p-1.5 rounded-full hover:bg-surface-muted text-slate-400 hover:text-text-muted transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100">
+              <div className="p-3 rounded-2xl bg-surface-muted border border-border">
                 <div className="text-[10px] uppercase font-bold text-slate-400">Faces Detected</div>
-                <div className="text-lg font-black text-slate-900 mt-0.5">{selectedJobDetails.faces_detected_total || 0}</div>
+                <div className="text-lg font-black text-text mt-0.5">{selectedJobDetails.faces_detected_total || 0}</div>
               </div>
               <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-100">
                 <div className="text-[10px] uppercase font-bold text-emerald-600">Verified Students</div>
                 <div className="text-lg font-black text-emerald-700 mt-0.5">{selectedJobDetails.recognized_count || 0}</div>
               </div>
               <div className="p-3 rounded-2xl bg-blue-50 border border-blue-100">
-                <div className="text-[10px] uppercase font-bold text-blue-600">Attendance Marked</div>
-                <div className="text-lg font-black text-blue-700 mt-0.5">{selectedJobDetails.attendance_marked_count || 0}</div>
+                <div className="text-[10px] uppercase font-bold text-primary">Attendance Marked</div>
+                <div className="text-lg font-black text-primary mt-0.5">{selectedJobDetails.attendance_marked_count || 0}</div>
               </div>
-              <div className="p-3 rounded-2xl bg-slate-100 border border-slate-200">
-                <div className="text-[10px] uppercase font-bold text-slate-500">Unknown Faces</div>
-                <div className="text-lg font-black text-slate-700 mt-0.5">{selectedJobDetails.unknown_count || 0}</div>
+              <div className="p-3 rounded-2xl bg-surface-muted border border-border">
+                <div className="text-[10px] uppercase font-bold text-text-muted">Unknown Faces</div>
+                <div className="text-lg font-black text-text mt-0.5">{selectedJobDetails.unknown_count || 0}</div>
               </div>
             </div>
 
             {/* Recognized Students Table in Modal */}
             {Array.isArray(selectedJobDetails.summary_json?.recognized) && selectedJobDetails.summary_json.recognized.length > 0 && (
               <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-800">Recognized Students</h4>
-                <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                <h4 className="text-xs font-bold text-text">Recognized Students</h4>
+                <div className="overflow-x-auto border border-border rounded-xl">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-bold uppercase text-[10px]">
+                    <thead className="bg-surface-muted text-text-muted border-b border-border font-bold uppercase text-[10px]">
                       <tr>
                         <th className="p-2.5">Student Name</th>
                         <th className="p-2.5">Roll / Code</th>
@@ -1222,11 +1223,11 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
                         <th className="p-2.5">Attendance</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 text-slate-700">
-                      {selectedJobDetails.summary_json.recognized.map((st: any, idx: number) => (
+                    <tbody className="divide-y divide-border text-text">
+                      {selectedJobDetails.summary_json.recognized.map((st, idx: number) => (
                         <tr key={idx}>
-                          <td className="p-2.5 font-bold text-slate-900">{st.student_name}</td>
-                          <td className="p-2.5 font-mono text-[11px] text-slate-500">{st.roll_number || st.student_code || '—'}</td>
+                          <td className="p-2.5 font-bold text-text">{st.student_name}</td>
+                          <td className="p-2.5 font-mono text-[11px] text-text-muted">{st.roll_number || st.student_code || '—'}</td>
                           <td className="p-2.5 font-mono font-bold text-emerald-600">{st.confidence_pct}%</td>
                           <td className="p-2.5">
                             <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-100">

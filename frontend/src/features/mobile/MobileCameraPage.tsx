@@ -35,7 +35,7 @@ export const MobileCameraPage: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const intervalRef = useRef<any>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const frameCountRef = useRef<number>(0);
   const lastFpsCalcRef = useRef<number>(Date.now());
@@ -147,7 +147,7 @@ export const MobileCameraPage: React.FC = () => {
       frameCountRef.current = 0;
       lastFpsCalcRef.current = Date.now();
       intervalRef.current = setInterval(sendFrameToBackend, 90);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Camera access error:', err);
       setErrorMessage(
         'Could not access smartphone camera. Please verify camera permissions and HTTPS secure context.'
@@ -235,7 +235,7 @@ export const MobileCameraPage: React.FC = () => {
           setDetectedCount(data.faces_detected || 0);
           if (data.results && data.results.length > 0) {
             const names = data.results
-              .map((r: any) => r.name)
+              .map((r: { name: string }) => r.name)
               .filter((n: string) => n !== 'UNKNOWN');
             if (names.length > 0) {
               setLastRecognition(`Identified: ${names.join(', ')}`);
@@ -252,7 +252,7 @@ export const MobileCameraPage: React.FC = () => {
 
   if (validatingSession) {
     return (
-      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-6 text-center text-xs">
+      <div className="min-h-screen bg-[#0f172a] text-white flex items-center justify-center p-6 text-center text-xs">
         <div className="space-y-3">
           <Smartphone className="w-10 h-10 animate-bounce mx-auto text-blue-500" />
           <p className="font-semibold">Validating wireless pairing session...</p>
@@ -263,7 +263,7 @@ export const MobileCameraPage: React.FC = () => {
 
   if (!sessionValid) {
     return (
-      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-6 text-center">
+      <div className="min-h-screen bg-[#0f172a] text-white flex items-center justify-center p-6 text-center">
         <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 max-w-sm space-y-4 shadow-xl">
           <ShieldAlert className="w-12 h-12 text-rose-500 mx-auto" />
           <h2 className="text-base font-bold text-slate-100">Pairing Session Expired</h2>
@@ -276,11 +276,11 @@ export const MobileCameraPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col justify-between p-4 max-w-md mx-auto">
+    <div className="min-h-screen bg-[#0f172a] text-white flex flex-col justify-between p-4 max-w-md mx-auto">
       {/* Top Header */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-xs text-white shadow">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center font-bold text-xs text-white shadow">
             AD
           </div>
           <div>
@@ -292,10 +292,10 @@ export const MobileCameraPage: React.FC = () => {
         <div className="flex items-center gap-2 text-xs">
           <span
             className={`w-2 h-2 rounded-full ${
-              isStreaming ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'
+              isStreaming ? 'bg-emerald-500 animate-pulse' : 'bg-surface-muted0'
             }`}
           />
-          <span className="text-slate-300 font-semibold">
+          <span className="text-[#cbd5e1] font-semibold">
             {isStreaming ? 'Streaming' : 'Standby'}
           </span>
         </div>
@@ -325,9 +325,9 @@ export const MobileCameraPage: React.FC = () => {
 
           {!isStreaming && (
             <div className="text-center p-6 text-slate-400 space-y-2">
-              <Tv className="w-10 h-10 mx-auto text-slate-600" />
-              <p className="text-sm font-medium text-slate-200">Smartphone Camera Ready</p>
-              <p className="text-xs text-slate-500 max-w-xs mx-auto">
+              <Tv className="w-10 h-10 mx-auto text-text-muted" />
+              <p className="text-sm font-medium text-[#e2e8f0]">Smartphone Camera Ready</p>
+              <p className="text-xs text-text-muted max-w-xs mx-auto">
                 Tap "Start Camera" below to stream live video directly to the AttedDEL console preview.
               </p>
             </div>
@@ -336,7 +336,7 @@ export const MobileCameraPage: React.FC = () => {
           {/* Real-time Recognition Overlay HUD */}
           {isStreaming && (
             <div className="absolute bottom-3 inset-x-3 bg-black/60 backdrop-blur-md px-3.5 py-2 rounded-xl text-center border border-white/10 flex items-center justify-between text-xs">
-              <span className="text-slate-200 font-medium truncate">{lastRecognition}</span>
+              <span className="text-[#e2e8f0] font-medium truncate">{lastRecognition}</span>
               <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-500/20 px-2 py-0.5 rounded">
                 {detectedCount} Face(s)
               </span>
@@ -368,7 +368,7 @@ export const MobileCameraPage: React.FC = () => {
           ) : (
             <button
               onClick={startCamera}
-              className="flex-1 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition active:scale-[0.98]"
+              className="flex-1 py-3.5 rounded-xl bg-primary hover:bg-primary font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition active:scale-[0.98]"
             >
               <Play className="w-4 h-4" />
               <span>Start Camera</span>
@@ -377,14 +377,14 @@ export const MobileCameraPage: React.FC = () => {
 
           <button
             onClick={toggleFacingMode}
-            className="p-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition active:scale-[0.98]"
+            className="p-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-[#cbd5e1] transition active:scale-[0.98]"
             title="Switch Front / Rear Camera"
           >
             <RotateCw className="w-5 h-5" />
           </button>
         </div>
 
-        <p className="text-[10px] text-center text-slate-500">
+        <p className="text-[10px] text-center text-text-muted">
           Keep this browser window active on your phone while capturing classroom attendance.
         </p>
       </div>

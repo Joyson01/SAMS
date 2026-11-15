@@ -6,10 +6,6 @@ import {
   Play,
   Eye,
   RefreshCw,
-  UserCheck,
-  Users,
-  UserX,
-  TrendingUp,
   ArrowRight,
 } from 'lucide-react';
 import { fetchDashboardSummary } from '../services/dashboardApi';
@@ -51,14 +47,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Greeting based on client local time
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
-  }, []);
-
   const fullFormattedDate = useMemo(() => {
     return new Intl.DateTimeFormat('en-US', {
       weekday: 'long',
@@ -92,7 +80,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           // ignore timetable load error
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load dashboard summary:', err);
       setError('Unable to load dashboard data. Please check your connection and try again.');
     } finally {
@@ -114,8 +102,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
     if (data?.live_recognitions && data.live_recognitions.length > 0) {
       return data.live_recognitions.slice(0, 5).map((lr) => ({
         id: lr.id,
-        name: lr.name || (lr as any).student_name || 'Student',
-        confidence: lr.confidence ?? (lr as any).confidence_pct ?? 0,
+        name: lr.name || lr.student_name || 'Student',
+        confidence: lr.confidence ?? lr.confidence_pct ?? 0,
         status: lr.status,
         timeAgo: lr.time_ago || 'Just now',
       }));
@@ -127,7 +115,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
         .map((a) => ({
           id: a.id,
           name: a.event_type === 'UNKNOWN_FACE' ? 'Unknown Face' : a.title.replace(/ marked .*/i, '') || a.title,
-          confidence: a.event_type === 'UNKNOWN_FACE' ? 0 : 96,
+          confidence: 0,
           status: a.event_type === 'UNKNOWN_FACE' ? 'REVIEW' : a.title.toLowerCase().includes('late') ? 'LATE' : 'PRESENT',
           timeAgo: a.time_ago || 'Recent',
         }));
@@ -138,7 +126,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
   if (loading && !data) {
     return (
       <div className="space-y-6">
-      <SystemHealthCard />
         <div className="flex justify-between items-center">
           <Skeleton className="h-8 w-64" />
           <Skeleton className="h-9 w-36" />
@@ -216,7 +203,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           time: formatDisplayTime(s.start_time),
           subject: s.subject,
           className: s.class_name,
-          room: s.room || 'CR 26',
+          room: s.room || '—',
           status: s.status,
           isLive: s.status === 'ACTIVE',
         }))
@@ -224,7 +211,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           id: t.id,
           time: formatDisplayTime(t.start_time),
           subject: t.label || 'Lecture',
-          className: (t as any).class_name || '—',
+          className: t.class_name || '—',
           room: t.room || '—',
           status: 'SCHEDULED',
           isLive: false,
@@ -232,14 +219,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
 
   return (
     <div className="space-y-6">
-      <SystemHealthCard />
       {/* 1. HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-            {greeting}
+          <h1 className="text-2xl sm:text-[28px] font-medium text-text">
+            Attendance overview
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5">{fullFormattedDate}</p>
+          <p className="text-sm text-text-muted mt-2">{fullFormattedDate}</p>
         </div>
 
         <Button
@@ -248,94 +234,53 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           size="md"
           icon={<Play className="w-3.5 h-3.5 fill-current" />}
         >
-          Start Attendance
+          Start attendance
         </Button>
       </div>
 
-      {/* 2. TODAY'S OVERVIEW (4 Compact KPI Tiles) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* Total Students */}
-        <div className="bg-white border border-slate-200 rounded-lg p-3.5 sm:p-4 flex flex-col justify-between shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Students
-            </span>
-            <Users className="w-4 h-4 text-slate-400" />
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
-              {summary.total_students}
-            </span>
-            <span className="text-[11px] text-slate-400 font-medium">enrolled</span>
-          </div>
-        </div>
-
-        {/* Present Today */}
-        <div className="bg-white border border-slate-200 rounded-lg p-3.5 sm:p-4 flex flex-col justify-between shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Present
-            </span>
-            <UserCheck className="w-4 h-4 text-emerald-500" />
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-bold text-emerald-600 tracking-tight">
-              {summary.present_today}
-            </span>
-            <span className="text-[11px] text-slate-400 font-medium">marked</span>
-          </div>
-        </div>
-
-        {/* Absent Today */}
-        <div className="bg-white border border-slate-200 rounded-lg p-3.5 sm:p-4 flex flex-col justify-between shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Absent
-            </span>
-            <UserX className="w-4 h-4 text-rose-500" />
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-bold text-rose-600 tracking-tight">
-              {summary.absent_today}
-            </span>
-            <span className="text-[11px] text-slate-400 font-medium">unverified</span>
-          </div>
-        </div>
-
-        {/* Attendance Rate */}
-        <div className="bg-white border border-slate-200 rounded-lg p-3.5 sm:p-4 flex flex-col justify-between shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Attendance
-            </span>
-            <TrendingUp className="w-4 h-4 text-blue-500" />
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-bold text-blue-600 tracking-tight">
-              {summary.attendance_rate_pct}%
-            </span>
-            <span className="text-[11px] text-slate-400 font-medium">rate</span>
-          </div>
-        </div>
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border lg:grid-cols-4">
+        {[
+          ['Enrolled students', summary.enrolled_students, 'In the directory'],
+          ['Present today', summary.present_today, 'Recorded attendance'],
+          ['Absent today', summary.absent_today, 'Recorded absences'],
+          ['Attendance rate', `${summary.attendance_rate_pct}%`, 'Today'],
+        ].map(([label, value, detail]) => <div key={label} className="bg-surface p-4 sm:p-6">
+          <p className="text-sm text-text-muted">{label}</p>
+          <p className="mt-3 text-3xl font-medium tabular-nums text-text">{value}</p>
+          <p className="mt-2 text-xs text-text-muted">{detail}</p>
+        </div>)}
       </div>
 
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-medium text-text">Attendance trend</h2>
+          {data?.attendance_trend.length ? <span className="text-xs text-text-muted">Most recent {Math.min(7, data.attendance_trend.length)} reported days</span> : null}
+        </div>
+        {data?.attendance_trend.length ? <div className="mt-6 flex h-44 items-end gap-3" role="img" aria-label={data.attendance_trend.slice(-7).map(day => `${day.day_label}: ${day.attendance_pct}% attendance`).join(', ')}>
+          {data.attendance_trend.slice(-7).map((day, index, days) => <div key={day.record_date} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
+            <span className="text-xs tabular-nums text-text">{day.attendance_pct}%</span>
+            <div className={`w-full max-w-16 rounded-t ${index === days.length - 1 ? 'bg-primary' : 'bg-slate-300'}`} style={{height: `${Math.max(2, Math.min(100, day.attendance_pct))}%`}} />
+            <span className="text-xs text-text-muted">{day.day_label}</span>
+          </div>)}
+        </div> : <p className="mt-2 text-sm text-text-muted">The trend will appear as attendance sessions are completed</p>}
+      </Card>
       {/* 3. CURRENT / NEXT CLASS (Primary Action Hero Panel) */}
-      <Card className="border-slate-200">
+      {(activeSession || nextClass) && <Card>
         {activeSession ? (
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold uppercase tracking-wide">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    CURRENT CLASS
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 " />
+                    Active session
                   </span>
-                  <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">
+                  <h2 className="text-base sm:text-lg font-semibold text-text leading-tight">
                     {activeSession.subject}
                   </h2>
                 </div>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
-                  <span className="font-semibold text-slate-700">{activeSession.class_name}</span>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-text-muted">
+                  <span className="font-semibold text-text">{activeSession.class_name}</span>
                   <span>•</span>
                   <span>Room {activeSession.room}</span>
                   <span>•</span>
@@ -347,15 +292,15 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
               </div>
 
               <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-md text-xs text-slate-600">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface-muted border border-border rounded-md text-xs text-text-muted">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                   <span>
-                    {activeSession.camera_name ? `Camera: ${activeSession.camera_name}` : 'Camera: HP-CAM'}
+                    {activeSession.camera_name ? `Camera: ${activeSession.camera_name}` : 'No camera assigned'}
                   </span>
                 </div>
                 <Button
                   onClick={() => onNavigate && onNavigate('live')}
-                  variant="primary"
+                  variant="secondary"
                   size="sm"
                   icon={<Eye className="w-3.5 h-3.5" />}
                 >
@@ -365,13 +310,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
             </div>
 
             {/* Attendance Progress */}
-            <div className="pt-2 border-t border-slate-100 space-y-1.5">
+            <div className="pt-2 border-t border-border space-y-1.5">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-800">
-                  {presentCount} / {totalRoster || 11} Students Present
+                <span className="font-semibold text-text">
+                  {presentCount} / {totalRoster} students present
                 </span>
-                <span className="text-slate-500 font-mono text-[11px] font-medium">
-                  {progressPct}% Recorded
+                <span className="text-text-muted font-mono text-xs font-medium">
+                  {progressPct}% recorded
                 </span>
               </div>
               <Progress value={progressPct} max={100} size="md" variant="auto" />
@@ -381,102 +326,84 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
-                  NEXT SCHEDULED CLASS
-                </span>
-                <h2 className="text-base font-bold text-slate-900 leading-tight">
-                  {nextClass ? nextClass.subject : 'Soft Computing'}
+                <h2 className="text-base font-semibold text-text leading-tight">
+                  {nextClass ? nextClass.subject : 'No upcoming class'}
                 </h2>
               </div>
-              <div className="text-xs text-slate-500">
-                <span className="font-semibold text-slate-700">
-                  {nextClass ? nextClass.class_name : 'TE-B'}
+              <div className="text-xs text-text-muted">
+                <span className="font-semibold text-text">
+                  {nextClass ? nextClass.class_name : 'Your schedule is clear'}
                 </span>
-                <span> • </span>
-                <span>Room {nextClass?.room || 'CR 26'}</span>
-                <span> • </span>
-                <span>
-                  {nextClass
-                    ? `${formatDisplayTime(nextClass.start_time)} – ${formatDisplayTime(nextClass.end_time)}`
-                    : '11:00 AM – 12:00 PM'}
-                </span>
+                {nextClass && <><span> • </span>{nextClass.room && <><span>Room {nextClass.room}</span><span> • </span></>}<span>{formatDisplayTime(nextClass.start_time)} – {formatDisplayTime(nextClass.end_time)}</span></>}
               </div>
             </div>
 
-            <Button
-              onClick={() => onNavigate && onNavigate('live')}
-              variant="primary"
-              size="sm"
-              icon={<Play className="w-3.5 h-3.5 fill-current" />}
-            >
-              Start Attendance
-            </Button>
           </div>
         )}
-      </Card>
+      </Card>}
 
       {/* 4. TODAY'S CLASSES & LIVE RECOGNITION (Two-Column Layout) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        {/* Left Column (Col 7): Today's Classes Table */}
-        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-lg shadow-xs overflow-hidden">
-          <div className="p-3.5 border-b border-slate-200 flex items-center justify-between">
+        {/* Left Column (Col 7): Today's classes Table */}
+        <div className="lg:col-span-8 bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
+          <div className="p-4 border-b border-border flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-blue-600" />
-              <h3 className="text-sm font-bold text-slate-900">Today's Classes</h3>
+              <Calendar className="w-4 h-4 text-text-muted" />
+              <h3 className="text-sm font-semibold text-text">Today's classes</h3>
             </div>
-            <span className="text-xs text-slate-500 font-medium">
+            <span className="text-xs text-text-muted font-medium">
               {effectiveTodayClasses.length} Scheduled
             </span>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+            <table className="ui-table register-table w-full text-left border-collapse text-sm">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[11px] font-semibold uppercase tracking-wider">
-                  <th className="py-2.5 px-3">Time</th>
-                  <th className="py-2.5 px-3">Subject</th>
-                  <th className="py-2.5 px-3">Class</th>
-                  <th className="py-2.5 px-3">Room</th>
-                  <th className="py-2.5 px-3">Status</th>
-                  <th className="py-2.5 px-3 text-right">Action</th>
+                <tr className="bg-surface-muted border-b border-border text-text-muted text-xs font-semibold">
+                  <th className="py-3 px-3">Time</th>
+                  <th className="py-3 px-3">Subject</th>
+                  <th className="py-3 px-3">Class</th>
+                  <th className="py-3 px-3">Room</th>
+                  <th className="py-3 px-3">Status</th>
+                  <th className="py-3 px-3 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-border">
                 {effectiveTodayClasses.length > 0 ? (
                   effectiveTodayClasses.map((item) => (
                     <tr
                       key={item.id}
-                      className={`hover:bg-slate-50/70 transition-colors ${
-                        item.isLive ? 'bg-blue-50/40' : ''
+                      className={`hover:bg-surface-muted/70 transition-colors ${
+                        item.isLive ? 'bg-indigo-50/40' : ''
                       }`}
                     >
-                      <td className="py-2.5 px-3 font-mono font-medium text-slate-700">
+                      <td data-label="Time" className="py-3 px-3 font-mono font-medium text-text whitespace-nowrap">
                         {item.time}
                       </td>
-                      <td className="py-2.5 px-3 font-semibold text-slate-900">
+                      <td data-label="Subject" className="py-3 px-3 font-semibold text-text">
                         {item.subject}
                       </td>
-                      <td className="py-2.5 px-3 text-slate-500">{item.className}</td>
-                      <td className="py-2.5 px-3 text-slate-500">{item.room}</td>
-                      <td className="py-2.5 px-3">
+                      <td data-label="Class" className="py-3 px-3 text-text-muted">{item.className}</td>
+                      <td data-label="Room" className="py-3 px-3 text-text-muted">{item.room}</td>
+                      <td data-label="Status" className="py-3 px-3">
                         <StatusBadge
                           status={item.status}
                           category="session"
                           size="sm"
                         />
                       </td>
-                      <td className="py-2.5 px-3 text-right">
+                      <td data-label="Action" className="py-3 px-3 text-right">
                         {item.isLive ? (
                           <button
                             onClick={() => onNavigate && onNavigate('live')}
-                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold cursor-pointer transition"
+                            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium cursor-pointer transition-colors"
                           >
                             Open
                           </button>
                         ) : (
                           <button
                             onClick={() => onNavigate && onNavigate('live')}
-                            className="text-blue-600 hover:text-blue-800 font-semibold text-xs cursor-pointer"
+                            className="text-text-muted hover:text-primary font-medium text-xs cursor-pointer"
                           >
                             Start
                           </button>
@@ -486,7 +413,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400 text-xs font-medium">
+                    <td colSpan={6} className="py-8 text-center text-text-muted text-xs font-medium">
                       No classes scheduled for today
                     </td>
                   </tr>
@@ -497,16 +424,15 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
         </div>
 
         {/* Right Column (Col 5): Live Activity / Recognition */}
-        <div className="lg:col-span-5 bg-white border border-slate-200 rounded-lg shadow-xs overflow-hidden">
-          <div className="p-3.5 border-b border-slate-200 flex items-center justify-between">
+        <div className="lg:col-span-4 bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
+          <div className="p-4 border-b border-border flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <h3 className="text-sm font-bold text-slate-900">Live Recognition</h3>
+              <h3 className="text-sm font-semibold text-text">Recent activity</h3>
             </div>
-            <span className="text-[11px] text-slate-400 font-medium">Real-time sync</span>
+            <span className="text-xs text-text-muted font-medium">Latest records</span>
           </div>
 
-          <div className="divide-y divide-slate-100 text-xs">
+          <div className="divide-y divide-border text-xs">
             {streamItems.length > 0 ? (
               streamItems.map((item) => {
                 const isReview = item.status === 'REVIEW' || item.status === 'UNKNOWN';
@@ -515,11 +441,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
                 return (
                   <div
                     key={item.id}
-                    className="p-3 flex items-center justify-between hover:bg-slate-50/70 transition-colors"
+                    className="p-3 flex items-center justify-between hover:bg-surface-muted/70 transition-colors"
                   >
                     <div className="flex items-center gap-2.5 min-w-0 pr-2">
                       <div
-                        className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${
+                        className={`w-6 h-6 rounded-full flex items-center justify-center font-semibold text-xs shrink-0 ${
                           isReview
                             ? 'bg-rose-50 text-rose-700 border border-rose-200'
                             : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -528,10 +454,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
                         {isReview ? '?' : '✓'}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-semibold text-slate-900 truncate">
+                        <div className="font-semibold text-text truncate">
                           {item.name}
                         </div>
-                        <div className="text-[10px] text-slate-400">{item.timeAgo}</div>
+                        <div className="text-xs text-text-muted">{item.timeAgo}</div>
                       </div>
                     </div>
 
@@ -539,16 +465,16 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
                       {isReview ? (
                         <button
                           onClick={() => onNavigate && onNavigate('live')}
-                          className="px-2 py-0.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold uppercase transition cursor-pointer"
+                          className="px-2 py-0.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold transition cursor-pointer"
                         >
                           Review
                         </button>
                       ) : isLate ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold uppercase">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold">
                           Late
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold uppercase">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold">
                           Present
                         </span>
                       )}
@@ -557,8 +483,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
                 );
               })
             ) : (
-              <div className="p-8 text-center text-slate-400 text-xs font-medium">
-                No students recognized yet today
+              <div className="p-8 text-center text-text-muted text-xs font-medium">
+                No recent activity
               </div>
             )}
           </div>
@@ -567,50 +493,50 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
 
       {/* 5. RECENT ATTENDANCE TABLE */}
       {recentSessions.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-lg shadow-xs overflow-hidden">
-          <div className="p-3.5 border-b border-slate-200 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900">Recent Attendance Sessions</h3>
+        <div className="bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
+          <div className="p-4 border-b border-border flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-text">Recent attendance sessions</h3>
             <button
               onClick={() => onNavigate && onNavigate('attendance')}
-              className="text-xs font-semibold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1 cursor-pointer"
+              className="text-xs font-medium text-text-muted hover:text-primary inline-flex items-center gap-1 cursor-pointer"
             >
-              <span>View All Sessions</span>
+              <span>View all sessions</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+            <table className="ui-table register-table w-full text-left border-collapse text-sm">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[11px] font-semibold uppercase tracking-wider">
-                  <th className="py-2.5 px-3.5">Class</th>
-                  <th className="py-2.5 px-3.5">Subject</th>
-                  <th className="py-2.5 px-3.5">Date & Time</th>
-                  <th className="py-2.5 px-3.5">Status</th>
-                  <th className="py-2.5 px-3.5 text-right">Action</th>
+                <tr className="bg-surface-muted border-b border-border text-text-muted text-xs font-semibold">
+                  <th className="py-3 px-4">Class</th>
+                  <th className="py-3 px-4">Subject</th>
+                  <th className="py-3 px-4">Date & time</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-border">
                 {recentSessions.map((sess) => (
-                  <tr key={sess.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-2.5 px-3.5 font-semibold text-slate-800">
+                  <tr key={sess.id} className="hover:bg-surface-muted/70 transition-colors">
+                    <td data-label="Class" className="py-3 px-4 font-semibold text-text">
                       {sess.class_name}
                     </td>
-                    <td className="py-2.5 px-3.5 font-medium text-slate-900">
+                    <td data-label="Subject" className="py-3 px-4 font-medium text-text">
                       {sess.subject}
                     </td>
-                    <td className="py-2.5 px-3.5 text-slate-500">
+                    <td data-label="Date & time" className="py-3 px-4 text-text-muted">
                       {sess.scheduled_date} • {formatDisplayTime(sess.start_time)}
                     </td>
-                    <td className="py-2.5 px-3.5">
+                    <td data-label="Status" className="py-3 px-4">
                       <StatusBadge status={sess.status} category="session" size="sm" />
                     </td>
-                    <td className="py-2.5 px-3.5 text-right">
+                    <td data-label="Action" className="py-3 px-4 text-right">
                       <button
                         onClick={() => onNavigate && onNavigate('attendance')}
-                        className="text-blue-600 hover:text-blue-800 font-semibold text-xs cursor-pointer"
+                        className="text-text-muted hover:text-primary font-medium text-xs cursor-pointer"
                       >
-                        View Details
+                        View details
                       </button>
                     </td>
                   </tr>
@@ -620,6 +546,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           </div>
         </div>
       )}
+      <SystemHealthCard />
     </div>
   );
 };

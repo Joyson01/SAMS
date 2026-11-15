@@ -28,6 +28,7 @@ import {
   closeSession,
   markManualAttendance,
   PhotoRecognitionResponse,
+  PhotoRecognitionFaceResult,
   fetchSessionRoster,
   SessionRosterResponse,
   ClassRosterStudentItem,
@@ -37,7 +38,19 @@ import { CameraDevice } from '../../types/camera';
 import { AttendanceSession } from '../../types/attendance';
 import { Student } from '../../types/student';
 import { apiClient } from '../../services/api';
+import { formatApiErrorMessage } from '../../utils/apiError';
 import { StatusBadge } from '../../components/ui';
+
+interface OverlayFace {
+  bbox: number[];
+  status?: string;
+  decision?: string;
+  is_quality_valid?: boolean;
+  similarity?: number;
+  best_match?: { name: string; similarity: number } | null;
+  student_name?: string;
+  provisional_name?: string;
+}
 
 interface StudentPresenceItem {
   student_id: string;
@@ -81,7 +94,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
 
   // Camera Diagnostic Test State
   const [testingCamera, setTestingCamera] = useState<boolean>(false);
-  const [testResult, setTestResult] = useState<any | null>(null);
+  const [testResult, setTestResult] = useState<{ success: boolean; status: string; message: string } | null>(null);
 
   // Live Stream State
   const [cameraState, setCameraState] = useState<'IDLE' | 'STARTING' | 'STREAMING' | 'ERROR'>('IDLE');
@@ -159,9 +172,9 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const wsDownlinkRef = useRef<WebSocket | null>(null);
-  const recognitionIntervalRef = useRef<any>(null);
-  const presencePollIntervalRef = useRef<any>(null);
-  const cameraPollIntervalRef = useRef<any>(null);
+  const recognitionIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const presencePollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cameraPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isProcessingRef = useRef<boolean>(false);
   const isPausedRef = useRef<boolean>(false);
 
@@ -330,7 +343,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
 
   // Draw Subtle Face Bounding Boxes Over Video with Mathematical Aspect-Ratio & Mirroring Mapping
   const drawOverlayBoxes = useCallback((
-    faces: any[],
+    faces: OverlayFace[],
     vWidth: number,
     vHeight: number,
     isMirrored: boolean = false,
@@ -586,13 +599,13 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
 
       setCameraState('STREAMING');
       recognitionIntervalRef.current = setInterval(processCurrentFrame, 750);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Camera connection failure:', err);
       setCameraState('ERROR');
-      let msg = err.message || 'Camera failed to start.';
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      let msg = (err instanceof Error ? err.message : '') || 'Camera failed to start.';
+      if ((err instanceof Error ? err.name : '') === 'NotAllowedError' || (err instanceof Error ? err.name : '') === 'PermissionDeniedError') {
         msg = 'Camera permission denied. Please allow camera access in browser settings.';
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+      } else if ((err instanceof Error ? err.name : '') === 'NotFoundError' || (err instanceof Error ? err.name : '') === 'DevicesNotFoundError') {
         msg = 'No physical webcam detected.';
       }
       setCameraError(msg);
@@ -719,7 +732,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       drawOverlayBoxes(faces, width, height, isMirrored, fitMode);
 
       // Check for unknown faces and log event (throttled to 1 event per 4 seconds)
-      const hasUnknown = faces.some((f: any) => f.decision === 'UNKNOWN' && !f.best_match);
+      const hasUnknown = faces.some((f: OverlayFace) => f.decision === 'UNKNOWN' && !f.best_match);
       if (hasUnknown) {
         const now = Date.now();
         if (now - lastUnknownLoggedAtRef.current > 4000) {
@@ -734,7 +747,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
         }
       }
 
-      const hasKnown = faces.some((f: any) => f.status === 'VERIFIED' || f.decision === 'KNOWN');
+      const hasKnown = faces.some((f: OverlayFace) => f.status === 'VERIFIED' || f.decision === 'KNOWN');
       if (hasKnown) {
         fetchPresenceData();
         fetchRosterData();
@@ -763,11 +776,11 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       const res = await testRegisteredCamera(selectedCamera.id);
       setTestResult(res);
       loadResources();
-    } catch (err: any) {
+    } catch (err: unknown) {
       setTestResult({
         success: false,
         status: 'OFFLINE',
-        message: err.response?.data?.detail || err.message || 'Could not connect to camera stream.',
+        message: formatApiErrorMessage(err, 'Could not connect to camera stream.'),
       });
     } finally {
       setTestingCamera(false);
@@ -886,8 +899,8 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       setCapturedBlob(null);
       setCapturedPreviewUrl(null);
       setCaptureRecognitionResult(null);
-    } catch (err: any) {
-      setCaptureCameraError(err.message || 'Failed to start camera for snapshot.');
+    } catch (err: unknown) {
+      setCaptureCameraError((err instanceof Error ? err.message : '') || 'Failed to start camera for snapshot.');
       setCaptureCameraActive(false);
     } finally {
       setCaptureCameraStarting(false);
@@ -958,7 +971,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
   };
 
   const drawPhotoBoundingBoxes = (
-    results: any[],
+    results: PhotoRecognitionFaceResult[],
     imageElement: HTMLImageElement,
     canvasElement: HTMLCanvasElement
   ) => {
@@ -982,8 +995,8 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       if (!item.bbox) return;
       const x1 = (item.bbox.x1 ?? item.bbox.x ?? 0) * scaleX;
       const y1 = (item.bbox.y1 ?? item.bbox.y ?? 0) * scaleY;
-      const x2 = (item.bbox.x2 ?? (item.bbox.x + (item.bbox.width || 0))) * scaleX;
-      const y2 = (item.bbox.y2 ?? (item.bbox.y + (item.bbox.height || 0))) * scaleY;
+      const x2 = (item.bbox.x2 ?? ((item.bbox.x ?? 0) + (item.bbox.width || 0))) * scaleX;
+      const y2 = (item.bbox.y2 ?? ((item.bbox.y ?? 0) + (item.bbox.height || 0))) * scaleY;
       const w = Math.max(0, x2 - x1);
       const h = Math.max(0, y2 - y1);
 
@@ -1152,7 +1165,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
               stopCaptureCamera();
               setAttendanceMode('LIVE_CAMERA');
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-200 transition"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-muted hover:bg-slate-200 text-text text-xs font-semibold border border-border transition"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Back to Live Camera</span>
@@ -1164,20 +1177,20 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       {selectedSessionId && <PhotoAttendancePanel sessionId={selectedSessionId} active={selectedSession?.status === 'ACTIVE'} onConfirmed={fetchRosterData} />}
       {/* SESSION CONTEXT & CONTROLS HEADER */}
       {/* ========================================================================= */}
-      <div className="bg-white border border-slate-200 rounded-lg p-3 sm:px-4 sm:py-3 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+      <div className="bg-surface border border-border rounded-lg p-3 sm:px-4 sm:py-3 flex flex-wrap items-center justify-between gap-3 shadow-xs">
         {/* Left: Session Context & Status */}
         <div className="flex flex-wrap items-center gap-3 min-w-0">
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider shrink-0">
+              <span className="text-xs font-bold text-text-muted uppercase tracking-wider shrink-0">
                 Live Attendance
               </span>
-              <span className="text-slate-300">•</span>
-              <span className="text-sm font-bold text-slate-900 truncate">
+              <span className="text-[#cbd5e1]">•</span>
+              <span className="text-sm font-bold text-text truncate">
                 {selectedSession ? `${selectedSession.class_name} · ${selectedSession.subject}` : 'TE-B · Soft Computing'}
               </span>
             </div>
-            <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+            <div className="text-xs text-text-muted flex items-center gap-2 mt-0.5">
               <span>{selectedSession?.room ? `Room ${selectedSession.room}` : 'CR 26'}</span>
               <span>•</span>
               <span>
@@ -1186,7 +1199,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                   : '10:00 AM – 11:00 AM'}
               </span>
               <span>•</span>
-              <span className="font-medium text-slate-600">
+              <span className="font-medium text-text-muted">
                 Camera: {selectedCamera?.name || 'HP-CAM'}
               </span>
             </div>
@@ -1200,7 +1213,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 <span>Attendance Running</span>
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-xs font-medium">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-muted border border-border text-text-muted text-xs font-medium">
                 <span className="w-2 h-2 rounded-full bg-slate-400" />
                 <span>Camera Standby</span>
               </span>
@@ -1217,7 +1230,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 value={selectedSessionId}
                 onChange={(e) => setSelectedSessionId(e.target.value)}
                 disabled={loadingSessions || sessions.length === 0}
-                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[200px] truncate"
+                className="bg-surface-muted border border-border rounded-lg px-2.5 py-1.5 text-xs font-medium text-text focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[200px] truncate"
               >
                 {loadingSessions ? (
                   <option value="">Loading classes...</option>
@@ -1237,7 +1250,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 value={selectedCameraId}
                 onChange={(e) => handleCameraChange(e.target.value)}
                 disabled={loadingCameras || cameras.length === 0}
-                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[150px] truncate"
+                className="bg-surface-muted border border-border rounded-lg px-2.5 py-1.5 text-xs font-medium text-text focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[150px] truncate"
               >
                 {cameras.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -1249,7 +1262,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
               <button
                 onClick={startLiveAttendance}
                 disabled={cameraState === 'STARTING' || cameras.length === 0 || !selectedSessionId}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary text-white text-xs font-semibold shadow-xs transition disabled:opacity-50 cursor-pointer"
               >
                 {cameraState === 'STARTING' ? (
                   <>
@@ -1269,11 +1282,11 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
               {/* Pause / Resume Button */}
               <button
                 onClick={handleTogglePause}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs transition cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface hover:bg-surface-muted text-text text-xs font-semibold shadow-xs transition cursor-pointer"
                 title={isPaused ? 'Resume frame recognition' : 'Pause frame recognition'}
               >
                 {isPaused ? (
-                  <Play className="w-3.5 h-3.5 text-blue-600 fill-current" />
+                  <Play className="w-3.5 h-3.5 text-primary fill-current" />
                 ) : (
                   <Pause className="w-3.5 h-3.5 text-amber-600" />
                 )}
@@ -1295,7 +1308,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
           <div className="relative">
             <button
               onClick={() => setShowMoreOptionsDropdown(!showMoreOptionsDropdown)}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold shadow-xs transition cursor-pointer"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border bg-surface hover:bg-surface-muted text-text-muted text-xs font-semibold shadow-xs transition cursor-pointer"
               title="More Options"
             >
               <MoreVertical className="w-3.5 h-3.5" />
@@ -1303,7 +1316,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
             </button>
 
             {showMoreOptionsDropdown && (
-              <div className="absolute right-0 mt-1 w-52 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-30 text-xs">
+              <div className="absolute right-0 mt-1 w-52 bg-surface border border-border rounded-lg shadow-lg py-1 z-30 text-xs">
                 <button
                   onClick={() => {
                     setShowMoreOptionsDropdown(false);
@@ -1311,9 +1324,9 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                     setAttendanceMode('CAPTURE_PHOTO');
                     startCaptureCamera('environment');
                   }}
-                  className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700"
+                  className="w-full text-left px-3 py-2 hover:bg-surface-muted flex items-center gap-2 text-text"
                 >
-                  <Camera className="w-3.5 h-3.5 text-blue-600" />
+                  <Camera className="w-3.5 h-3.5 text-primary" />
                   <span>Photo Capture</span>
                 </button>
                 <button
@@ -1322,9 +1335,9 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                     stopLiveAttendance();
                     setAttendanceMode('UPLOAD_PHOTO');
                   }}
-                  className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700"
+                  className="w-full text-left px-3 py-2 hover:bg-surface-muted flex items-center gap-2 text-text"
                 >
-                  <Upload className="w-3.5 h-3.5 text-blue-600" />
+                  <Upload className="w-3.5 h-3.5 text-primary" />
                   <span>Photo Upload</span>
                 </button>
                 <button
@@ -1333,22 +1346,22 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                     handleTestCamera();
                   }}
                   disabled={testingCamera}
-                  className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700 disabled:opacity-50"
+                  className="w-full text-left px-3 py-2 hover:bg-surface-muted flex items-center gap-2 text-text disabled:opacity-50"
                 >
                   {testingCamera ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />
                   ) : (
-                    <Eye className="w-3.5 h-3.5 text-slate-500" />
+                    <Eye className="w-3.5 h-3.5 text-text-muted" />
                   )}
                   <span>{testingCamera ? 'Testing Camera...' : 'Test Camera Connection'}</span>
                 </button>
-                <div className="border-t border-slate-100 my-1"></div>
+                <div className="border-t border-border my-1"></div>
                 <button
                   onClick={() => {
                     setShowMoreOptionsDropdown(false);
                     setShowDebugDiagnostics((prev) => !prev);
                   }}
-                  className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700"
+                  className="w-full text-left px-3 py-2 hover:bg-surface-muted flex items-center gap-2 text-text"
                 >
                   <Eye className="w-3.5 h-3.5 text-amber-600" />
                   <span>
@@ -1385,7 +1398,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
           </div>
           <button
             onClick={() => setTestResult(null)}
-            className="text-slate-400 hover:text-slate-600 p-1"
+            className="text-slate-400 hover:text-text-muted p-1"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -1399,7 +1412,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
         <div className="flex flex-col lg:flex-row gap-5 items-start">
           {/* Left Column (65%): Camera View */}
           <div className="w-full lg:w-[65%] space-y-3 min-w-0">
-            <div className="bg-slate-950 rounded-xl overflow-hidden relative border border-slate-800 shadow-sm flex items-center justify-center aspect-video min-h-[360px] sm:min-h-[460px]">
+            <div className="bg-[#020617] rounded-xl overflow-hidden relative border border-slate-800 shadow-sm flex items-center justify-center aspect-video min-h-[360px] sm:min-h-[460px]">
               {/* Local Webcam Video */}
               {selectedCamera?.source_type === 'WEBCAM' && (
                 <video
@@ -1471,11 +1484,11 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
               {/* Idle State: Camera Standby */}
               {cameraState === 'IDLE' && (
                 <div className="text-center p-8 space-y-3 max-w-sm">
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto text-slate-400">
+                  <div className="w-12 h-12 rounded-full bg-[#0f172a] border border-slate-800 flex items-center justify-center mx-auto text-slate-400">
                     <Camera className="w-6 h-6" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-200">Camera Standby</h3>
+                    <h3 className="text-sm font-semibold text-[#e2e8f0]">Camera Standby</h3>
                     <p className="text-xs text-slate-400 mt-1">
                       Select class and click Start Attendance to begin.
                     </p>
@@ -1483,7 +1496,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                   <button
                     onClick={startLiveAttendance}
                     disabled={cameras.length === 0 || !selectedSessionId}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary hover:bg-primary text-white text-xs font-semibold shadow-xs transition cursor-pointer"
                   >
                     <Play className="w-3.5 h-3.5" />
                     <span>Start Attendance</span>
@@ -1504,7 +1517,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 <div className="text-center p-8 space-y-3 max-w-md">
                   <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-200">Camera Stream Offline</h4>
+                    <h4 className="text-sm font-semibold text-[#e2e8f0]">Camera Stream Offline</h4>
                     <p className="text-xs text-slate-400 mt-1">{cameraError || 'Unable to connect to camera.'}</p>
                   </div>
                   <button
@@ -1541,7 +1554,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                   {showDebugDiagnostics && (
                     <div className="absolute bottom-3 left-3 bg-black/85 backdrop-blur-md px-3 py-1.5 rounded-md text-white font-mono text-[11px] border border-amber-500/40 shadow-lg flex items-center gap-3">
                       <span className="text-amber-400 font-bold">DIAGNOSTICS:</span>
-                      <span>RAW: <strong className="text-slate-200">{debugDiagnostics?.raw_count ?? activeFacesDetected}</strong></span>
+                      <span>RAW: <strong className="text-[#e2e8f0]">{debugDiagnostics?.raw_count ?? activeFacesDetected}</strong></span>
                       <span className="text-white/30">|</span>
                       <span>NMS: <strong className="text-sky-300">{debugDiagnostics?.nms_count ?? activeFacesDetected}</strong></span>
                       <span className="text-white/30">|</span>
@@ -1555,10 +1568,10 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
             </div>
 
             {/* Compact Camera Status Sub-strip */}
-            <div className="bg-white border border-slate-200 rounded-lg px-3 py-2 flex items-center justify-between text-xs text-slate-600 shadow-xs">
+            <div className="bg-surface border border-border rounded-lg px-3 py-2 flex items-center justify-between text-xs text-text-muted shadow-xs">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span className="font-semibold text-slate-800">{selectedCamera?.name || 'HP-CAM'}</span>
+                <span className="font-semibold text-text">{selectedCamera?.name || 'HP-CAM'}</span>
                 <span className="text-slate-400">•</span>
                 <span>{selectedCamera?.location || 'Classroom CR 26'}</span>
               </div>
@@ -1566,7 +1579,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 <button
                   type="button"
                   onClick={startLiveAttendance}
-                  className="p-1 text-slate-500 hover:text-slate-800 rounded hover:bg-slate-100 transition cursor-pointer"
+                  className="p-1 text-text-muted hover:text-text rounded hover:bg-surface-muted transition cursor-pointer"
                   title="Reconnect camera stream"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
@@ -1577,27 +1590,27 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
 
           {/* Right Column (35%): Live Class Roster */}
           <div className="w-full lg:w-[35%] space-y-3 min-w-0">
-            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col h-[520px] sm:h-[580px]">
+            <div className="bg-surface border border-border rounded-xl p-4 shadow-xs flex flex-col h-[520px] sm:h-[580px]">
               {/* Panel Header */}
-              <div className="border-b border-slate-100 pb-3">
+              <div className="border-b border-border pb-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                    <h2 className="text-sm font-bold text-text flex items-center gap-1.5">
                       <span>LIVE CLASS ROSTER</span>
                       {isSessionRunning && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
                     </h2>
-                    <div className="text-[11px] text-slate-500 font-medium mt-0.5">
+                    <div className="text-[11px] text-text-muted font-medium mt-0.5">
                       {selectedSession ? `${selectedSession.class_name} · ${selectedSession.subject}` : 'TE-B · Soft Computing'}
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xs font-bold text-slate-900">{presentCount} / {totalRoster} Present</div>
-                    <div className="text-[10px] text-slate-500 font-mono">Attendance Rate: {ratePct}%</div>
+                    <div className="text-xs font-bold text-text">{presentCount} / {totalRoster} Present</div>
+                    <div className="text-[10px] text-text-muted font-mono">Attendance Rate: {ratePct}%</div>
                   </div>
                 </div>
 
                 {/* Progress */}
-                <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden mt-2.5">
+                <div className="w-full bg-surface-muted rounded-full h-1.5 overflow-hidden mt-2.5">
                   <div
                     className="bg-emerald-600 h-1.5 rounded-full transition-all duration-300"
                     style={{ width: `${Math.min(100, ratePct)}%` }}
@@ -1605,14 +1618,14 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 </div>
 
                 {/* Roster Filter Tabs */}
-                <div className="flex items-center gap-1 mt-2.5 bg-slate-100 p-0.5 rounded-lg text-[11px] font-semibold text-slate-600">
+                <div className="flex items-center gap-1 mt-2.5 bg-surface-muted p-0.5 rounded-lg text-[11px] font-semibold text-text-muted">
                   <button
                     type="button"
                     onClick={() => setRosterTab('ALL')}
                     className={`flex-1 py-1 rounded-md transition text-center cursor-pointer ${
                       rosterTab === 'ALL'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'hover:text-slate-900'
+                        ? 'bg-surface text-text shadow-xs'
+                        : 'hover:text-text'
                     }`}
                   >
                     All ({totalRoster})
@@ -1622,8 +1635,8 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                     onClick={() => setRosterTab('IN_FRAME')}
                     className={`flex-1 py-1 rounded-md transition text-center cursor-pointer ${
                       rosterTab === 'IN_FRAME'
-                        ? 'bg-white text-emerald-700 shadow-xs'
-                        : 'hover:text-slate-900'
+                        ? 'bg-surface text-emerald-700 shadow-xs'
+                        : 'hover:text-text'
                     }`}
                   >
                     In Frame ({inFrameCount})
@@ -1633,8 +1646,8 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                     onClick={() => setRosterTab('AWAY')}
                     className={`flex-1 py-1 rounded-md transition text-center cursor-pointer ${
                       rosterTab === 'AWAY'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'hover:text-slate-900'
+                        ? 'bg-surface text-text shadow-xs'
+                        : 'hover:text-text'
                     }`}
                   >
                     Away ({awayCount})
@@ -1649,7 +1662,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                     value={rosterSearch}
                     onChange={(e) => setRosterSearch(e.target.value)}
                     placeholder="Search student..."
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md pl-7 pr-2.5 py-1 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className="w-full bg-surface-muted border border-border rounded-md pl-7 pr-2.5 py-1 text-xs text-text placeholder-slate-400 focus:bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
               </div>
@@ -1679,11 +1692,11 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
               )}
 
               {/* LIVE ROSTER LIST (Scrollable) */}
-              <div className="flex-1 overflow-y-auto space-y-1 mt-2.5 pr-1 divide-y divide-slate-100">
+              <div className="flex-1 overflow-y-auto space-y-1 mt-2.5 pr-1 divide-y divide-border">
                 {displayRosterItems.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
-                    <UserCheck className="w-8 h-8 text-slate-300 mb-2" />
-                    <p className="text-xs font-semibold text-slate-700">No Students in This View</p>
+                    <UserCheck className="w-8 h-8 text-[#cbd5e1] mb-2" />
+                    <p className="text-xs font-semibold text-text">No Students in This View</p>
                     <p className="text-[11px] text-slate-400 mt-1 max-w-[200px]">
                       Students will appear based on camera detection and class enrollment.
                     </p>
@@ -1697,16 +1710,16 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                     return (
                       <div
                         key={st.student_id}
-                        className="pt-1.5 first:pt-0 flex items-center justify-between gap-2 text-xs hover:bg-slate-50/80 rounded-md p-1 transition"
+                        className="pt-1.5 first:pt-0 flex items-center justify-between gap-2 text-xs hover:bg-surface-muted/80 rounded-md p-1 transition"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           {/* Avatar / Initials */}
-                          <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-700 text-[10px] shrink-0">
+                          <div className="w-7 h-7 rounded-full bg-surface-muted border border-border flex items-center justify-center font-bold text-text text-[10px] shrink-0">
                             {getInitials(st.student_name)}
                           </div>
                           <div className="min-w-0">
-                            <div className="font-semibold text-slate-900 truncate">{st.student_name}</div>
-                            <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1.5">
+                            <div className="font-semibold text-text truncate">{st.student_name}</div>
+                            <div className="text-[10px] text-text-muted font-mono flex items-center gap-1.5">
                               <span>
                                 {isPresent
                                   ? st.last_seen
@@ -1735,7 +1748,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                               className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer ${
                                 isPresent || isLate
                                   ? 'border border-rose-200 text-rose-600 hover:bg-rose-50'
-                                  : 'border border-blue-200 text-blue-600 hover:bg-blue-50'
+                                  : 'border border-blue-200 text-primary hover:bg-blue-50'
                               } disabled:opacity-50`}
                               title={isPresent || isLate ? 'Mark Absent' : 'Mark Present'}
                             >
@@ -1758,10 +1771,10 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {attendanceMode === 'CAPTURE_PHOTO' && (
         <div className="grid grid-cols-1 lg:grid-cols-10 gap-5 items-start">
-          <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-              <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
-                <Camera className="w-4 h-4 text-blue-600" />
+          <div className="lg:col-span-7 bg-surface border border-border rounded-xl p-4 shadow-xs space-y-3">
+            <div className="flex items-center justify-between border-b border-border pb-2.5">
+              <div className="flex items-center gap-2 text-text font-bold text-sm">
+                <Camera className="w-4 h-4 text-primary" />
                 <span>Classroom Photo Snapshot</span>
               </div>
               <div className="flex items-center gap-2">
@@ -1771,9 +1784,9 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                     setFacingMode(newMode);
                     if (captureCameraActive) startCaptureCamera(newMode);
                   }}
-                  className="px-2.5 py-1 rounded text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition flex items-center gap-1"
+                  className="px-2.5 py-1 rounded text-xs font-semibold bg-surface-muted hover:bg-slate-200 text-text transition flex items-center gap-1"
                 >
-                  <SwitchCamera className="w-3.5 h-3.5 text-blue-600" />
+                  <SwitchCamera className="w-3.5 h-3.5 text-primary" />
                   <span>{facingMode === 'environment' ? 'Rear' : 'Front'}</span>
                 </button>
               </div>
@@ -1819,8 +1832,8 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
 
               {!captureCameraActive && !capturedPreviewUrl && (
                 <div className="text-center p-6 text-slate-400 space-y-2">
-                  <Camera className="w-8 h-8 mx-auto text-slate-600" />
-                  <p className="text-xs font-semibold text-slate-200">Camera Standby</p>
+                  <Camera className="w-8 h-8 mx-auto text-text-muted" />
+                  <p className="text-xs font-semibold text-[#e2e8f0]">Camera Standby</p>
                   <p className="text-[11px] text-slate-400 max-w-xs">
                     Start camera to frame your classroom and take a photo to recognize all students.
                   </p>
@@ -1847,7 +1860,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 {!captureCameraActive && !capturedPreviewUrl && (
                   <button
                     onClick={() => startCaptureCamera(facingMode)}
-                    className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs"
+                    className="px-4 py-2 rounded-lg bg-primary hover:bg-primary text-white text-xs font-semibold shadow-xs"
                   >
                     Start Camera
                   </button>
@@ -1869,7 +1882,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                         setCaptureRecognitionResult(null);
                         startCaptureCamera(facingMode);
                       }}
-                      className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold"
+                      className="px-3 py-1.5 rounded-lg border border-border bg-surface hover:bg-surface-muted text-text text-xs font-semibold"
                     >
                       <RotateCcw className="w-3.5 h-3.5 inline mr-1" />
                       Retake
@@ -1877,7 +1890,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                     <button
                       type="button"
                       onClick={() => setShowCaptureOverlay((prev) => !prev)}
-                      className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold"
+                      className="px-2.5 py-1.5 rounded-lg border border-border text-text hover:bg-surface-muted text-xs font-semibold"
                     >
                       <Eye className="w-3.5 h-3.5 inline mr-1" />
                       {showCaptureOverlay ? 'Hide Box' : 'Show Box'}
@@ -1890,7 +1903,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 <button
                   onClick={handleRecognizeCapturePhoto}
                   disabled={processingCapturedPhoto}
-                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg bg-primary hover:bg-primary text-white text-xs font-semibold shadow-xs disabled:opacity-50"
                 >
                   {processingCapturedPhoto ? 'Recognizing...' : 'Review Photo Attendance'}
                 </button>
@@ -1899,14 +1912,14 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
           </div>
 
           <div className="lg:col-span-3">
-            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col h-[440px]">
-              <h2 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2">
+            <div className="bg-surface border border-border rounded-xl p-4 shadow-xs flex flex-col h-[440px]">
+              <h2 className="text-sm font-bold text-text border-b border-border pb-2">
                 Current Attendance ({presentCount} / {totalRoster})
               </h2>
-              <div className="flex-1 overflow-y-auto space-y-2 mt-3 pr-1 divide-y divide-slate-100">
+              <div className="flex-1 overflow-y-auto space-y-2 mt-3 pr-1 divide-y divide-border">
                 {presenceList.map((st) => (
                   <div key={st.student_id} className="pt-2 first:pt-0 flex items-center justify-between gap-2 text-xs">
-                    <span className="font-semibold text-slate-900 truncate">{st.student_name}</span>
+                    <span className="font-semibold text-text truncate">{st.student_name}</span>
                     <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                       Present
                     </span>
@@ -1923,24 +1936,24 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {attendanceMode === 'UPLOAD_PHOTO' && (
         <div className="grid grid-cols-1 lg:grid-cols-10 gap-5 items-start">
-          <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3">
-            <div className="border-b border-slate-100 pb-2.5">
-              <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Upload className="w-4 h-4 text-blue-600" />
+          <div className="lg:col-span-7 bg-surface border border-border rounded-xl p-4 shadow-xs space-y-3">
+            <div className="border-b border-border pb-2.5">
+              <h2 className="text-sm font-bold text-text flex items-center gap-2">
+                <Upload className="w-4 h-4 text-primary" />
                 <span>Upload Classroom Photo</span>
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-text-muted mt-0.5">
                 Upload a group classroom photo to recognize all students simultaneously.
               </p>
             </div>
 
             <div className="flex items-center gap-3">
-              <label className="cursor-pointer px-4 py-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold border border-blue-200 transition inline-flex items-center gap-1.5">
+              <label className="cursor-pointer px-4 py-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-primary text-xs font-semibold border border-blue-200 transition inline-flex items-center gap-1.5">
                 <Upload className="w-3.5 h-3.5" />
                 <span>Choose Image</span>
                 <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleUploadSelect} className="hidden" />
               </label>
-              {uploadFile && <span className="text-xs font-medium text-slate-700 truncate">{uploadFile.name}</span>}
+              {uploadFile && <span className="text-xs font-medium text-text truncate">{uploadFile.name}</span>}
             </div>
 
             {uploadPreviewUrl && (
@@ -1981,7 +1994,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 <button
                   type="button"
                   onClick={() => setShowUploadOverlay((prev) => !prev)}
-                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold"
+                  className="px-2.5 py-1.5 rounded-lg border border-border text-text hover:bg-surface-muted text-xs font-semibold"
                 >
                   <Eye className="w-3.5 h-3.5 inline mr-1" />
                   {showUploadOverlay ? 'Hide Box' : 'Show Box'}
@@ -1989,7 +2002,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 <button
                   onClick={handleRecognizeUploadPhoto}
                   disabled={processingUploadPhoto}
-                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg bg-primary hover:bg-primary text-white text-xs font-semibold shadow-xs disabled:opacity-50"
                 >
                   {processingUploadPhoto ? 'Recognizing...' : 'Review Photo Attendance'}
                 </button>
@@ -1998,14 +2011,14 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
           </div>
 
           <div className="lg:col-span-3">
-            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col h-[440px]">
-              <h2 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2">
+            <div className="bg-surface border border-border rounded-xl p-4 shadow-xs flex flex-col h-[440px]">
+              <h2 className="text-sm font-bold text-text border-b border-border pb-2">
                 Current Attendance ({presentCount} / {totalRoster})
               </h2>
-              <div className="flex-1 overflow-y-auto space-y-2 mt-3 pr-1 divide-y divide-slate-100">
+              <div className="flex-1 overflow-y-auto space-y-2 mt-3 pr-1 divide-y divide-border">
                 {presenceList.map((st) => (
                   <div key={st.student_id} className="pt-2 first:pt-0 flex items-center justify-between gap-2 text-xs">
-                    <span className="font-semibold text-slate-900 truncate">{st.student_name}</span>
+                    <span className="font-semibold text-text truncate">{st.student_name}</span>
                     <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                       Present
                     </span>
@@ -2020,52 +2033,52 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       {/* ========================================================================= */}
       {/* BOTTOM SUMMARY STRIP & ACTION BAR */}
       {/* ========================================================================= */}
-      <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
+      <div className="bg-surface border border-border rounded-xl px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
         {/* Left Side: Quick Buttons */}
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
             onClick={() => setShowManualModal(true)}
             disabled={!selectedSessionId}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface-muted hover:bg-surface-muted text-text text-xs font-semibold transition"
           >
-            <UserCheck className="w-3.5 h-3.5 text-blue-600" />
+            <UserCheck className="w-3.5 h-3.5 text-primary" />
             <span>Mark Manually</span>
           </button>
           <button
             onClick={() => setShowRosterModal(true)}
             disabled={!selectedSessionId}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface-muted hover:bg-surface-muted text-text text-xs font-semibold transition"
           >
-            <Users className="w-3.5 h-3.5 text-slate-600" />
+            <Users className="w-3.5 h-3.5 text-text-muted" />
             <span>View Full Roster</span>
           </button>
         </div>
 
         {/* Right Side: Real-Time Summary Row */}
-        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs font-medium text-slate-600">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs font-medium text-text-muted">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>Present: <strong className="text-slate-900">{presentCount}</strong></span>
+            <span>Present: <strong className="text-text">{presentCount}</strong></span>
           </div>
-          <span className="text-slate-300">|</span>
+          <span className="text-[#cbd5e1]">|</span>
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-amber-500" />
-            <span>Late: <strong className="text-slate-900">{lateCount}</strong></span>
+            <span>Late: <strong className="text-text">{lateCount}</strong></span>
           </div>
-          <span className="text-slate-300">|</span>
+          <span className="text-[#cbd5e1]">|</span>
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-rose-400" />
-            <span>Absent: <strong className="text-slate-900">{absentCount}</strong></span>
+            <span>Absent: <strong className="text-text">{absentCount}</strong></span>
           </div>
-          <span className="text-slate-300">|</span>
+          <span className="text-[#cbd5e1]">|</span>
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-blue-500" />
-            <span>Verifying: <strong className="text-slate-900">{verifyingCount}</strong></span>
+            <span>Verifying: <strong className="text-text">{verifyingCount}</strong></span>
           </div>
-          <span className="text-slate-300">|</span>
+          <span className="text-[#cbd5e1]">|</span>
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-slate-400" />
-            <span>Unknown: <strong className="text-slate-900">{unknownEvents.length}</strong></span>
+            <span>Unknown: <strong className="text-text">{unknownEvents.length}</strong></span>
           </div>
         </div>
       </div>
@@ -2074,26 +2087,26 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       {/* MODAL 1: END ATTENDANCE CONFIRMATION */}
       {/* ========================================================================= */}
       {showEndSessionModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6 max-w-md w-full shadow-xl space-y-4">
+        <div className="fixed inset-0 bg-[#0f172a]/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-border rounded-xl p-5 sm:p-6 max-w-md w-full shadow-xl space-y-4">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-full bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-slate-900">
+                <h3 className="text-base font-bold text-text">
                   End attendance session for {selectedSession?.class_name || 'this class'}?
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-text-muted mt-1">
                   {presentCount} of {totalRoster} students marked present. All remaining unverified students will be marked absent.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
               <button
                 onClick={() => setShowEndSessionModal(false)}
-                className="px-3.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition"
+                className="px-3.5 py-1.5 rounded-lg border border-border text-text hover:bg-surface-muted text-xs font-semibold transition"
               >
                 Cancel
               </button>
@@ -2114,43 +2127,43 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       {/* MODAL 2: SESSION COMPLETED SUMMARY */}
       {/* ========================================================================= */}
       {sessionCompletedSummary && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-slate-200 rounded-xl p-6 max-w-md w-full shadow-xl space-y-4 text-center">
+        <div className="fixed inset-0 bg-[#0f172a]/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-border rounded-xl p-6 max-w-md w-full shadow-xl space-y-4 text-center">
             <div className="w-12 h-12 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 mx-auto">
               <CheckCircle2 className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">
+              <h3 className="text-base font-bold text-text">
                 Attendance session completed successfully
               </h3>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-text-muted mt-1">
                 The session records have been finalized in the database.
               </p>
             </div>
 
-            <div className="grid grid-cols-4 gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200 text-center">
+            <div className="grid grid-cols-4 gap-2 bg-surface-muted p-3 rounded-lg border border-border text-center">
               <div>
-                <div className="text-[10px] text-slate-500 font-medium">Present</div>
+                <div className="text-[10px] text-text-muted font-medium">Present</div>
                 <div className="text-base font-bold text-emerald-600">{sessionCompletedSummary.present}</div>
               </div>
               <div>
-                <div className="text-[10px] text-slate-500 font-medium">Absent</div>
+                <div className="text-[10px] text-text-muted font-medium">Absent</div>
                 <div className="text-base font-bold text-rose-600">{sessionCompletedSummary.absent}</div>
               </div>
               <div>
-                <div className="text-[10px] text-slate-500 font-medium">Late</div>
+                <div className="text-[10px] text-text-muted font-medium">Late</div>
                 <div className="text-base font-bold text-amber-600">{sessionCompletedSummary.late}</div>
               </div>
               <div>
-                <div className="text-[10px] text-slate-500 font-medium">Unknown</div>
-                <div className="text-base font-bold text-slate-700">{sessionCompletedSummary.unknown}</div>
+                <div className="text-[10px] text-text-muted font-medium">Unknown</div>
+                <div className="text-base font-bold text-text">{sessionCompletedSummary.unknown}</div>
               </div>
             </div>
 
             <div className="flex items-center justify-center gap-2 pt-2">
               <button
                 onClick={() => onNavigate?.('reports')}
-                className="px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition"
+                className="px-4 py-2 rounded-lg border border-border bg-surface hover:bg-surface-muted text-text text-xs font-semibold transition"
               >
                 Download Report
               </button>
@@ -2159,7 +2172,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                   setSessionCompletedSummary(null);
                   onNavigate?.('dashboard');
                 }}
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
+                className="px-4 py-2 rounded-lg bg-primary hover:bg-primary text-white text-xs font-semibold shadow-xs transition"
               >
                 Back to Dashboard
               </button>
@@ -2172,20 +2185,20 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       {/* MODAL 3: MANUAL ATTENDANCE */}
       {/* ========================================================================= */}
       {showManualModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-slate-200 rounded-xl p-5 max-w-xl w-full shadow-xl space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 bg-[#0f172a]/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-border rounded-xl p-5 max-w-xl w-full shadow-xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">
+                <h3 className="text-sm font-bold text-text">
                   Manual Attendance — {selectedSession?.class_name || 'Class'}
                 </h3>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-text-muted">
                   Search and adjust attendance for any enrolled student.
                 </p>
               </div>
               <button
                 onClick={() => setShowManualModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+                className="text-slate-400 hover:text-text-muted p-1"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2198,11 +2211,11 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 placeholder="Search student by name or roll number..."
                 value={manualSearchQuery}
                 onChange={(e) => setManualSearchQuery(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full bg-surface-muted border border-border rounded-lg pl-8 pr-3 py-1.5 text-xs text-text placeholder-slate-400 focus:bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-2 max-h-80 pr-1 divide-y divide-slate-100">
+            <div className="flex-1 overflow-y-auto space-y-2 max-h-80 pr-1 divide-y divide-border">
               {filteredStudents.length === 0 ? (
                 <div className="py-8 text-center text-xs text-slate-400">
                   No enrolled students found.
@@ -2216,8 +2229,8 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                   return (
                     <div key={st.id} className="pt-2 first:pt-0 flex items-center justify-between gap-2 text-xs">
                       <div>
-                        <div className="font-semibold text-slate-900">{st.first_name} {st.last_name}</div>
-                        <div className="text-[11px] text-slate-500 font-mono">
+                        <div className="font-semibold text-text">{st.first_name} {st.last_name}</div>
+                        <div className="text-[11px] text-text-muted font-mono">
                           {st.roll_number || st.student_code}
                         </div>
                       </div>
@@ -2251,7 +2264,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                           className={`px-2.5 py-1 rounded text-[10px] font-semibold transition ${
                             currentStatus === 'ABSENT'
                               ? 'bg-slate-700 text-white shadow-xs'
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              : 'bg-surface-muted text-text-muted hover:bg-slate-200'
                           }`}
                         >
                           Absent
@@ -2263,10 +2276,10 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
               )}
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-slate-100">
+            <div className="flex justify-end pt-2 border-t border-border">
               <button
                 onClick={() => setShowManualModal(false)}
-                className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs"
+                className="px-4 py-1.5 rounded-lg bg-primary hover:bg-primary text-white text-xs font-semibold shadow-xs"
               >
                 Done
               </button>
@@ -2279,36 +2292,36 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       {/* MODAL 4: REVIEW UNKNOWN FACE */}
       {/* ========================================================================= */}
       {showReviewModal && selectedUnknownEvent && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-slate-200 rounded-xl p-5 max-w-md w-full shadow-xl space-y-4">
-            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 bg-[#0f172a]/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-border rounded-xl p-5 max-w-md w-full shadow-xl space-y-4">
+            <div className="flex items-start justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
                   <AlertTriangle className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Review Unknown Face</h3>
-                  <p className="text-[11px] text-slate-500">Detected at {selectedUnknownEvent.timeStr}</p>
+                  <h3 className="text-sm font-bold text-text">Review Unknown Face</h3>
+                  <p className="text-[11px] text-text-muted">Detected at {selectedUnknownEvent.timeStr}</p>
                 </div>
               </div>
               <button
                 onClick={() => setShowReviewModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+                className="text-slate-400 hover:text-text-muted p-1"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-text-muted">
               This face did not match any enrolled student profile with high confidence. You can assign this sighting to an enrolled student or dismiss it.
             </p>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700">Select Student to Assign:</label>
+              <label className="text-xs font-semibold text-text">Select Student to Assign:</label>
               <select
                 value={reviewStudentId}
                 onChange={(e) => setReviewStudentId(e.target.value)}
-                className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full bg-surface border border-border rounded-lg px-2.5 py-1.5 text-xs text-text focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="">-- Choose Enrolled Student --</option>
                 {enrolledStudents
@@ -2321,10 +2334,10 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
               </select>
             </div>
 
-            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
               <button
                 onClick={handleDismissUnknown}
-                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold transition"
+                className="px-3 py-1.5 rounded-lg border border-border text-text-muted hover:bg-surface-muted text-xs font-semibold transition"
               >
                 Dismiss / Ignore
               </button>
@@ -2339,7 +2352,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 <button
                   onClick={() => handleAssignUnknown('PRESENT')}
                   disabled={!reviewStudentId}
-                  className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50"
+                  className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary text-white text-xs font-semibold shadow-xs transition disabled:opacity-50"
                 >
                   Mark Present
                 </button>
@@ -2353,20 +2366,20 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
       {/* MODAL 5: FULL CLASS ROSTER */}
       {/* ========================================================================= */}
       {showRosterModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-slate-200 rounded-xl p-5 max-w-2xl w-full shadow-xl space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 bg-[#0f172a]/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-border rounded-xl p-5 max-w-2xl w-full shadow-xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">
+                <h3 className="text-sm font-bold text-text">
                   Class Roster — {selectedSession?.class_name || 'Class'}
                 </h3>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-text-muted">
                   {totalRoster} enrolled • {presentCount} marked present
                 </p>
               </div>
               <button
                 onClick={() => setShowRosterModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+                className="text-slate-400 hover:text-text-muted p-1"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2379,13 +2392,13 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                 placeholder="Search roster..."
                 value={rosterSearchQuery}
                 onChange={(e) => setRosterSearchQuery(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full bg-surface-muted border border-border rounded-lg pl-8 pr-3 py-1.5 text-xs text-text placeholder-slate-400 focus:bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
-            <div className="flex-1 overflow-y-auto max-h-96 border border-slate-200 rounded-lg">
+            <div className="flex-1 overflow-y-auto max-h-96 border border-border rounded-lg">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-semibold text-[11px]">
+                <thead className="bg-surface-muted text-text-muted border-b border-border font-semibold text-[11px]">
                   <tr>
                     <th className="p-2.5">Student</th>
                     <th className="p-2.5">Roll Number</th>
@@ -2394,7 +2407,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                     <th className="p-2.5">Confidence</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-700">
+                <tbody className="divide-y divide-border text-text">
                   {filteredRosterStudents.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="p-4 text-center text-slate-400">
@@ -2406,11 +2419,11 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                       const presence = presenceList.find((p) => p.student_id === st.id);
                       const status = presence?.attendance_status || 'ABSENT';
                       return (
-                        <tr key={st.id} className="hover:bg-slate-50">
-                          <td className="p-2.5 font-semibold text-slate-900">
+                        <tr key={st.id} className="hover:bg-surface-muted">
+                          <td className="p-2.5 font-semibold text-text">
                             {st.first_name} {st.last_name}
                           </td>
-                          <td className="p-2.5 font-mono text-slate-500">{st.roll_number || st.student_code}</td>
+                          <td className="p-2.5 font-mono text-text-muted">{st.roll_number || st.student_code}</td>
                           <td className="p-2.5">
                             <span
                               className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
@@ -2418,13 +2431,13 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
                                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                   : status === 'LATE'
                                   ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                  : 'bg-slate-100 text-slate-600'
+                                  : 'bg-surface-muted text-text-muted'
                               }`}
                             >
                               {status}
                             </span>
                           </td>
-                          <td className="p-2.5 text-slate-500">
+                          <td className="p-2.5 text-text-muted">
                             {presence?.first_seen ? formatTime(presence.first_seen) : '—'}
                           </td>
                           <td className="p-2.5 font-mono">
@@ -2438,10 +2451,10 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
               </table>
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-slate-100">
+            <div className="flex justify-end pt-2 border-t border-border">
               <button
                 onClick={() => setShowRosterModal(false)}
-                className="px-4 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold"
+                className="px-4 py-1.5 rounded-lg bg-surface-muted hover:bg-slate-200 text-text text-xs font-semibold"
               >
                 Close
               </button>

@@ -10,8 +10,8 @@ import { AttendanceSession } from '../../types/attendance';
 import { ClassSection, Subject, TimetableEntry } from '../../types/subject';
 import { formatApiErrorMessage } from '../../utils/apiError';
 
-const button = 'rounded-lg border border-slate-300 px-4 py-2.5 font-medium disabled:opacity-50';
-const primary = 'rounded-lg bg-blue-700 px-4 py-2.5 font-semibold text-white disabled:opacity-50';
+const button = 'min-h-11 rounded-lg border border-border px-4 py-2.5 font-medium disabled:opacity-50';
+const primary = 'rounded-lg bg-primary px-4 py-2.5 font-semibold text-white disabled:opacity-50';
 
 type CaptureResponse = {
   marked: number;
@@ -152,7 +152,7 @@ function Capture({ sessionId, pairing, onCapture }: {
   };
 
   return (
-    <section className="space-y-3 rounded-xl border bg-white p-4">
+    <section className="space-y-3 rounded-xl border bg-surface p-4">
       <div className="grid grid-cols-2 gap-2">
         <button className={primary} disabled={busy} onClick={live ? () => { releaseCamera(); request.current?.abort(); } : scan}>
           {live ? 'Stop scan' : 'Scan class'}
@@ -169,7 +169,7 @@ function Capture({ sessionId, pairing, onCapture }: {
         </label>
       </div>
       <video ref={video} muted playsInline className={live ? 'max-h-80 w-full rounded-lg bg-slate-900' : 'hidden'} />
-      {message && <p role="status" className="text-sm text-slate-600">{message}</p>}
+      {message && <p role="status" className="text-sm text-text-muted">{message}</p>}
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
     </section>
   );
@@ -182,7 +182,7 @@ export function PairedAttendancePage() {
     if (pairing.current) window.history.replaceState(null, '', window.location.pathname + window.location.search);
   }, []);
   return (
-    <main className="mx-auto max-w-xl space-y-4 p-4 text-slate-900">
+    <main className="mx-auto max-w-xl space-y-4 p-4 text-text">
       <h1 className="text-2xl font-semibold">Class attendance</h1>
       {pairing.current && sessionId
         ? <Capture sessionId={sessionId} pairing={pairing.current} />
@@ -323,9 +323,9 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
   }) ?? [];
 
   return (
-    <main className="mx-auto min-h-screen max-w-2xl space-y-4 bg-slate-50 p-4 text-slate-900 sm:p-6">
+    <main className="mx-auto min-h-screen max-w-2xl space-y-4 bg-surface-muted p-4 text-text sm:p-6">
       <header className="flex items-center justify-between gap-3">
-        <a href="/" className="text-sm font-medium text-blue-700">Workspace</a>
+        <a href="/" className="text-sm font-medium text-primary">Workspace</a>
         <button className={button} onClick={onLogout}>Sign out</button>
       </header>
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
@@ -335,32 +335,32 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
         {sessions.filter(item => !['CANCELLED', 'COMPLETED'].includes(item.status))
           .sort((a, b) => Number(b.status === 'ACTIVE') - Number(a.status === 'ACTIVE'))
           .map(item => (
-          <button key={item.id} disabled={busy} className={`${button} block w-full bg-white text-left`}
+          <button key={item.id} disabled={busy} className={`${button} block w-full bg-surface text-left`}
             onClick={() => void perform(() => open(item))}>
             <span className="block">{item.class_name} · {item.subject}</span>
-            <span className="text-sm text-slate-600">{item.status === 'ACTIVE' ? 'Resume attendance' : item.start_time.slice(0, 5)}</span>
+            <span className="text-sm text-text-muted">{item.status === 'ACTIVE' ? 'Resume attendance' : item.start_time.slice(0, 5)}</span>
           </button>
         ))}
         {slots.filter(slot => !sessions.some(item => item.timetable_entry_id === slot.id || item.id === slot.existing_session_id)).map(slot => (
-          <button key={slot.id} disabled={busy} className={`${button} block w-full bg-white text-left`} onClick={() => void startSlot(slot)}>
+          <button key={slot.id} disabled={busy} className={`${button} block w-full bg-surface text-left`} onClick={() => void startSlot(slot)}>
             <span className="block">{slot.class_name} · {slot.subject_name || slot.label}</span>
-            <span className="text-sm text-slate-600">{slot.start_time.slice(0, 5)}</span>
+            <span className="text-sm text-text-muted">{slot.start_time.slice(0, 5)}</span>
           </button>
         ))}
-        {!busy && !sessions.length && !slots.length && <p className="text-sm text-slate-600">No classes are scheduled today.</p>}
-        {custom ? <form className="space-y-3 rounded-xl border bg-white p-4" onSubmit={event => {
+        {!busy && !sessions.length && !slots.length && <p className="text-sm text-text-muted">No classes are scheduled today.</p>}
+        {custom ? <form className="space-y-3 rounded-xl border bg-surface p-4" onSubmit={event => {
           event.preventDefault();
           void startCustom();
         }}>
           <label className="block text-sm font-medium">Class
-            <select className={`${button} mt-1 block w-full bg-white`} value={classId}
+            <select className={`${button} mt-1 block w-full bg-surface`} value={classId}
               onChange={event => setClassId(event.target.value)} required>
               <option value="">Choose a class</option>
               {classes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
           </label>
           <label className="block text-sm font-medium">Subject
-            <select className={`${button} mt-1 block w-full bg-white`} value={subjectId}
+            <select className={`${button} mt-1 block w-full bg-surface`} value={subjectId}
               onChange={event => setSubjectId(event.target.value)} required>
               <option value="">Choose a subject</option>
               {subjects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -377,13 +377,13 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
           setCustom(true);
         })}>Start an unscheduled class</button>}
       </> : <>
-        <button className="text-sm font-medium text-blue-700" onClick={() => {
+        <button className="text-sm font-medium text-primary" onClick={() => {
           setSession(undefined); setRoster(undefined); setQr(''); setConfirm(false);
           window.history.replaceState(null, '', '/phone-attendance');
           void perform(loadClasses);
         }}>Today’s classes</button>
         <h1 className="text-2xl font-bold">{session.subject}</h1>
-        <p className="text-sm text-slate-600">{session.class_name} · {session.room}</p>
+        <p className="text-sm text-text-muted">{session.class_name} · {session.room}</p>
         {session.status === 'SCHEDULED' && <button className={primary} disabled={busy} onClick={() => void perform(() => open(session))}>Start attendance</button>}
         {session.status === 'ACTIVE' && !review && <>
           <Capture key={session.id} sessionId={session.id} onCapture={() => {
@@ -399,12 +399,12 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
             link.hash = new URLSearchParams({ pair: response.data.token }).toString();
             setQr(await QRCode.toDataURL(link.toString(), { width: 240 }));
           })}>{qr ? 'Refresh pairing code' : 'Pair phone'}</button>
-          {qr && <figure className="rounded-xl border bg-white p-4">
+          {qr && <figure className="rounded-xl border bg-surface p-4">
             <img src={qr} alt="Scan this QR code with the phone camera" width="240" height="240" />
-            <figcaption className="text-sm text-slate-600">Scan with your phone. The code expires in 15 minutes.</figcaption>
+            <figcaption className="text-sm text-text-muted">Scan with your phone. The code expires in 15 minutes.</figcaption>
           </figure>}
         </>}
-        {displayedRoster && <p className="rounded-xl border bg-white p-4 font-semibold" aria-live="polite">
+        {displayedRoster && <p className="rounded-xl border bg-surface p-4 font-semibold" aria-live="polite">
           {displayedRoster.present_count + displayedRoster.late_count} of {displayedRoster.total_enrolled} present
           {remaining ? ` · ${remaining} to review` : ''}
         </p>}
@@ -414,7 +414,7 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
           {review ? 'Back to capture' : 'Review roster'}
         </button>}
         {(review || session.status === 'COMPLETED') && displayedRoster && <>
-          {session.status === 'ACTIVE' && <div className="space-y-3 rounded-xl border bg-white p-3">
+          {session.status === 'ACTIVE' && <div className="space-y-3 rounded-xl border bg-surface p-3">
             <div className="grid grid-cols-2 gap-2" role="group" aria-label="Roster view">
               <button className={rosterView === 'unresolved' ? primary : button} onClick={() => setRosterView('unresolved')}>
                 Who’s left ({remaining ?? 0})
@@ -424,17 +424,17 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
               </button>
             </div>
             <label className="block text-sm font-medium">Find by name or roll number
-              <input className={`${button} mt-1 block w-full bg-white font-normal`} type="search"
+              <input className={`${button} mt-1 block w-full bg-surface font-normal`} type="search"
                 value={rosterSearch} onChange={event => setRosterSearch(event.target.value)}
                 placeholder="Start typing…" />
             </label>
           </div>}
-          <ul className="divide-y rounded-xl border bg-white">
+          <ul className="divide-y rounded-xl border bg-surface">
             {[...visibleStudents].sort((a, b) => Number(needsReview(b.attendance_status)) - Number(needsReview(a.attendance_status))).map(student => (
               <li key={student.student_id} className="flex flex-wrap items-center justify-between gap-2 p-3">
                 <div>
                   <p className="font-medium">{student.student_name}</p>
-                  <p className="text-sm capitalize text-slate-600">{student.roll_number} · {student.attendance_status.toLowerCase().replace(/_/g, ' ')}</p>
+                  <p className="text-sm capitalize text-text-muted">{student.roll_number} · {student.attendance_status.toLowerCase().replace(/_/g, ' ')}</p>
                 </div>
                 {session.status === 'ACTIVE' && <div className="flex gap-2">
                   {['PRESENT', 'ABSENT'].map(status => (
@@ -448,13 +448,13 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
                 </div>}
               </li>
             ))}
-            {!visibleStudents.length && <li className="p-4 text-sm text-slate-600">
+            {!visibleStudents.length && <li className="p-4 text-sm text-text-muted">
               {rosterSearch ? 'No students match that search.' : session.status === 'COMPLETED'
                 ? 'No students were enrolled in this session.' : 'Everyone is resolved. You can finish attendance.'}
             </li>}
           </ul>
           {session.status === 'ACTIVE' && review && <button className={button} onClick={() => setReview(false)}>Rescan class</button>}
-          {session.status === 'ACTIVE' && (confirm ? <div className="space-y-3 rounded-xl border bg-white p-4">
+          {session.status === 'ACTIVE' && (confirm ? <div className="space-y-3 rounded-xl border bg-surface p-4">
             <p>{unmarked} unmarked students will be recorded absent. Save attendance?</p>
             <div className="flex gap-2">
               <button className={primary} disabled={busy} onClick={() => void perform(async () => {

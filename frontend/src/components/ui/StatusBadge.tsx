@@ -18,17 +18,15 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
 }) => {
   const norm = (status || '').toUpperCase().trim();
 
-  // Determine variant, display label, and dot pulse
+  // Determine the semantic color and readable label
   let variant: 'blue' | 'green' | 'amber' | 'red' | 'gray' | 'purple' = 'gray';
   let label = status;
-  let pulse = false;
 
   switch (category) {
     case 'session':
       if (norm === 'ACTIVE' || norm === 'LIVE') {
         variant = 'green';
         label = 'Active';
-        pulse = true;
       } else if (norm === 'PAUSED') {
         variant = 'amber';
         label = 'Paused';
@@ -55,14 +53,13 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
         variant = 'red';
         label = 'Absent';
       } else if (norm === 'EXCUSED' || norm === 'MANUAL_EXCUSED') {
-        variant = 'purple';
+        variant = 'blue';
         label = 'Excused';
       } else if (norm === 'VERIFYING') {
-        variant = 'blue';
+        variant = 'amber';
         label = 'Verifying';
-        pulse = true;
       } else if (norm === 'UNKNOWN') {
-        variant = 'red';
+        variant = 'gray';
         label = 'Unknown';
       } else {
         variant = 'gray';
@@ -74,11 +71,9 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       if (norm === 'ONLINE' || norm === 'CONNECTED' || norm === 'STREAMING') {
         variant = 'green';
         label = norm === 'STREAMING' ? 'Streaming' : 'Online';
-        pulse = norm === 'STREAMING';
       } else if (norm === 'CONNECTING' || norm === 'STARTING') {
         variant = 'blue';
         label = 'Connecting';
-        pulse = true;
       } else if (norm === 'NO_FRAME' || norm === 'WARNING') {
         variant = 'amber';
         label = 'No Frame';
@@ -106,9 +101,8 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
         variant = 'green';
         label = 'Recognized';
       } else if (norm === 'VERIFYING') {
-        variant = 'blue';
+        variant = 'amber';
         label = 'Verifying';
-        pulse = true;
       } else {
         variant = 'amber';
         label = 'Review';
@@ -118,15 +112,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
 
   return (
     <Badge variant={variant} size={size} dot className={className}>
-      <span className="flex items-center gap-1.5">
-        {pulse && (
-          <span className="relative flex h-1.5 w-1.5 -ml-1">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-current"></span>
-          </span>
-        )}
-        <span>{label}</span>
-      </span>
+      {label}
     </Badge>
   );
 };

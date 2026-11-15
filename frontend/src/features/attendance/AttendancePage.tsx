@@ -1,3 +1,4 @@
+import { useDialogFeedback } from '../../components/common/useDialogFeedback';
 import { PhotoAttendancePanel } from '../../components/PhotoAttendancePanel';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -66,6 +67,7 @@ const formatDisplayTime = (timeStr?: string): string => {
 };
 
 export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) => {
+  const { confirmAction, notify, feedback } = useDialogFeedback();
   // Session List State
   const [sessions, setSessions] = useState<AttendanceSession[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -127,6 +129,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
   const [overrideRemarks, setOverrideRemarks] = useState<string>('');
   const [overrideSubmitting, setOverrideSubmitting] = useState<boolean>(false);
 
+  const [loadError, setLoadError] = useState('');
   // Form error message
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [creatingSession, setCreatingSession] = useState<boolean>(false);
@@ -154,7 +157,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
       });
       setSessions(list);
     } catch (err) {
-      console.error('Failed to load sessions:', err);
+      setLoadError(formatApiErrorMessage(err, 'Unable to load this view. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -237,7 +240,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
     try {
       const activeEntry = await fetchCurrentTimetableEntry();
       if (!activeEntry) {
-        alert('No scheduled class found for the current time slot.');
+        notify('No scheduled class found for the current time slot.');
         return;
       }
 
@@ -277,7 +280,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
       }
     } catch (err) {
       console.error('Error auto detecting class:', err);
-      alert('Unable to auto-detect class schedule.');
+      notify('Unable to auto-detect class schedule.');
     }
   };
 
@@ -288,13 +291,13 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
       await loadSessions();
       if (onNavigate) onNavigate('live');
     } catch (err) {
-      alert('Failed to start session.');
+      notify('Failed to start session.');
     }
   };
 
   const handleClose = async (sessionId: string) => {
     if (
-      window.confirm(
+      await confirmAction(
         'Are you sure you want to end and finalize this attendance session? Remaining unverified students will be marked absent.'
       )
     ) {
@@ -305,7 +308,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
           loadSessionDetails(sessionId);
         }
       } catch (err) {
-        alert('Failed to close session.');
+        notify('Failed to close session.');
       }
     }
   };
@@ -321,7 +324,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
       setIsCreateModalOpen(false);
       await loadSessions();
       setSelectedSessionId(newSession.id);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setErrorMessage(formatApiErrorMessage(err, 'Failed to create session.'));
     } finally {
       setCreatingSession(false);
@@ -350,8 +353,8 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
       if (selectedSessionId) {
         loadSessionDetails(selectedSessionId);
       }
-    } catch (err: any) {
-      alert(formatApiErrorMessage(err, 'Failed to override attendance status.'));
+    } catch (err: unknown) {
+      notify(formatApiErrorMessage(err, 'Failed to override attendance status.'));
     } finally {
       setOverrideSubmitting(false);
     }
@@ -387,14 +390,16 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
 
   return (
     <div className="space-y-5">
+      {feedback}
+      {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-danger/10 p-4 text-sm text-danger"><p>{loadError}</p><button className="min-h-11 font-semibold underline" onClick={() => {setLoadError('');void loadSessions();}}>Retry</button></div>}
       {/* 1. Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-border">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+          <h1 className="text-2xl sm:text-[28px] font-medium text-text">
             Attendance
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Schedule, monitor and manage attendance sessions.
+          <p className="text-xs sm:text-sm text-text-muted mt-0.5">
+            Schedule and manage class attendance sessions
           </p>
         </div>
 
@@ -403,7 +408,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
             onClick={handleAutoDetectCurrentClass}
             variant="secondary"
             size="sm"
-            icon={<Sparkles className="w-3.5 h-3.5 text-blue-600" />}
+            icon={<Sparkles className="w-3.5 h-3.5 text-indigo-600" />}
           >
             Auto Detect Current Class
           </Button>
@@ -425,13 +430,13 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
       </div>
 
       {/* 2. Filters Bar */}
-      <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-2.5 text-xs">
+      <div className="bg-surface p-3 rounded-lg border border-border shadow-xs flex flex-wrap items-center justify-between gap-2.5 text-xs">
         <div className="flex flex-wrap items-center gap-2 flex-1">
           {/* Class Filter */}
           <select
-            value={filterClass}
+            aria-label="Filter sessions by class" value={filterClass}
             onChange={(e) => setFilterClass(e.target.value)}
-            className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-2.5 py-1.5 bg-surface-muted border border-border rounded-lg text-xs font-medium text-text focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
             <option value="">All Classes</option>
             {availableClasses.map((c) => (
@@ -443,9 +448,9 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
 
           {/* Subject Filter */}
           <select
-            value={filterSubject}
+            aria-label="Filter sessions by subject" value={filterSubject}
             onChange={(e) => setFilterSubject(e.target.value)}
-            className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-xs truncate"
+            className="px-2.5 py-1.5 bg-surface-muted border border-border rounded-lg text-xs font-medium text-text focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-xs truncate"
           >
             <option value="">All Subjects</option>
             {availableSubjects.map((s) => (
@@ -457,9 +462,9 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
 
           {/* Status Filter */}
           <select
-            value={filterStatus}
+            aria-label="Filter sessions by status" value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-2.5 py-1.5 bg-surface-muted border border-border rounded-lg text-xs font-medium text-text focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
             <option value="">All Statuses</option>
             <option value="ACTIVE">Active (Live)</option>
@@ -470,9 +475,9 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
 
           {/* Date Filter */}
           <select
-            value={filterDateRange}
+            aria-label="Filter sessions by date" value={filterDateRange}
             onChange={(e) => setFilterDateRange(e.target.value)}
-            className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-2.5 py-1.5 bg-surface-muted border border-border rounded-lg text-xs font-medium text-text focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
             <option value="all">All Dates</option>
             <option value="today">Today</option>
@@ -485,19 +490,19 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
           size="sm"
           variant="secondary"
         >
-          <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 text-text-muted ${loading ? 'animate-spin' : ''}`} />
         </IconButton>
       </div>
 
       {/* 3. Compact Sessions Table */}
       {loading ? (
-        <div className="bg-white rounded-lg p-16 text-center text-slate-400 text-xs flex items-center justify-center gap-2 border border-slate-200 shadow-xs">
-          <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+        <div className="bg-surface rounded-lg p-16 text-center text-text-muted text-xs flex items-center justify-center gap-2 border border-border shadow-xs">
+          <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
           <span>Loading attendance sessions...</span>
         </div>
       ) : sessions.length === 0 ? (
         <EmptyState
-          icon={<Calendar className="w-6 h-6 text-slate-400" />}
+          icon={<Calendar className="w-6 h-6 text-text-muted" />}
           title="No Attendance Sessions Found"
           description="No sessions match the current filters. Click 'Create Session' to schedule an attendance event directly from the timetable."
           actionLabel="Create Session"
@@ -526,12 +531,12 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
 
               return (
                 <TableRow key={sess.id}>
-                  <TableCell className="font-bold text-slate-900">{sess.class_name}</TableCell>
-                  <TableCell className="font-semibold text-slate-800">{sess.subject}</TableCell>
-                  <TableCell className="text-slate-500">{sess.room || 'CR 26'}</TableCell>
-                  <TableCell className="text-slate-600 font-mono text-xs">
+                  <TableCell className="font-semibold text-text">{sess.class_name}</TableCell>
+                  <TableCell className="font-semibold text-text">{sess.subject}</TableCell>
+                  <TableCell className="text-text-muted">{sess.room || 'CR 26'}</TableCell>
+                  <TableCell className="text-text-muted font-mono text-xs">
                     <span>{sess.scheduled_date}</span>
-                    <span className="text-slate-400"> • </span>
+                    <span className="text-text-muted"> • </span>
                     <span>{formatDisplayTime(sess.start_time)}</span>
                   </TableCell>
                   <TableCell>
@@ -539,7 +544,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs text-slate-700">
+                      <span className="font-mono text-xs text-text">
                         {isScheduled ? '—' : `${sess.present_count ?? 0} / ${totalCount}`}
                       </span>
                       {!isScheduled && totalCount > 0 && (
@@ -557,7 +562,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1.5">
                       {isLive ? (
-                        <a className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white"
+                        <a className="rounded-lg bg-indigo-700 px-3 py-2 text-xs font-semibold text-white"
                           href={`/phone-attendance?session=${encodeURIComponent(sess.id)}`}>
                           Open attendance
                         </a>
@@ -566,7 +571,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                           onClick={() => handleStart(sess.id)}
                           variant="secondary"
                           size="sm"
-                          icon={<Play className="w-3 h-3 text-blue-600 fill-current" />}
+                          icon={<Play className="w-3 h-3 text-indigo-600 fill-current" />}
                         >
                           Start
                         </Button>
@@ -590,19 +595,19 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                           }
                           size="sm"
                         >
-                          <MoreVertical className="w-3.5 h-3.5 text-slate-400" />
+                          <MoreVertical className="w-3.5 h-3.5 text-text-muted" />
                         </IconButton>
 
                         {activeMenuSessionId === sess.id && (
-                          <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-30 text-xs">
+                          <div className="absolute right-0 mt-1 w-44 bg-surface border border-border rounded-lg shadow-lg py-1 z-30 text-xs">
                             <button
                               onClick={() => {
                                 setActiveMenuSessionId(null);
                                 setSelectedSessionId(sess.id);
                               }}
-                              className="w-full text-left px-3 py-1.5 hover:bg-slate-50 text-slate-700 flex items-center gap-2"
+                              className="w-full text-left px-3 py-1.5 hover:bg-surface-muted text-text flex items-center gap-2"
                             >
-                              <Users className="w-3.5 h-3.5 text-slate-400" />
+                              <Users className="w-3.5 h-3.5 text-text-muted" />
                               <span>View Roster</span>
                             </button>
                             {isLive && (
@@ -644,8 +649,8 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
           selectedSession ? (
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center gap-2">
-                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium cursor-pointer transition">
-                  <Upload className="w-3.5 h-3.5 text-slate-500" />
+                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-surface-muted hover:bg-surface-muted text-text rounded-lg text-xs font-medium cursor-pointer transition">
+                  <Upload className="w-3.5 h-3.5 text-text-muted" />
                   <span>{uploadingPhotos ? uploadProgress : 'Upload Photo'}</span>
                   <input
                     type="file"
@@ -685,30 +690,30 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
           <div className="space-y-5">
             <PhotoAttendancePanel key={selectedSessionId} sessionId={selectedSessionId || ""} active={selectedSession.id === selectedSessionId && selectedSession.status === 'ACTIVE'} onConfirmed={() => loadSessionDetails(selectedSession.id)} />
             {/* KPI Summary Strip */}
-            <div className="grid grid-cols-4 gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200 text-center text-xs">
+            <div className="grid grid-cols-4 gap-2 bg-surface-muted p-3 rounded-lg border border-border text-center text-xs">
               <div>
-                <div className="text-[10px] text-slate-500 uppercase font-semibold">Total</div>
-                <div className="font-bold text-slate-900 text-sm mt-0.5">{drawerStats.total}</div>
+                <div className="text-xs text-text-muted font-semibold">Total</div>
+                <div className="font-semibold text-text text-sm mt-0.5">{drawerStats.total}</div>
               </div>
               <div>
-                <div className="text-[10px] text-emerald-600 uppercase font-semibold">Present</div>
-                <div className="font-bold text-emerald-600 text-sm mt-0.5">{drawerStats.present}</div>
+                <div className="text-xs text-emerald-600 font-semibold">Present</div>
+                <div className="font-semibold text-emerald-600 text-sm mt-0.5">{drawerStats.present}</div>
               </div>
               <div>
-                <div className="text-[10px] text-amber-600 uppercase font-semibold">Late</div>
-                <div className="font-bold text-amber-600 text-sm mt-0.5">{drawerStats.late}</div>
+                <div className="text-xs text-amber-600 font-semibold">Late</div>
+                <div className="font-semibold text-amber-600 text-sm mt-0.5">{drawerStats.late}</div>
               </div>
               <div>
-                <div className="text-[10px] text-rose-600 uppercase font-semibold">Absent</div>
-                <div className="font-bold text-rose-600 text-sm mt-0.5">{drawerStats.absent}</div>
+                <div className="text-xs text-rose-600 font-semibold">Absent</div>
+                <div className="font-semibold text-rose-600 text-sm mt-0.5">{drawerStats.absent}</div>
               </div>
             </div>
 
             {/* Attendance Rate */}
             <div className="space-y-1">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-700">Attendance Rate</span>
-                <span className="font-bold text-slate-900">{drawerStats.rate}%</span>
+                <span className="font-semibold text-text">Attendance Rate</span>
+                <span className="font-semibold text-text">{drawerStats.rate}%</span>
               </div>
               <Progress value={drawerStats.rate} max={100} size="sm" variant="auto" />
             </div>
@@ -716,14 +721,14 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
             {/* Records Section */}
             <div className="space-y-2.5 pt-2">
               <div className="flex items-center justify-between gap-2">
-                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                <h4 className="text-xs font-semibold text-text">
                   Attendance Records ({filteredRecords.length})
                 </h4>
                 <div className="flex items-center gap-1.5">
                   <select
-                    value={recordFilterStatus}
+                    aria-label="Filter attendance status" value={recordFilterStatus}
                     onChange={(e) => setRecordFilterStatus(e.target.value)}
-                    className="px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none"
+                    className="px-2 py-1 bg-surface border border-border rounded text-xs text-text focus:outline-none"
                   >
                     <option value="">All Statuses</option>
                     <option value="PRESENT">Present</option>
@@ -735,22 +740,22 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
 
               <input
                 type="text"
-                value={recordSearch}
+                aria-label="Search attendees" value={recordSearch}
                 onChange={(e) => setRecordSearch(e.target.value)}
                 placeholder="Search attendee by name or roll..."
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text placeholder-slate-400 focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
 
               {loadingRecords ? (
-                <div className="py-8 text-center text-slate-400 text-xs">Loading records...</div>
+                <div className="py-8 text-center text-text-muted text-xs">Loading records...</div>
               ) : filteredRecords.length === 0 ? (
-                <div className="py-8 text-center text-slate-400 text-xs border border-dashed border-slate-200 rounded-lg">
+                <div className="py-8 text-center text-text-muted text-xs border border-dashed border-border rounded-lg">
                   No attendance records found for this filter.
                 </div>
               ) : (
-                <div className="border border-slate-200 rounded-lg overflow-hidden max-h-[380px] overflow-y-auto">
+                <div className="border border-border rounded-lg overflow-hidden max-h-[380px] overflow-y-auto">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[10px] font-semibold sticky top-0">
+                    <thead className="bg-surface-muted border-b border-border text-text-muted text-xs font-semibold sticky top-0">
                       <tr>
                         <th className="px-3 py-2">Student</th>
                         <th className="px-3 py-2">Status</th>
@@ -758,19 +763,19 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                         <th className="px-3 py-2 text-right">Action</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-border">
                       {filteredRecords.map((r) => (
-                        <tr key={r.id} className="hover:bg-slate-50">
+                        <tr key={r.id} className="hover:bg-surface-muted">
                           <td className="px-3 py-2">
-                            <div className="font-semibold text-slate-800">{r.student_name}</div>
-                            <div className="text-[10px] text-slate-400 font-mono">
+                            <div className="font-semibold text-text">{r.student_name}</div>
+                            <div className="text-xs text-text-muted font-mono">
                               {r.roll_number || r.student_code}
                             </div>
                           </td>
                           <td className="px-3 py-2">
                             <StatusBadge status={r.status} category="attendance" size="sm" />
                           </td>
-                          <td className="px-3 py-2 font-mono text-slate-500 text-[11px]">
+                          <td className="px-3 py-2 font-mono text-text-muted text-[11px]">
                             {r.confidence ? `${Math.round(r.confidence * 100)}%` : 'Manual'}
                           </td>
                           <td className="px-3 py-2 text-right">
@@ -778,12 +783,12 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                               onClick={() => {
                                 setSelectedRecord(r);
                                 setOverrideStatus(
-                                  (r.status.replace('MANUAL_', '') as any) || 'PRESENT'
+                                  (r.status.replace('MANUAL_', '') as typeof overrideStatus) || 'PRESENT'
                                 );
                                 setOverrideRemarks(r.remarks || '');
                                 setIsOverrideModalOpen(true);
                               }}
-                              className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition"
+                              className="p-1 text-text-muted hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
                               title="Manual Override"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
@@ -834,14 +839,14 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
           )}
 
           {/* Mode Switcher */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-lg">
+          <div className="flex items-center bg-surface-muted p-1 rounded-lg">
             <button
               type="button"
               onClick={() => setCreationMode('timetable')}
               className={`flex-1 py-1.5 rounded-md font-semibold text-xs transition ${
                 creationMode === 'timetable'
-                  ? 'bg-white text-blue-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-surface text-indigo-700 shadow-xs'
+                  : 'text-text-muted hover:text-text'
               }`}
             >
               From Timetable Slot
@@ -851,8 +856,8 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
               onClick={() => setCreationMode('custom')}
               className={`flex-1 py-1.5 rounded-md font-semibold text-xs transition ${
                 creationMode === 'custom'
-                  ? 'bg-white text-blue-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-surface text-indigo-700 shadow-xs'
+                  : 'text-text-muted hover:text-text'
               }`}
             >
               Custom Session
@@ -864,7 +869,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
               {/* Class & Date Selector */}
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Class</label>
+                  <label className="block text-xs font-semibold text-text mb-1">Class</label>
                   <select
                     value={selectedClassId}
                     onChange={(e) => {
@@ -874,7 +879,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                         setCreateForm((prev) => ({ ...prev, class_name: cls.name, class_id: cls.id }));
                       }
                     }}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800"
+                    className="w-full bg-surface-muted border border-border rounded-lg p-2 text-xs text-text"
                   >
                     {availableClasses.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -884,7 +889,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Date</label>
+                  <label className="block text-xs font-semibold text-text mb-1">Date</label>
                   <input
                     type="date"
                     value={selectedTimetableDate}
@@ -892,20 +897,20 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                       setSelectedTimetableDate(e.target.value);
                       setCreateForm((prev) => ({ ...prev, scheduled_date: e.target.value }));
                     }}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800"
+                    className="w-full bg-surface-muted border border-border rounded-lg p-2 text-xs text-text"
                   />
                 </div>
               </div>
 
               {/* Slot Picker */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                <label className="block text-xs font-semibold text-text mb-1.5">
                   Select Timetable Slot
                 </label>
                 {loadingTimetable ? (
-                  <div className="py-6 text-center text-slate-400">Loading schedule...</div>
+                  <div className="py-6 text-center text-text-muted">Loading schedule...</div>
                 ) : timetableSlots.length === 0 ? (
-                  <div className="py-6 text-center text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                  <div className="py-6 text-center text-text-muted border border-dashed border-border rounded-lg">
                     No timetable lectures scheduled for this date.
                   </div>
                 ) : (
@@ -935,17 +940,17 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                           }}
                           className={`p-2.5 rounded-lg border text-xs cursor-pointer transition flex items-center justify-between ${
                             isSelected
-                              ? 'bg-blue-50 border-blue-400 text-blue-900 font-semibold'
-                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                              ? 'bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold'
+                              : 'bg-surface border-border text-text hover:bg-surface-muted'
                           }`}
                         >
                           <div>
-                            <div className="font-bold">{slot.subject_name || slot.label}</div>
-                            <div className="text-[10px] text-slate-500">
+                            <div className="font-semibold">{slot.subject_name || slot.label}</div>
+                            <div className="text-xs text-text-muted">
                               Room {slot.room} • {slot.start_time} – {slot.end_time}
                             </div>
                           </div>
-                          {isSelected && <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />}
+                          {isSelected && <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />}
                         </div>
                       );
                     })}
@@ -956,7 +961,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
           ) : (
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Subject</label>
+                <label className="block text-xs font-semibold text-text mb-1">Subject</label>
                 <select
                   value={createForm.subject_id || ''}
                   onChange={(e) => {
@@ -967,7 +972,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                       subject: s ? s.name : prev.subject,
                     }));
                   }}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800"
+                  className="w-full bg-surface-muted border border-border rounded-lg p-2 text-xs text-text"
                 >
                   <option value="">Select Subject</option>
                   {availableSubjects.map((s) => (
@@ -980,22 +985,22 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
 
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Room</label>
+                  <label className="block text-xs font-semibold text-text mb-1">Room</label>
                   <input
                     type="text"
                     value={createForm.room || ''}
                     onChange={(e) => setCreateForm((prev) => ({ ...prev, room: e.target.value }))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800"
+                    className="w-full bg-surface-muted border border-border rounded-lg p-2 text-xs text-text"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Camera</label>
+                  <label className="block text-xs font-semibold text-text mb-1">Camera</label>
                   <select
                     value={createForm.camera_id || ''}
                     onChange={(e) =>
                       setCreateForm((prev) => ({ ...prev, camera_id: e.target.value }))
                     }
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800"
+                    className="w-full bg-surface-muted border border-border rounded-lg p-2 text-xs text-text"
                   >
                     {availableCameras.map((cam) => (
                       <option key={cam.id} value={cam.id}>
@@ -1038,15 +1043,15 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
       >
         <div className="space-y-3 text-xs">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+            <label className="block text-xs font-semibold text-text mb-1.5">
               Attendance Status
             </label>
             <div className="grid grid-cols-3 gap-2">
-              {['PRESENT', 'LATE', 'ABSENT'].map((st) => (
+              {(['PRESENT', 'LATE', 'ABSENT'] as const).map((st) => (
                 <button
                   key={st}
                   type="button"
-                  onClick={() => setOverrideStatus(st as any)}
+                  onClick={() => setOverrideStatus(st)}
                   className={`py-2 rounded-lg border font-semibold text-xs transition ${
                     overrideStatus === st
                       ? st === 'PRESENT'
@@ -1054,7 +1059,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                         : st === 'LATE'
                         ? 'bg-amber-50 border-amber-400 text-amber-800'
                         : 'bg-rose-50 border-rose-400 text-rose-800'
-                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      : 'bg-surface-muted border-border text-text-muted hover:bg-surface-muted'
                   }`}
                 >
                   {st}
@@ -1064,15 +1069,15 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-text mb-1">
               Remarks / Justification
             </label>
             <input
               type="text"
-              value={overrideRemarks}
+              aria-label="Override remarks" value={overrideRemarks}
               onChange={(e) => setOverrideRemarks(e.target.value)}
               placeholder="e.g. Verified in classroom roll call"
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full bg-surface-muted border border-border rounded-lg p-2 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
           </div>
         </div>

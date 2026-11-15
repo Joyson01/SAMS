@@ -10,7 +10,8 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ label, error, helperText, leftIcon, rightIcon, className = '', id, ...props }, ref) => {
-    const inputId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
+    const generatedId = React.useId();
+    const inputId = id || generatedId;
 
     return (
       <div className="w-full space-y-1">
@@ -28,7 +29,9 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           <input
             ref={ref}
             id={inputId}
-            className={`w-full bg-white border text-xs sm:text-sm rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-slate-50 disabled:text-slate-500 ${
+          aria-invalid={!!error}
+          aria-describedby={error || helperText ? `${inputId}-hint` : undefined}
+            className={`w-full bg-white border text-xs sm:text-sm rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary disabled:bg-slate-50 disabled:text-slate-500 ${
               leftIcon ? 'pl-9' : ''
             } ${rightIcon ? 'pr-9' : ''} ${
               error ? 'border-rose-400 focus:ring-rose-500 focus:border-rose-500' : 'border-slate-200'
@@ -42,9 +45,9 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           )}
         </div>
         {error ? (
-          <p className="text-[11px] text-rose-600 font-medium">{error}</p>
+          <p id={`${inputId}-hint`} className="text-xs text-rose-600 font-medium">{error}</p>
         ) : helperText ? (
-          <p className="text-[11px] text-slate-500">{helperText}</p>
+          <p id={`${inputId}-hint`} className="text-xs text-slate-500">{helperText}</p>
         ) : null}
       </div>
     );

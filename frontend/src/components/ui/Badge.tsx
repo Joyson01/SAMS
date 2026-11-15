@@ -15,7 +15,7 @@ export const Badge: React.FC<BadgeProps> = ({
   ...props
 }) => {
   const sizeClasses = {
-    sm: 'text-[10px] px-1.5 py-0.5 gap-1',
+    sm: 'text-xs px-2 py-0.5 gap-1.5',
     md: 'text-xs px-2.5 py-0.5 gap-1.5',
   }[size];
 
@@ -39,7 +39,7 @@ export const Badge: React.FC<BadgeProps> = ({
 
   return (
     <span
-      className={`inline-flex items-center font-medium border rounded-full select-none ${sizeClasses} ${variantClasses} ${className}`}
+      className={`inline-flex items-center font-medium border rounded-md select-none ${sizeClasses} ${variantClasses} ${className}`}
       {...props}
     >
       {dot && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClasses}`} />}

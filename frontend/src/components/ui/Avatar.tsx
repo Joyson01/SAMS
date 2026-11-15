@@ -13,6 +13,8 @@ export const Avatar: React.FC<AvatarProps> = ({
   size = 'md',
   className = '',
 }) => {
+  const [imageFailed, setImageFailed] = React.useState(false);
+  React.useEffect(() => setImageFailed(false), [src]);
   const getInitials = (n: string): string => {
     const parts = n.trim().split(/\s+/);
     if (parts.length === 0 || !parts[0]) return 'U';
@@ -26,10 +28,11 @@ export const Avatar: React.FC<AvatarProps> = ({
     lg: 'w-9 h-9 text-sm',
   }[size];
 
-  if (src) {
+  if (src && !imageFailed) {
     return (
       <img
         src={src}
+        onError={() => setImageFailed(true)}
         alt={name}
         className={`rounded-full object-cover border border-slate-200 shrink-0 ${sizeClasses} ${className}`}
       />
@@ -39,7 +42,7 @@ export const Avatar: React.FC<AvatarProps> = ({
   return (
     <div
       aria-label={name}
-      className={`rounded-full bg-slate-100 border border-slate-200 text-slate-700 font-bold flex items-center justify-center shrink-0 select-none ${sizeClasses} ${className}`}
+      className={`rounded-full bg-slate-100 border border-slate-200 text-slate-700 font-semibold flex items-center justify-center shrink-0 select-none ${sizeClasses} ${className}`}
     >
       {getInitials(name)}
     </div>

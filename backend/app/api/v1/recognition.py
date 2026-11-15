@@ -280,7 +280,7 @@ async def update_thresholds(
 
 
 @router.post('/analyze-frame', dependencies=[Depends(require_roles('ADMIN','FACULTY'))])
-async def analyze_frame(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+async def analyze_frame(file: UploadFile = File(...), db: AsyncSession = Depends(get_db), photo: bool = Query(False)):
     """Stateless recognition probe: no attendance or biometric writes."""
     import cv2
     import numpy as np
@@ -289,6 +289,9 @@ async def analyze_frame(file: UploadFile = File(...), db: AsyncSession = Depends
     data=await file.read(10*1024*1024+1)
     if not data or len(data)>10*1024*1024:
         raise HTTPException(413,'Upload a nonempty image under 10 MB.')
+    if photo:
+        from backend.app.services.recognition_photo_probe import analyze_photo
+        return await analyze_photo(db, data)
     image=cv2.imdecode(np.frombuffer(data,np.uint8),cv2.IMREAD_COLOR)
     if image is None:
         raise HTTPException(422,'Cannot decode image. Use JPEG or PNG.')

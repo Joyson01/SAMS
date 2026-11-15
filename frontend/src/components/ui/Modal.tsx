@@ -1,4 +1,5 @@
-import React, { useEffect } from 'react';
+import React, { useId } from 'react';
+import { useDialog } from './useDialog';
 import { X } from 'lucide-react';
 import { IconButton } from './IconButton';
 
@@ -21,15 +22,8 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   maxWidth = 'md',
 }) => {
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  const dialogRef = useDialog(isOpen, onClose);
+  const titleId = useId();
 
   if (!isOpen) return null;
 
@@ -45,13 +39,16 @@ export const Modal: React.FC<ModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-150">
       <div
         className={`bg-white border border-slate-200 rounded-xl shadow-xl w-full ${maxWidthClasses} overflow-hidden flex flex-col max-h-[90vh]`}
-        role="dialog"
+        ref={dialogRef}
+          tabIndex={-1}
+          aria-labelledby={titleId}
+          role="dialog"
         aria-modal="true"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
           <div className="min-w-0 pr-3">
-            <h3 className="text-base font-bold text-slate-900 tracking-tight leading-snug truncate">
+            <h3 id={titleId} className="text-base font-semibold text-slate-900 tracking-tight leading-snug truncate">
               {title}
             </h3>
             {subtitle && (

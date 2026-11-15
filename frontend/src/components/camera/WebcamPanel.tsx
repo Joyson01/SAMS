@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { formatApiErrorMessage } from '../../utils/apiError';
 
 export type FaceBox = { bbox: number[]; label: string; color: string };
-export type FrameResult = { boxes?: FaceBox[]; message?: string };
+export type FrameResult = { boxes?: FaceBox[]; message?: string; valid?: boolean; quality?: { blur?: number; brightness?: number } };
 export function WebcamPanel({ onFrame, onSample, disabled=false }: {onFrame:(blob:Blob, signal:AbortSignal)=>Promise<FrameResult>;onSample?:(blob:Blob)=>void;disabled?:boolean}) {
  const video=useRef<HTMLVideoElement>(null), overlay=useRef<HTMLCanvasElement>(null), callback=useRef(onFrame), sample=useRef(onSample);
  callback.current=onFrame; sample.current=onSample;
- const [devices,setDevices]=useState<MediaDeviceInfo[]>([]),[device,setDevice]=useState(''),[running,setRunning]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[fps,setFps]=useState(0);
+ const [devices,setDevices]=useState<MediaDeviceInfo[]>([]),[device,setDevice]=useState(''),[running,setRunning]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[fps,setFps]=useState(0),[quality,setQuality]=useState<FrameResult['quality']>(),[valid,setValid]=useState(false);
  useEffect(()=>{
   if(!running||disabled)return;
   let stopped=false,stream:MediaStream|undefined,timer:ReturnType<typeof setTimeout>|undefined;
@@ -25,11 +25,11 @@ export function WebcamPanel({ onFrame, onSample, disabled=false }: {onFrame:(blo
       sample.current?.(blob);
       const result=await callback.current(blob,controller.signal);
       if(stopped)return;
-      setMessage(result.message||'');
+      setMessage(result.message||'');setQuality(result.quality);setValid(result.valid===true);
       const now=performance.now();setFps(1000/(now-previous));previous=now;
       const o=overlay.current;
       if(o){o.width=canvas.width;o.height=canvas.height;const ctx=o.getContext('2d')!;ctx.clearRect(0,0,o.width,o.height);ctx.font='16px sans-serif';ctx.lineWidth=3;
-       for(const box of result.boxes||[]){const [x1,y1,x2,y2]=box.bbox;const x=o.width-x2;ctx.strokeStyle=box.color;ctx.fillStyle=box.color;ctx.strokeRect(x,y1,x2-x1,y2-y1);const textWidth=ctx.measureText(box.label).width;ctx.fillRect(Math.max(0,x),Math.max(0,y1-24),textWidth+10,24);ctx.fillStyle='white';ctx.fillText(box.label,Math.max(0,x)+5,Math.max(18,y1-6));}
+       for(const box of result.boxes||[]){const [x1,y1,x2,y2]=box.bbox;const x=o.width-x2;ctx.strokeStyle=box.color;ctx.fillStyle=box.color;ctx.strokeRect(x,y1,x2-x1,y2-y1);let label=box.label;while(label.length>1&&ctx.measureText(label).width>o.width-16)label=label.slice(0,-2)+'…';const textWidth=ctx.measureText(label).width;const labelX=Math.max(0,Math.min(x,o.width-textWidth-10));const labelY=Math.max(0,Math.min(y1-24,o.height-24));ctx.fillRect(labelX,labelY,textWidth+10,24);ctx.fillStyle='white';ctx.fillText(label,labelX+5,labelY+18);}
       }
      }catch(e){if(!stopped&&!controller.signal.aborted)setError(formatApiErrorMessage(e,'Frame analysis failed.'));}
     }
@@ -49,8 +49,9 @@ export function WebcamPanel({ onFrame, onSample, disabled=false }: {onFrame:(blo
   })();
   return()=>{stopped=true;controller.abort();if(timer)clearTimeout(timer);stream?.getTracks().forEach(t=>t.stop());if(video.current)video.current.srcObject=null;};
  },[running,device,disabled]);
- return <section className="space-y-3"><div className="flex flex-wrap items-center gap-3"><button type="button" disabled={disabled} className="rounded-lg bg-blue-600 px-4 py-2 text-white disabled:opacity-50" onClick={()=>{setError('');setRunning(!running);}}>{running?'Stop camera':'Start camera'}</button><label className="text-sm">Camera<select className="ml-2 rounded border p-2" value={device} onChange={e=>setDevice(e.target.value)}><option value="">Built-in / default</option>{devices.map(d=><option key={d.deviceId} value={d.deviceId}>{d.label||'Camera'}</option>)}</select></label><span className="text-sm text-slate-500">{running?fps.toFixed(1):'0'} FPS · mirrored preview</span></div>
- <div className="relative overflow-hidden rounded-xl bg-slate-950"><video ref={video} playsInline muted className="block h-auto w-full -scale-x-100"/><canvas ref={overlay} className="pointer-events-none absolute inset-0 h-full w-full"/><div className="pointer-events-none absolute left-1/2 top-1/2 h-3/4 w-1/3 -translate-x-1/2 -translate-y-1/2 rounded-[50%] border border-dashed border-white/30"/></div>
- {message&&<p role="status" className="rounded bg-blue-50 p-3 text-blue-900">{message}</p>}{error&&<p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
- <p className="text-xs text-slate-500">Frames pause while this tab is hidden. Stop camera to release it.</p></section>;
+ return <section className="space-y-4"><div className="flex flex-wrap items-end gap-3"><button type="button" disabled={disabled} className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50" onClick={()=>{setError('');setRunning(!running);}}>{running?'Stop camera':error?'Retry camera':'Start camera'}</button><label className="min-w-0 flex-1 text-xs font-medium text-text-muted">Camera device<select className="mt-1 block min-h-11 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text" value={device} onChange={e=>setDevice(e.target.value)}><option value="">Built-in / default</option>{devices.map(d=><option key={d.deviceId} value={d.deviceId}>{d.label||'Camera'}</option>)}</select></label></div>
+ <div className="relative overflow-hidden rounded-xl bg-[#020617]"><video ref={video} aria-label="Mirrored camera preview" playsInline muted className={`block h-auto w-full -scale-x-100 ${!running?'aspect-video':''}`}/><canvas ref={overlay} className="pointer-events-none absolute inset-0 h-full w-full"/>{running?<div className={`pointer-events-none absolute left-1/2 top-1/2 h-3/4 w-1/3 -translate-x-1/2 -translate-y-1/2 rounded-[50%] border-2 border-dashed ${valid?'border-green-400':'border-white/30'}`}/>:<div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center"><span className="text-sm font-semibold text-white">Camera is off</span><span className="mt-2 max-w-xs text-xs leading-relaxed text-[#cbd5e1]">Start your camera when ready. Your browser will ask for permission.</span></div>}<span className="absolute bottom-3 left-3 rounded-md bg-black/70 px-2 py-1 font-mono text-xs text-white">{running?fps.toFixed(1):'0'} FPS · mirrored</span></div>
+ {message&&<p role="status" className="rounded-lg border border-primary/20 bg-primary/10 p-3 text-sm text-text">{message}</p>}{error&&<p role="alert" className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">{error}</p>}
+ {quality&&<dl className="grid grid-cols-2 gap-3">{[['Sharpness',quality.blur],['Brightness',quality.brightness]].map(([label,value])=><div key={label} className="rounded-lg bg-surface-muted p-3"><dt className="text-xs text-text-muted">{label}</dt><dd className="mt-1 font-mono text-sm text-text">{typeof value==='number'?value.toFixed(0):'—'}</dd></div>)}</dl>}
+ <p className="text-xs leading-relaxed text-text-muted">Frames pause while this tab is hidden. Stop camera to release it.</p></section>;
 }

@@ -67,8 +67,8 @@ export const fetchMediaJob = async (jobId: string): Promise<MediaJobResponse> =>
   return response.data;
 };
 
-export const fetchMediaJobResults = async (jobId: string): Promise<{ job: MediaJobResponse; summary: any }> => {
-  const response = await apiClient.get<{ job: MediaJobResponse; summary: any }>(`/media-attendance/jobs/${jobId}/results`);
+export const fetchMediaJobResults = async (jobId: string): Promise<{ job: MediaJobResponse; summary: MediaJobResponse['summary_json'] }> => {
+  const response = await apiClient.get<{ job: MediaJobResponse; summary: MediaJobResponse['summary_json'] }>(`/media-attendance/jobs/${jobId}/results`);
   return response.data;
 };
 

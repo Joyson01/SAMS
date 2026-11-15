@@ -15,7 +15,7 @@ def fill_account(page,username,email,name,password,token=None):
     page.get_by_label(re.compile('^username',re.I)).fill(username)
     page.get_by_label(re.compile('^email',re.I)).fill(email)
     page.get_by_label(re.compile('^full name',re.I)).fill(name)
-    page.get_by_label(re.compile('^password',re.I)).fill(password)
+    page.locator('#auth-password').fill(password)
     if token:page.get_by_label(re.compile('^bootstrap token',re.I)).fill(token)
     page.get_by_role('button',name='Create account',exact=True).click()
 
@@ -32,12 +32,13 @@ def main():
             page.on('dialog',lambda d:d.accept())
             page.goto(base+'/register')
             fill_account(page,'browser_student','browser-student@example.com','Browser Student','BrowserPass123')
-            page.get_by_role('heading',name='My Attendance',exact=True).wait_for()
+            page.get_by_role('heading',name=re.compile('^My attendance$',re.I)).wait_for()
             page.get_by_role('button',name='Sign Out',exact=True).click()
+            page.get_by_role('dialog').get_by_role('button',name='Sign out',exact=True).click()
             page.get_by_role('heading',name='Welcome back').wait_for()
             page.goto(base+'/setup')
             fill_account(page,'browser_admin','browser-admin@example.com','Browser Administrator','BrowserPass123',token)
-            page.get_by_role('heading',name='System Health',exact=True).wait_for()
+            page.get_by_role('heading',name=re.compile('^System health$',re.I)).wait_for()
             access=page.evaluate("sessionStorage.getItem('sams_access_token')")
             with httpx.Client(base_url=base+'/api/v1',headers={'Authorization':'Bearer '+access},timeout=30) as c:
                 r=c.post('/classes',json={'name':'BROWSER-A','department':'CS'});assert r.status_code==201,r.text
@@ -46,12 +47,12 @@ def main():
                 r=c.post('/students',json=dict(student_code='BROWSER2',roll_number='BROWSER2',first_name='Other',last_name='Student',email='browser-other@example.com',department='CS',class_name='BROWSER-A'));assert r.status_code==201,r.text
                 other_id=r.json()['id']
             page.goto(base+f'/mobile-enrollment?student_id={sid}')
-            page.get_by_role('heading',name='Guided face enrollment').wait_for()
+            page.get_by_role('heading',name='Face enrollment').wait_for()
             page.get_by_label('Auto-capture after 1 second of valid pose').uncheck()
             page.get_by_role('button',name='Start camera',exact=True).click()
             page.get_by_role('status').filter(has_text='Hold still').wait_for()
             page.locator('select').first.select_option(other_id)
-            page.get_by_text('0/1 poses saved.',exact=False).wait_for()
+            page.get_by_text('0/1',exact=True).wait_for()
             page.get_by_role('button',name='Capture / retake current pose',exact=True).click()
             page.wait_for_timeout(700)
             with httpx.Client(base_url=base+'/api/v1',headers={'Authorization':'Bearer '+access}) as c:
@@ -62,9 +63,9 @@ def main():
             page.get_by_role('button',name='Open Recognition Test',exact=True).wait_for(timeout=60000)
             page.screenshot(path=str(screenshots/'enrollment.png'),full_page=True)
             page.get_by_role('button',name='Open Recognition Test',exact=True).click()
-            page.get_by_role('heading',name='Recognition Test',exact=True).wait_for()
+            page.get_by_role('heading',name='Recognition test',exact=True).wait_for()
             page.get_by_role('button',name='Start camera',exact=True).click()
-            page.get_by_role('heading',name=re.compile('Face 1: VERIFIED')).wait_for(timeout=60000)
+            page.get_by_text('VERIFIED',exact=True).first.wait_for(timeout=60000)
             page.get_by_text('Browser Face',exact=True).wait_for()
             page.screenshot(path=str(screenshots/'recognition.png'),full_page=True)
             page.get_by_role('button',name='Stop camera',exact=True).click()
