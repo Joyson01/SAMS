@@ -13,6 +13,16 @@ import { formatApiErrorMessage } from '../../utils/apiError';
 const button = 'rounded-lg border border-slate-300 px-4 py-2.5 font-medium disabled:opacity-50';
 const primary = 'rounded-lg bg-blue-700 px-4 py-2.5 font-semibold text-white disabled:opacity-50';
 
+type CaptureResponse = {
+  marked: number;
+  recognized: number;
+  pending: number;
+  review: number;
+  faces: number;
+  quality: string;
+  message_code: string;
+};
+
 function Capture({ sessionId, pairing, onCapture }: {
   sessionId: string;
   pairing?: string;
@@ -24,6 +34,7 @@ function Capture({ sessionId, pairing, onCapture }: {
   const pending = useRef(false);
   const mounted = useRef(false);
   const request = useRef<AbortController>();
+  const scannerId = useRef(globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`);
   const [live, setLive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -44,22 +55,34 @@ function Capture({ sessionId, pairing, onCapture }: {
     };
   }, []);
 
-  const upload = async (image: Blob) => {
+  const upload = async (image: Blob, mode: 'live' | 'photo') => {
     const controller = new AbortController();
     request.current = controller;
-    const { data } = await apiClient.post<{ marked: number; recognized: number; faces: number }>(
+    const { data } = await apiClient.post<CaptureResponse>(
       `/phone-attendance/${sessionId}/capture`, image, {
         signal: controller.signal,
         headers: {
           'Content-Type': image.type || 'application/octet-stream',
+          'X-Capture-Mode': mode,
+          'X-Scanner-ID': scannerId.current,
           ...(pairing ? { 'X-Attendance-Pairing': pairing } : {}),
         },
       },
     );
     if (!mounted.current) return;
+    const feedback: Record<string, string> = {
+      TOO_DARK: 'The image is too dark. Face the light and try again.',
+      BLURRY: 'The image is blurry. Hold the phone steady and try again.',
+      FACE_TOO_SMALL: 'Faces are too small. Move closer and try again.',
+      LOW_QUALITY: 'Faces are unclear. Improve the light and hold the phone steady.',
+      NO_FACE: 'No faces found. Aim at the class and try again.',
+      PENDING_EVIDENCE: 'Face seen once. Keep the camera steady for confirmation.',
+      AMBIGUOUS: 'A close match needs lecturer review. Check who is left.',
+    };
     setMessage(data.marked ? `${data.marked} newly marked present.`
-      : data.recognized ? 'Recognized students are already recorded.'
-      : data.faces ? 'No confident match. Try moving closer.' : 'No faces found. Aim at the class.');
+      : feedback[data.message_code] || (data.recognized
+        ? 'Recognized students are already recorded.' : 'No confident match. Try moving closer.'));
+    if (data.marked && navigator.vibrate) navigator.vibrate(80);
     onCapture?.();
   };
 
@@ -97,7 +120,7 @@ function Capture({ sessionId, pairing, onCapture }: {
           canvas.height = Math.round(preview.videoHeight * scale);
           context.drawImage(preview, 0, 0, canvas.width, canvas.height);
           const frame = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.82));
-          if (frame && running.current) await upload(frame);
+          if (frame && running.current) await upload(frame, 'live');
         }
         if (running.current) await new Promise(resolve => window.setTimeout(resolve, 700));
       }
@@ -119,7 +142,7 @@ function Capture({ sessionId, pairing, onCapture }: {
     setError('');
     setMessage('');
     try {
-      await upload(image);
+      await upload(image, 'photo');
     } catch (err) {
       if (mounted.current) setError(formatApiErrorMessage(err, 'Photo could not be processed. Try again.'));
     } finally {
@@ -183,6 +206,8 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
   const [confirm, setConfirm] = useState(false);
   const [qr, setQr] = useState('');
   const [review, setReview] = useState(false);
+  const [rosterView, setRosterView] = useState<'unresolved' | 'all'>('unresolved');
+  const [rosterSearch, setRosterSearch] = useState('');
   const currentSessionId = useRef<string>();
   const initialId = useRef(new URLSearchParams(window.location.search).get('session'));
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -290,6 +315,11 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
   const needsReview = (status: string) => status === 'NOT_RECORDED' || status === 'REVIEW_REQUIRED';
   const remaining = roster?.roster.filter(student => needsReview(student.attendance_status)).length;
   const displayedRoster = roster?.session_id === sessionId ? roster : undefined;
+  const visibleStudents = displayedRoster?.roster.filter(student => {
+    const query = rosterSearch.trim().toLowerCase();
+    const matches = !query || `${student.student_name} ${student.roll_number}`.toLowerCase().includes(query);
+    return matches && (rosterView === 'all' || needsReview(student.attendance_status));
+  }) ?? [];
 
   return (
     <main className="mx-auto min-h-screen max-w-2xl space-y-4 bg-slate-50 p-4 text-slate-900 sm:p-6">
@@ -382,8 +412,23 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
           {review ? 'Back to capture' : 'Review roster'}
         </button>}
         {(review || session.status === 'COMPLETED') && displayedRoster && <>
+          {session.status === 'ACTIVE' && <div className="space-y-3 rounded-xl border bg-white p-3">
+            <div className="grid grid-cols-2 gap-2" role="group" aria-label="Roster view">
+              <button className={rosterView === 'unresolved' ? primary : button} onClick={() => setRosterView('unresolved')}>
+                Who’s left ({remaining ?? 0})
+              </button>
+              <button className={rosterView === 'all' ? primary : button} onClick={() => setRosterView('all')}>
+                All students ({displayedRoster.total_enrolled})
+              </button>
+            </div>
+            <label className="block text-sm font-medium">Find by name or roll number
+              <input className={`${button} mt-1 block w-full bg-white font-normal`} type="search"
+                value={rosterSearch} onChange={event => setRosterSearch(event.target.value)}
+                placeholder="Start typing…" />
+            </label>
+          </div>}
           <ul className="divide-y rounded-xl border bg-white">
-            {[...displayedRoster.roster].sort((a, b) => Number(needsReview(b.attendance_status)) - Number(needsReview(a.attendance_status))).map(student => (
+            {[...visibleStudents].sort((a, b) => Number(needsReview(b.attendance_status)) - Number(needsReview(a.attendance_status))).map(student => (
               <li key={student.student_id} className="flex flex-wrap items-center justify-between gap-2 p-3">
                 <div>
                   <p className="font-medium">{student.student_name}</p>
@@ -401,7 +446,11 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
                 </div>}
               </li>
             ))}
+            {!visibleStudents.length && <li className="p-4 text-sm text-slate-600">
+              {rosterSearch ? 'No students match that search.' : 'Everyone is resolved. You can finish attendance.'}
+            </li>}
           </ul>
+          {session.status === 'ACTIVE' && review && <button className={button} onClick={() => setReview(false)}>Rescan class</button>}
           {session.status === 'ACTIVE' && (confirm ? <div className="space-y-3 rounded-xl border bg-white p-4">
             <p>{unmarked} unmarked students will be recorded absent. Save attendance?</p>
             <div className="flex gap-2">

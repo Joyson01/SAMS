@@ -5,6 +5,7 @@ from threading import Event
 from types import SimpleNamespace
 
 import pytest
+import numpy as np
 from PIL import Image
 
 from backend.app.api.v1 import phone_attendance
@@ -38,9 +39,11 @@ async def test_phone_capture_is_scoped_and_preserves_manual_marks(client, test_d
     first_id, second_id = first.id, second.id
     student_ids = [student.id for student in students]
     photo = io.BytesIO()
-    Image.new("RGB", (8, 8)).save(photo, format="JPEG")
+    pixels = (np.indices((96, 96)).sum(axis=0) % 2 * 255).astype("uint8")
+    Image.fromarray(np.repeat(pixels[:, :, None], 3, axis=2)).save(photo, format="JPEG")
     monkeypatch.setattr(face_recognition_service, "recognize_frame", lambda **kwargs: [
-        {"student_id": student_id, "similarity": .91, "is_recognized": True}
+        {"student_id": student_id, "similarity": .91, "second_similarity": .20,
+         "is_recognized": True, "is_quality_valid": True}
         for student_id in student_ids
     ])
     path = f"/api/v1/phone-attendance/{first_id}"
@@ -61,7 +64,11 @@ async def test_phone_capture_is_scoped_and_preserves_manual_marks(client, test_d
         f"{path}/capture", headers=headers, content=b"invalid",
     )
     assert invalid.status_code == 400
-    assert (await capture(auth=headers)).json()["marked"] == 1
+    result = (await capture(auth=headers)).json()
+    assert result["marked"] == 1
+    assert result["pending"] == 0
+    assert result["review"] == 0
+    assert result["quality"] == "USABLE"
     assert (await capture(auth=headers)).json()["marked"] == 0
 
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(role="FACULTY")
@@ -102,3 +109,41 @@ async def test_finalizing_during_recognition_rejects_late_capture(client, test_d
     finally:
         release.set()
     assert (await upload).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_live_capture_waits_for_repeated_evidence(client, test_db_session, monkeypatch):
+    session = AttendanceSession(
+        session_code="PILOT-LIVE", class_name="LIVE-A", subject="Computing", room="Lab",
+        scheduled_date=date.today(), start_time=time(9), end_time=time(10), status="ACTIVE",
+    )
+    student = Student(
+        first_name="Live", last_name="Student", student_code="LIVE-1", roll_number="LIVE-1",
+        department="CE", class_name="LIVE-A", section="A", email="live@example.test",
+    )
+    test_db_session.add_all([session, student])
+    await test_db_session.commit()
+    session_id, student_id = session.id, student.id
+    monkeypatch.setattr(face_recognition_service, "recognize_frame", lambda **kwargs: [{
+        "student_id": student_id, "similarity": .91, "second_similarity": .20,
+        "is_recognized": True, "is_quality_valid": True,
+    }])
+    pixels = (np.indices((96, 96)).sum(axis=0) % 2 * 255).astype("uint8")
+    photo = io.BytesIO()
+    Image.fromarray(np.repeat(pixels[:, :, None], 3, axis=2)).save(photo, format="JPEG")
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(role="FACULTY")
+    path = f"/api/v1/phone-attendance/{session_id}"
+    pair = await client.post(f"{path}/pair")
+    app.dependency_overrides.pop(get_current_user)
+    headers = {
+        "X-Attendance-Pairing": pair.json()["token"], "X-Capture-Mode": "live",
+        "X-Scanner-ID": "scanner-live-test",
+    }
+
+    first = await client.post(f"{path}/capture", headers=headers, content=photo.getvalue())
+    second = await client.post(f"{path}/capture", headers=headers, content=photo.getvalue())
+
+    assert first.json()["pending"] == 1
+    assert first.json()["marked"] == 0
+    assert second.json()["pending"] == 0
+    assert second.json()["marked"] == 1
