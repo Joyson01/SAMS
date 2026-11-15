@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from backend.app.core.security import get_current_user
+from backend.app.core.security import require_roles, get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.logging import logger
@@ -26,7 +26,7 @@ from backend.app.services.media_processing_service import (
     HIGH_CONFIDENCE,
 )
 
-router = APIRouter(prefix="/media-attendance", tags=["Media Attendance"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/media-attendance", tags=["Media Attendance"], dependencies=[Depends(require_roles("ADMIN","FACULTY","OPERATOR"))])
 
 
 @router.get(

@@ -28,7 +28,13 @@ async def get_health_status() -> ServiceHealthResponse:
         error=None if db_connected else db_info,
     )
 
-    overall_status = "healthy" if db_connected else "degraded"
+    from backend.app.services.recognition_service import _pipeline_instance
+    pipeline = _pipeline_instance
+    ai = {"status": "ready" if pipeline else "unavailable",
+          "message": "AI models loaded" if pipeline else "AI engine unavailable",
+          "gallery_size": pipeline.matcher.total_students if pipeline else 0,
+          "providers": pipeline.embedder.session.get_providers() if pipeline else []}
+    overall_status = "healthy" if db_connected and pipeline else "degraded"
 
     return ServiceHealthResponse(
         status=overall_status,
@@ -37,6 +43,7 @@ async def get_health_status() -> ServiceHealthResponse:
         environment=settings.ENVIRONMENT,
         timestamp=datetime.now(timezone.utc),
         database=db_health,
+        ai=ai,
         system_info={
             "python_version": sys.version.split()[0],
             "os": platform.system(),

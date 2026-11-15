@@ -12,6 +12,7 @@ export interface ServiceHealthResponse {
   environment: string;
   timestamp: string;
   database: DatabaseHealth;
+  ai?: {status: string; message: string; gallery_size: number; providers: string[]};
   system_info: {
     python_version?: string;
     os?: string;

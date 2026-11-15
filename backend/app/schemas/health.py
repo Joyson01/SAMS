@@ -17,5 +17,6 @@ class ServiceHealthResponse(BaseModel):
     environment: str = Field(..., description="Runtime environment")
     timestamp: datetime = Field(..., description="Current UTC timestamp")
     database: DatabaseHealth = Field(..., description="Database health metrics")
+    ai: Dict[str, Any] = Field(default_factory=dict)
     system_info: Dict[str, Any] = Field(default_factory=dict, description="Basic system telemetry")
 

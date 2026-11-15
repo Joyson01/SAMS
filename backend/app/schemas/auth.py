@@ -9,14 +9,15 @@ class UserRegisterRequest(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=128)
     role: str = Field("STUDENT", description="Requested role; elevated roles require an administrator.")
 
-    @field_validator("role")
+    @field_validator("password")
     @classmethod
-    def validate_role(cls, value: str) -> str:
-        valid = {"ADMIN", "FACULTY", "OPERATOR", "STUDENT"}
-        normalized = value.upper()
-        if normalized not in valid:
-            raise ValueError(f"Invalid role. Allowed: {sorted(valid)}")
-        return normalized
+    def validate_password(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 UTF-8 bytes.")
+        if not any(c.isalpha() for c in value) or not any(c.isdigit() for c in value):
+            raise ValueError("Password needs at least 8 characters, a letter and a digit.")
+        return value
+
 
 
 class UserLoginRequest(BaseModel):
@@ -46,3 +47,22 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in_seconds: int
     user: UserResponse
+
+
+class BootstrapRequest(UserRegisterRequest):
+    bootstrap_token: str = ""
+
+
+class UserUpdateRequest(BaseModel):
+    is_active: bool | None = None
+    password: str | None = Field(None, min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value):
+        return UserRegisterRequest.validate_password(value) if value is not None else None
+
+
+class StudentLinkRequest(BaseModel):
+    roll_number: str
+    student_code: str

@@ -608,6 +608,7 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
 
   // Frame Capture & Recognition Dispatcher
   const processCurrentFrame = async () => {
+    if (document.hidden) return;
     if (isProcessingRef.current || isPausedRef.current || !selectedCamera) return;
 
     if (selectedCamera.source_type === 'WEBCAM') {
@@ -1096,7 +1097,24 @@ export const LiveDashboardPage: React.FC<LiveDashboardProps> = ({ onNavigate }) 
   }, [sessionRoster, enrolledStudents, presenceList, rosterTab, rosterSearch]);
 
   const isRemoteSource = selectedCamera && (selectedCamera.source_type === 'MOBILE' || selectedCamera.source_type === 'RTSP');
-  const mjpegUrl = selectedCamera ? `/api/v1/cameras/${selectedCamera.id}/mjpeg?t=${mjpegTimestamp}` : '';
+  const [mjpegUrl, setMjpegUrl] = useState('');
+  useEffect(() => {
+    if (!selectedCamera || cameraState !== 'STREAMING') return;
+    let stopped = false, objectUrl = '', timer: ReturnType<typeof setTimeout>;
+    const controller = new AbortController();
+    const poll = async () => {
+      try {
+        const r = await apiClient.get(`/cameras/${selectedCamera.id}/frame`, {responseType:'blob', signal:controller.signal});
+        if (stopped) return;
+        const next = URL.createObjectURL(r.data);
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        objectUrl = next; setMjpegUrl(next);
+      } catch { /* camera state UI reports connection errors */ }
+      if (!stopped) timer = setTimeout(poll, 250);
+    };
+    void poll();
+    return () => {stopped=true; controller.abort(); clearTimeout(timer); if(objectUrl) URL.revokeObjectURL(objectUrl);};
+  }, [selectedCamera?.id, cameraState, mjpegTimestamp]);
 
   // Filter students for manual modal
   const filteredStudents = useMemo(() => {

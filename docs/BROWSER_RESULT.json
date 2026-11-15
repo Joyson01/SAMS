@@ -1,0 +1,19 @@
+{
+  "result": "PASS",
+  "checks": [
+    "student registration",
+    "student login/My Attendance",
+    "logout",
+    "admin bootstrap/login",
+    "real-image fake webcam enrollment",
+    "live VERIFIED name",
+    "switching student clears captured frame",
+    "camera stop releases stream",
+    "390px viewport has no horizontal overflow",
+    "no browser JS errors"
+  ],
+  "enrollment_poses_tested": [
+    "FRONT"
+  ],
+  "camera": "Chromium fake camera file; no physical webcam used"
+}

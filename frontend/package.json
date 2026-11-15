@@ -1,12 +1,13 @@
 {
-  "name": "sams-mark-2-frontend",
+  "name": "attedel-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:https": "node scripts/dev-https.mjs"
   },
   "dependencies": {
     "axios": "^1.7.7",

@@ -36,12 +36,15 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config;
 });
 
+const expireSession = () => { clearAuthTokens(); window.dispatchEvent(new Event('auth-expired')); };
+
 let refreshInFlight: Promise<string | null> | null = null;
 
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const original = error.config as (InternalAxiosRequestConfig & { _authRetry?: boolean }) | undefined;
+    if (error.response?.status === 401 && original?._authRetry) expireSession();
     if (error.response?.status !== 401 || !original || original._authRetry ||
         original.headers.has('X-Attendance-Pairing') ||
         original.url?.includes('/auth/login') || original.url?.includes('/auth/refresh') ||
@@ -51,7 +54,7 @@ apiClient.interceptors.response.use(
 
     const refreshToken = sessionStorage.getItem(REFRESH_TOKEN_KEY);
     if (!refreshToken) {
-      clearAuthTokens();
+      expireSession();
       return Promise.reject(error);
     }
 
@@ -64,7 +67,7 @@ apiClient.interceptors.response.use(
           return access_token as string;
         })
         .catch(() => {
-          clearAuthTokens();
+          expireSession();
           return null;
         })
         .finally(() => {

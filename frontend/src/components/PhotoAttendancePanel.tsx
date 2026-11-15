@@ -26,11 +26,23 @@ export function PhotoAttendancePanel({ sessionId, active, onConfirmed }: {
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const version = useRef(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  function stopCamera() {
+    cameraStreamRef.current?.getTracks().forEach(track => track.stop());
+    cameraStreamRef.current = null;
+    setCameraStream(null);
+  }
   useEffect(() => {
     version.current++; setFiles([]); setPreview(null); setSelected({}); setMessage(''); setBusy(false);
-    return () => { version.current++; };
+    stopCamera();
+    return () => { version.current++; cameraStreamRef.current?.getTracks().forEach(track => track.stop()); };
   }, [sessionId, active]);
+  useEffect(() => {
+    if (videoRef.current && cameraStream) videoRef.current.srcObject = cameraStream;
+  }, [cameraStream]);
   useEffect(() => {
     const receive = (event: Event) => {
       const detail = (event as CustomEvent<{sessionId: string; files: File[]}>).detail;
@@ -42,12 +54,45 @@ export function PhotoAttendancePanel({ sessionId, active, onConfirmed }: {
     window.addEventListener('photo-review-files', receive);
     return () => window.removeEventListener('photo-review-files', receive);
   }, [sessionId, active, busy]);
-  function addFiles(incoming: FileList | null) {
+  function addFiles(incoming: FileList | File[] | null) {
     if (!incoming) return;
-    const next = [...files, ...Array.from(incoming)];
+    const picked = Array.isArray(incoming) ? incoming : Array.from(incoming);
+    const next = [...files, ...picked];
     if (next.length > 3) { setMessage('Choose at most three photos. Clear the selection to start again.'); return; }
     if (next.some(file => file.size > 15 * 1024 * 1024)) { setMessage('Each photo must be at most 15 MB.'); return; }
     version.current++; setFiles(next); setPreview(null); setSelected({}); setMessage('');
+  }
+  async function openLaptopCamera() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMessage('Camera access is unavailable. Open the app on localhost or HTTPS and allow camera access.');
+      return;
+    }
+    try {
+      stopCamera();
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+      cameraStreamRef.current = stream;
+      setCameraStream(stream);
+      setMessage('Allow camera access in your browser if prompted.');
+    } catch {
+      setMessage('Could not open the camera. Check browser camera permission and that no other app is using it.');
+    }
+  }
+  async function captureLaptopPhoto() {
+    const video = videoRef.current;
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
+      setMessage('Camera is still starting. Wait a moment and try again.');
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext('2d');
+    if (!context) { setMessage('Could not capture an image from the camera.'); return; }
+    context.drawImage(video, 0, 0);
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+    if (!blob) { setMessage('Could not capture an image from the camera.'); return; }
+    addFiles([new File([blob], `laptop-camera-${Date.now()}.jpg`, { type: 'image/jpeg' })]);
+    stopCamera();
   }
   async function analyze() {
     const current = ++version.current;
@@ -85,10 +130,18 @@ export function PhotoAttendancePanel({ sessionId, active, onConfirmed }: {
   return <section id={`photo-review-${sessionId}`} className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
     <div><h2 className="text-lg font-bold">Photo Attendance</h2><p className="text-sm text-slate-500">Take 2–3 photos from the front at face height in good lighting. Review before saving.</p></div>
     <div className="flex flex-wrap gap-3">
+      <button type="button" disabled={busy || files.length >= 3} onClick={openLaptopCamera} className="rounded border px-3 py-2 disabled:opacity-40">Use laptop camera</button>
       <label className="rounded border px-3 py-2 cursor-pointer">Take photo<input aria-label="Take classroom photo" disabled={busy} type="file" accept="image/*" capture="environment" className="sr-only" onChange={e => {addFiles(e.target.files); e.target.value='';}} /></label>
       <label className="rounded border px-3 py-2 cursor-pointer">Choose photos<input aria-label="Choose classroom photos" disabled={busy} type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" onChange={e => {addFiles(e.target.files); e.target.value='';}} /></label>
       <button disabled={busy} onClick={() => {version.current++; setFiles([]); setPreview(null); setSelected({}); setMessage('');}} className="text-sm underline">Clear</button>
     </div>
+    {cameraStream && <div className="space-y-3 rounded border p-3">
+      <video ref={videoRef} autoPlay playsInline muted className="max-h-[60vh] w-full rounded bg-black" aria-label="Laptop camera preview" />
+      <div className="flex gap-3">
+        <button type="button" onClick={captureLaptopPhoto} disabled={busy || files.length >= 3} className="rounded bg-blue-700 px-4 py-2 text-white disabled:opacity-40">Capture photo</button>
+        <button type="button" onClick={stopCamera} className="rounded border px-4 py-2">Close camera</button>
+      </div>
+    </div>}
     <p className="text-sm">{files.length}/3 photos {files.map(f => f.name).join(', ')}</p>
     <button disabled={busy || !files.length} onClick={analyze} className="rounded bg-blue-700 text-white px-4 py-2 disabled:opacity-40">{busy ? 'Processing…' : 'Preview photos'}</button>
     {message && <p role="status" className="text-sm bg-slate-100 p-3 rounded">{message}</p>}

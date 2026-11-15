@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from backend.app.core.security import get_current_user
+from backend.app.core.security import require_roles, get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
@@ -11,7 +11,7 @@ from backend.app.schemas.recognition import (
 )
 from backend.app.services.recognition_service import RecognitionService
 
-router = APIRouter(prefix="/recognition", tags=["Face Recognition"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/recognition", tags=["Face Recognition"], dependencies=[Depends(require_roles("ADMIN", "FACULTY", "OPERATOR"))])
 
 
 @router.post(
@@ -30,6 +30,15 @@ async def process_recognition_image(
 ) -> RecognitionResponse:
     from backend.app.services.attendance_service import AttendanceService
     from backend.app.schemas.attendance import AttendanceMarkPayload
+
+    if session_id:
+        from backend.app.models.entities import AttendanceSession
+        await AttendanceService.lock_session(db, session_id)
+        session = await db.get(AttendanceSession, session_id)
+        if session is None:
+            raise HTTPException(404, "Attendance session not found.")
+        if session.status != "ACTIVE":
+            raise HTTPException(400, "This attendance session is not active. Closed sessions reject recognition.")
 
     if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
         raise HTTPException(
@@ -56,23 +65,22 @@ async def process_recognition_image(
         )
 
         if session_id:
+            from backend.app.services.photo_attendance_service import eligible_photo_students
+            eligible = {st.id for st in await eligible_photo_students(db, session)}
             for face in rec_res.faces:
-                # Require explicit VERIFIED status (meets high confidence threshold and margin)
-                if face.decision == "KNOWN" and face.best_match and face.status == "VERIFIED":
-                    try:
-                        await AttendanceService.mark_attendance(
-                            db=db,
-                            session_id=session_id,
-                            payload=AttendanceMarkPayload(
-                                student_id=face.best_match.student_id,
-                                camera_id=camera_id,
-                                confidence=face.best_match.similarity,
-                                liveness_score=face.liveness_score or 1.0,
-                                remarks=f"Live stream ({face.best_match.confidence_pct:.1f}%)",
-                            ),
-                        )
-                    except Exception:
-                        pass
+                if face.decision == "KNOWN" and face.best_match and face.status == "VERIFIED" and face.best_match.student_id in eligible:
+                    await AttendanceService.lock_session(db, session_id)
+                    await db.refresh(session)
+                    if session.status != "ACTIVE":
+                        raise HTTPException(400, "Session has been closed.")
+                    await AttendanceService.mark_attendance(
+                        db=db, session_id=session_id,
+                        payload=AttendanceMarkPayload(student_id=face.best_match.student_id,
+                            camera_id=camera_id, confidence=face.best_match.similarity,
+                            liveness_score=face.liveness_score or 1.0,
+                            remarks=f"Live stream ({face.best_match.confidence_pct:.1f}%)"),
+                    )
+            await db.commit()
 
         return rec_res
     except ValueError as val_err:
@@ -139,6 +147,7 @@ async def get_ai_config() -> AIRecognitionConfig:
 async def update_ai_config(
     config: AIRecognitionConfig,
 ) -> AIRecognitionConfig:
+    _require_development()
     return RecognitionService.set_config(config)
 
 
@@ -266,5 +275,42 @@ async def debug_detect(
 async def update_thresholds(
     config: ThresholdsConfig,
 ) -> ThresholdsConfig:
+    _require_development()
     return RecognitionService.set_thresholds(config)
 
+
+@router.post('/analyze-frame', dependencies=[Depends(require_roles('ADMIN','FACULTY'))])
+async def analyze_frame(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+    """Stateless recognition probe: no attendance or biometric writes."""
+    import cv2
+    import numpy as np
+    import time
+    started=time.perf_counter()
+    data=await file.read(10*1024*1024+1)
+    if not data or len(data)>10*1024*1024:
+        raise HTTPException(413,'Upload a nonempty image under 10 MB.')
+    image=cv2.imdecode(np.frombuffer(data,np.uint8),cv2.IMREAD_COLOR)
+    if image is None:
+        raise HTTPException(422,'Cannot decode image. Use JPEG or PNG.')
+    try:
+        await RecognitionService.sync_gallery_from_db(db)
+        result=await RecognitionService.process_image_bytes(db,data,top_k=3)
+    except (FileNotFoundError,RuntimeError,AssertionError) as exc:
+        raise HTTPException(503,'AI engine unavailable. Run python -m scripts.check_models.') from exc
+    faces=[]
+    for face in result.faces:
+        item=face.model_dump()
+        item['bucket']='VERIFIED' if face.decision=='KNOWN' and face.is_quality_valid else 'CANDIDATE' if face.decision=='UNCERTAIN' else 'UNKNOWN'
+        item['detection_score']=face.bbox[4] if len(face.bbox)>4 else 0
+        item['similarity']=face.best_match.similarity if face.best_match else (face.top_candidates[0].similarity if face.top_candidates else 0)
+        faces.append(item)
+    from backend.app.core.config import settings
+    return {'faces':faces,'face_count':len(faces),'frame_width':image.shape[1],'frame_height':image.shape[0],
+            'latency_ms':round((time.perf_counter()-started)*1000,2),'gallery_size':result.index_student_count,
+            'thresholds':result.thresholds_applied,'development':settings.ENVIRONMENT=='development'}
+
+
+def _require_development():
+    from backend.app.core.config import settings
+    if settings.ENVIRONMENT not in {"development", "testing"}:
+        raise HTTPException(403, "Live threshold changes are available only in development.")

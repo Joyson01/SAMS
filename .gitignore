@@ -12,3 +12,10 @@ frontend/dist/
 
 backend/processed/
 outputs/*_detected.jpg
+
+.venv-audit/
+.venv-verify/
+
+.venv-attedel/
+
+embeddings/*.npy

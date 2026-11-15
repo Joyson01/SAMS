@@ -58,6 +58,7 @@ def _get_or_create_stream_state(session_id: Optional[str], camera_id: Optional[s
     for k in idle_keys:
         logger.info(f"Evicting idle recognition stream state for key {k}")
         _stream_states.pop(k, None)
+        _stream_locks.pop(k, None)
 
     key = (session_id or "default", camera_id or "default")
     if key not in _stream_states:
@@ -161,18 +162,20 @@ class RecognitionService:
     @classmethod
     def reset_stream_state(cls, session_id: Optional[str] = None, camera_id: Optional[str] = None) -> bool:
         """Explicitly resets/clears stream tracking and identity cache state for a session or camera."""
-        key = (session_id or "default", camera_id or "default")
-        if key in _stream_states:
-            del _stream_states[key]
-            logger.info(f"Reset recognition stream state for key {key}")
-            return True
-        return False
+        keys = [key for key in set(_stream_states) | set(_stream_locks)
+                if (session_id is None or key[0] == session_id)
+                and (camera_id is None or key[1] == camera_id)]
+        for key in keys:
+            _stream_states.pop(key, None)
+            _stream_locks.pop(key, None)
+        return bool(keys)
 
     @classmethod
     def clear_all_stream_states(cls) -> int:
         """Clears all active stream states."""
         count = len(_stream_states)
         _stream_states.clear()
+        _stream_locks.clear()
         logger.info(f"Cleared {count} recognition stream states")
         return count
 

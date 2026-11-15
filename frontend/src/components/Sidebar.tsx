@@ -17,6 +17,9 @@ import {
 } from 'lucide-react';
 
 interface SidebarProps {
+  role?: string;
+  userName?: string;
+  onLogout?: () => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
   mobileOpen?: boolean;
@@ -24,6 +27,9 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  role = "STUDENT",
+  userName = "",
+  onLogout,
   activeTab,
   setActiveTab,
   mobileOpen = false,
@@ -33,7 +39,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return ['cameras', 'subjects', 'audit', 'media'].includes(activeTab);
   });
 
-  const primaryNavItems = [
+  const primaryNavItems = role === 'STUDENT' ? [{id:'my-attendance',label:'My Attendance',icon:CheckSquare}] : [
+    ...(role === 'ADMIN' ? [{id:'users',label:'Users',icon:Users}] : []),
+    ...(['ADMIN','FACULTY'].includes(role) ? [{id:'recognition-test',label:'Recognition Test',icon:Camera}] : []),
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'live', label: 'Live Attendance', icon: CheckSquare, isLive: true },
     { id: 'attendance', label: 'Attendance Sessions', icon: CheckSquare },
@@ -42,7 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'reports', label: 'Reports', icon: BarChart2 },
   ];
 
-  const secondaryNavItems = [
+  const secondaryNavItems = role === 'STUDENT' ? [] : [
     { id: 'cameras', label: 'Cameras', icon: Camera },
     { id: 'subjects', label: 'Courses & Rooms', icon: BookOpen },
     { id: 'media', label: 'Photo Attendance', icon: ImageIcon },
@@ -175,7 +183,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {/* Settings Tab */}
             <div className="pt-1">
-              <button
+              {role === 'ADMIN' && (              <button
                 onClick={() => setActiveTab('settings')}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
                   activeTab === 'settings'
@@ -189,7 +197,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }`}
                 />
                 <span className="truncate">Settings</span>
-              </button>
+              </button>)}
             </div>
           </nav>
         </div>
@@ -203,16 +211,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <div className="flex flex-col min-w-0">
                 <span className="text-xs font-semibold text-slate-900 truncate leading-tight">
-                  Dr. S. Raman
+                  {userName}
                 </span>
-                <span className="text-[10px] text-slate-500 truncate leading-tight">Faculty</span>
+                <span className="text-[10px] text-slate-500 truncate leading-tight">{role}</span>
               </div>
             </div>
 
             <button
               onClick={() => {
                 if (confirm('Are you sure you want to sign out?')) {
-                  window.location.reload();
+                  onLogout?.();
                 }
               }}
               className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors flex items-center justify-center cursor-pointer"

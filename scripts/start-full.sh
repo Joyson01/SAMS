@@ -9,6 +9,8 @@ if [[ ! -x .venv-backend/bin/python || ! -d frontend/node_modules ]]; then
 fi
 export DATABASE_URL="${DATABASE_URL:-sqlite+aiosqlite:///./data/sams_dev.db}"
 export SQLITE_FALLBACK_URL="$DATABASE_URL"
+export AUTH_BYPASS="${AUTH_BYPASS:-true}"
+export VITE_AUTH_BYPASS="$AUTH_BYPASS"
 mkdir -p data
 .venv-backend/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 &
 backend_pid=$!

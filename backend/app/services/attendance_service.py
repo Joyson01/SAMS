@@ -424,6 +424,8 @@ class AttendanceService:
         # Cleanup runtime presence tracker
         from backend.app.services.presence_service import presence_manager
         presence_manager.reset_session(session_id)
+        from backend.app.services.recognition_service import RecognitionService
+        RecognitionService.reset_stream_state(session_id=session_id)
 
         logger.info(f"Closed attendance session: {session.session_code}")
         return await cls.get_session_by_id(db, session_id)

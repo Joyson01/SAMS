@@ -461,3 +461,10 @@ class AttendanceAnomaly(Base):
     # Relationships
     session = relationship("AttendanceSession")
     student = relationship("Student")
+
+
+class UserStudentLink(Base):
+    """Administrator-verified association, separate table for safe additive migration."""
+    __tablename__ = "user_student_links"
+    user_id: Mapped[str] = mapped_column(GUID, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    student_id: Mapped[str] = mapped_column(GUID, ForeignKey("students.id", ondelete="CASCADE"), unique=True, nullable=False)

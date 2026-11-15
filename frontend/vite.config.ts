@@ -4,33 +4,34 @@ import basicSsl from '@vitejs/plugin-basic-ssl';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react(), basicSsl()],
+  plugins: [react(), ...(process.env.DEV_HTTPS === 'true' ? [basicSsl()] : [])],
   server: {
     port: 5173,
     host: '0.0.0.0',
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        ws: true,
+        target: `http://127.0.0.1:${process.env.BACKEND_PORT || '8000'}`,
         changeOrigin: true,
         secure: false,
       },
       '/outputs': {
-        target: 'http://127.0.0.1:8000',
+        target: `http://127.0.0.1:${process.env.BACKEND_PORT || '8000'}`,
         changeOrigin: true,
         secure: false,
       },
       '/uploads': {
-        target: 'http://127.0.0.1:8000',
+        target: `http://127.0.0.1:${process.env.BACKEND_PORT || '8000'}`,
         changeOrigin: true,
         secure: false,
       },
       '/processed': {
-        target: 'http://127.0.0.1:8000',
+        target: `http://127.0.0.1:${process.env.BACKEND_PORT || '8000'}`,
         changeOrigin: true,
         secure: false,
       },
       '/ws': {
-        target: 'ws://127.0.0.1:8000',
+        target: `ws://127.0.0.1:${process.env.BACKEND_PORT || '8000'}`,
         ws: true,
       },
     },

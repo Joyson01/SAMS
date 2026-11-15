@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
+    AUTH_BYPASS: bool = False
+    BOOTSTRAP_TOKEN: str = ""
+    ENROLLMENT_REQUIRED_POSES: str = "FRONT,LEFT_15,RIGHT_15,TILT_UP,TILT_DOWN,ROLL_RIGHT,BACKUP_FRONT"
 
     @field_validator("DEBUG", mode="before")
     @classmethod
@@ -26,7 +29,7 @@ class Settings(BaseSettings):
         return bool(v)
 
     # Database Settings
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/sams_db"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./data/sams_dev.db"
     DATABASE_SYNC_URL: str = "postgresql://postgres:postgres@localhost:5432/sams_db"
     DATABASE_FALLBACK_SQLITE: bool = True
     SQLITE_FALLBACK_URL: str = "sqlite+aiosqlite:///./data/sams_dev.db"

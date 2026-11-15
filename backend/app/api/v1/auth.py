@@ -64,3 +64,93 @@ async def logout(
 )
 async def get_me(current_user: User = Depends(get_current_user)) -> UserResponse:
     return UserResponse.model_validate(current_user)
+
+
+# Setup is serialized per process and guarded by a database write lock.
+import asyncio
+import secrets
+from datetime import datetime, timezone
+from fastapi import HTTPException
+from sqlalchemy import select, update, text, func
+from sqlalchemy.exc import IntegrityError
+from backend.app.core.config import settings
+from backend.app.core.security import require_roles, hash_password
+from backend.app.models.entities import AuthSession, Student, UserStudentLink, AttendanceRecord, AttendanceSession
+from backend.app.schemas.auth import BootstrapRequest, UserUpdateRequest, StudentLinkRequest
+
+_setup_lock = asyncio.Lock()
+
+@router.get("/setup-status")
+async def setup_status(db: AsyncSession = Depends(get_db)):
+    count = await db.scalar(select(func.count(User.id)).where(User.role == "ADMIN"))
+    return {"available": count == 0, "token_required": settings.ENVIRONMENT != "development"}
+
+@router.post("/bootstrap-admin", response_model=UserResponse, status_code=201)
+async def bootstrap_admin(payload: BootstrapRequest, db: AsyncSession = Depends(get_db)):
+    if settings.ENVIRONMENT != "development" and not (
+        settings.BOOTSTRAP_TOKEN and secrets.compare_digest(payload.bootstrap_token, settings.BOOTSTRAP_TOKEN)
+    ):
+        raise HTTPException(403, "A valid bootstrap token is required.")
+    async with _setup_lock:
+        if db.bind.dialect.name == "sqlite":
+            await db.execute(text("BEGIN IMMEDIATE"))
+        else:
+            await db.execute(text("LOCK TABLE users IN EXCLUSIVE MODE"))
+        if await db.scalar(select(User.id).where(User.role == "ADMIN").limit(1)):
+            await db.rollback()
+            raise HTTPException(409, "Setup is closed: an administrator already exists.")
+        payload.role = "ADMIN"
+        return await AuthService.register_user(db, payload, actor=User(role="ADMIN"))
+
+@router.get("/users", response_model=list[UserResponse])
+async def list_users(db: AsyncSession = Depends(get_db), actor: User = Depends(require_roles("ADMIN"))):
+    return (await db.scalars(select(User).order_by(User.created_at.desc()))).all()
+
+@router.post("/users", response_model=UserResponse, status_code=201)
+async def create_user(payload: UserRegisterRequest, db: AsyncSession = Depends(get_db), actor: User = Depends(require_roles("ADMIN"))):
+    return await AuthService.register_user(db, payload, actor)
+
+@router.patch("/users/{user_id}", response_model=UserResponse)
+async def update_user(user_id: str, payload: UserUpdateRequest, db: AsyncSession = Depends(get_db), actor: User = Depends(require_roles("ADMIN"))):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found.")
+    if user.id == actor.id and payload.is_active is False:
+        raise HTTPException(409, "You cannot deactivate your own account.")
+    if payload.is_active is not None:
+        user.is_active = payload.is_active
+    if payload.password:
+        user.password_hash = hash_password(payload.password)
+    if payload.password or payload.is_active is False:
+        await db.execute(update(AuthSession).where(AuthSession.user_id == user_id).values(revoked_at=datetime.now(timezone.utc)))
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+@router.put("/users/{user_id}/student")
+async def link_student(user_id: str, payload: StudentLinkRequest, db: AsyncSession = Depends(get_db), actor: User = Depends(require_roles("ADMIN"))):
+    user = await db.get(User, user_id)
+    if not user or user.role != "STUDENT":
+        raise HTTPException(422, "Select a student account.")
+    student = await db.scalar(select(Student).where(Student.roll_number == payload.roll_number, Student.student_code == payload.student_code))
+    if not student:
+        raise HTTPException(404, "No student matches that roll number and student code.")
+    link = await db.get(UserStudentLink, user_id)
+    if link:
+        link.student_id = student.id
+    else:
+        db.add(UserStudentLink(user_id=user_id, student_id=student.id))
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Student is already linked to another account.")
+    return {"student_id": student.id}
+
+@router.get("/my-attendance")
+async def my_attendance(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    link = await db.get(UserStudentLink, user.id)
+    if not link:
+        return {"linked": False, "items": []}
+    rows = (await db.execute(select(AttendanceRecord, AttendanceSession).join(AttendanceSession).where(AttendanceRecord.student_id == link.student_id).order_by(AttendanceSession.scheduled_date.desc()))).all()
+    return {"linked": True, "items": [{"id": r.id, "date": s.scheduled_date, "subject": s.subject, "status": r.status, "remarks": r.remarks} for r, s in rows]}

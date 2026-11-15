@@ -1,7 +1,7 @@
 from datetime import date
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, status
-from backend.app.core.security import get_current_user
+from backend.app.core.security import require_roles, get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.exceptions import SAMSException
@@ -18,7 +18,7 @@ from backend.app.schemas.timetable import (
 )
 from backend.app.services.class_service import ClassService
 
-router = APIRouter(prefix="/classes", tags=["Classes & Sections"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/classes", tags=["Classes & Sections"], dependencies=[Depends(require_roles("ADMIN", "FACULTY", "OPERATOR"))])
 
 
 @router.post(
@@ -187,3 +187,60 @@ async def delete_class(
     await ClassService.delete_class(db, class_id)
     return None
 
+
+from fastapi import HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from backend.app.models.entities import Batch, ClassSubject, Subject, Student, TimetableEntry
+
+class BatchInput(BaseModel):
+    name: str = Field(min_length=1, max_length=32, pattern=r".*\S.*")
+    description: str | None = Field(None, max_length=128)
+
+@router.get('/{class_id}/batches')
+async def list_batches(class_id: str, db: AsyncSession = Depends(get_db)):
+    await ClassService.get_class_by_id(db,class_id)
+    return (await db.scalars(select(Batch).where(Batch.class_id == class_id).order_by(Batch.name))).all()
+
+@router.post('/{class_id}/batches', status_code=201)
+async def create_batch(class_id: str, payload: BatchInput, db: AsyncSession = Depends(get_db)):
+    await ClassService.get_class_by_id(db,class_id)
+    row=Batch(class_id=class_id,name=payload.name.strip(),description=payload.description)
+    db.add(row)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409,'A batch with this name already exists.')
+    await db.refresh(row)
+    return row
+
+@router.put('/{class_id}/batches/{batch_id}')
+async def update_batch(class_id: str, batch_id: str, payload: BatchInput, db: AsyncSession = Depends(get_db)):
+    row=await db.get(Batch,batch_id)
+    if not row or row.class_id != class_id:
+        raise HTTPException(404,'Batch not found.')
+    row.name=payload.name.strip()
+    row.description=payload.description
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409,'A batch with this name already exists.')
+    await db.refresh(row)
+    return row
+
+@router.delete('/{class_id}/batches/{batch_id}', status_code=204)
+async def delete_batch(class_id: str, batch_id: str, db: AsyncSession = Depends(get_db)):
+    row=await db.get(Batch,batch_id)
+    if not row or row.class_id != class_id:
+        raise HTTPException(404,'Batch not found.')
+    if await db.scalar(select(Student.id).where(Student.batch_id==batch_id).limit(1)) or await db.scalar(select(TimetableEntry.id).where(TimetableEntry.batch_id==batch_id).limit(1)):
+        raise HTTPException(409,'Reassign students and timetable slots before deleting this batch.')
+    await db.delete(row)
+    await db.commit()
+
+@router.get('/{class_id}/subjects')
+async def class_subjects(class_id: str, db: AsyncSession = Depends(get_db)):
+    return (await db.scalars(select(Subject).join(ClassSubject).where(ClassSubject.class_id==class_id))).all()

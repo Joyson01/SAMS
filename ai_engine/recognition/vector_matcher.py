@@ -32,6 +32,7 @@ class VectorMatcher:
 
         # In-memory storage
         self.templates: List[EnrolledTemplate] = []
+        self._snapshot = (None, ())
         self._gallery_matrix: Optional[np.ndarray] = None  # (N, 512) float32
         self._student_metadata: List[Tuple[str, str, str, str]] = []  # (student_id, student_code, roll_number, name)
 
@@ -59,12 +60,6 @@ class VectorMatcher:
 
     def build_index(self, templates: List[EnrolledTemplate]) -> None:
         """Rebuilds the continuous memory matrix for BLAS vectorized similarity search."""
-        self.templates = templates
-        if not templates:
-            self._gallery_matrix = None
-            self._student_metadata = []
-            return
-
         embeddings = []
         metadata = []
         for t in templates:
@@ -73,13 +68,15 @@ class VectorMatcher:
             if norm > 0:
                 embeddings.append(emb / norm)
                 metadata.append((t.student_id, t.student_code, t.roll_number, t.name))
-
-        if embeddings:
-            self._gallery_matrix = np.stack(embeddings, axis=0).astype(np.float32)
-            self._student_metadata = metadata
-        else:
-            self._gallery_matrix = None
-            self._student_metadata = []
+        matrix = np.stack(embeddings, axis=0).astype(np.float32) if embeddings else None
+        if matrix is not None:
+            matrix.setflags(write=False)
+        # Publish a single immutable snapshot. Worker threads retain the matrix and
+        # matching metadata from the same generation even if enrollment reloads it.
+        self._snapshot = (matrix, tuple(metadata))
+        self.templates = list(templates)
+        self._gallery_matrix = matrix
+        self._student_metadata = metadata
 
     def match(
         self,
@@ -91,7 +88,8 @@ class VectorMatcher:
         Returns:
             Tuple[DecisionState, best_match, top_candidates, decision_reason]
         """
-        if self._gallery_matrix is None or len(self._student_metadata) == 0:
+        gallery, metadata = self._snapshot
+        if gallery is None or not metadata:
             return (
                 DecisionState.UNKNOWN,
                 None,
@@ -111,12 +109,12 @@ class VectorMatcher:
         q = q / q_norm
 
         # Single BLAS matrix multiplication: (1, 512) @ (512, N) -> (1, N)
-        similarities = np.matmul(q, self._gallery_matrix.T)[0]
+        similarities = np.matmul(q, gallery.T)[0]
 
         # Aggregate multiple templates per student by taking MAX similarity
         student_scores: Dict[str, Tuple[float, str, str, str]] = {}
         for idx, sim in enumerate(similarities):
-            s_id, s_code, s_roll, s_name = self._student_metadata[idx]
+            s_id, s_code, s_roll, s_name = metadata[idx]
             sim_val = float(sim)
             if s_id not in student_scores or sim_val > student_scores[s_id][0]:
                 student_scores[s_id] = (sim_val, s_code, s_roll, s_name)

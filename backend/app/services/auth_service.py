@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
 import uuid
 from fastapi import HTTPException, status
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.security import decode_access_token
 
@@ -30,11 +31,8 @@ class AuthService:
         actor: User | None = None,
     ) -> UserResponse:
         requested_role = register_in.role.upper()
-        if actor is None and requested_role != "STUDENT":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Public registration is limited to the STUDENT role.",
-            )
+        if actor is not None and requested_role not in {"STUDENT", "ADMIN", "FACULTY", "OPERATOR"}:
+            raise HTTPException(422, "Invalid account role.")
         if actor is not None and actor.role != "ADMIN":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only administrators can create accounts.")
         if actor is not None and actor.role == "ADMIN":
@@ -60,7 +58,11 @@ class AuthService:
             is_active=True,
         )
         db.add(user)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(409, "Username or email is already registered.")
         await db.refresh(user)
         logger.info("Registered new user: %s (%s)", user.username, user.role)
         return UserResponse.model_validate(user)
@@ -98,6 +100,8 @@ class AuthService:
             )
         if not user.is_active:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This user account has been disabled.")
+        if settings.ENVIRONMENT.lower() in {"production", "prod"} and user.username == "admin" and password == "Admin@12345":
+            raise HTTPException(403, "Change the development administrator password before production use.")
         result = await cls._issue_session(db, user)
         logger.info("User login successful: %s (Role: %s)", user.username, user.role)
         return result
@@ -111,8 +115,12 @@ class AuthService:
         old_session = await db.get(AuthSession, payload["sid"])
         if old_session is None:
             raise HTTPException(status_code=401, detail="Session not found.")
-        old_session.revoked_at = datetime.now(timezone.utc)
-        await db.flush()
+        result = await db.execute(update(AuthSession).where(
+            AuthSession.id == old_session.id, AuthSession.revoked_at.is_(None)
+        ).values(revoked_at=datetime.now(timezone.utc)).execution_options(synchronize_session=False))
+        if result.rowcount != 1:
+            await db.rollback()
+            raise HTTPException(401, "Refresh token has already been used.")
         return await cls._issue_session(db, user)
 
     @classmethod

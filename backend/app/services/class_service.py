@@ -1,6 +1,7 @@
 from datetime import date, time
 from typing import List, Optional
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, delete
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.exceptions import SAMSException
@@ -41,6 +42,16 @@ class ClassAlreadyExistsError(SAMSException):
 class ClassService:
     """Service layer managing academic classes / batches / sections and timetable schedules."""
 
+    @staticmethod
+    async def validate_subjects(db, ids):
+        if ids is None:
+            return
+        actual = set((await db.scalars(select(Subject.id).where(Subject.id.in_(ids)))).all())
+        if actual != set(ids):
+            raise HTTPException(422, "Choose existing subjects for this class.")
+        if len(ids) != len(set(ids)):
+            raise HTTPException(422, "A subject can be assigned only once.")
+
     @classmethod
     async def create_class(cls, db: AsyncSession, class_in: ClassSectionCreate) -> ClassSectionResponse:
         """Creates a new academic class section."""
@@ -49,6 +60,7 @@ class ClassService:
         if existing:
             raise ClassAlreadyExistsError(class_in.name)
 
+        await cls.validate_subjects(db, class_in.assigned_subject_ids)
         class_sec = ClassSection(
             name=class_in.name,
             department=class_in.department,
@@ -122,16 +134,14 @@ class ClassService:
         update_dict = update_in.model_dump(exclude_unset=True)
         assigned_subject_ids = update_dict.pop("assigned_subject_ids", None)
 
+        await cls.validate_subjects(db, assigned_subject_ids)
         for field, value in update_dict.items():
             if field == "status" and value:
                 value = value.upper()
             setattr(cls_obj, field, value)
 
         if assigned_subject_ids is not None:
-            del_q = select(ClassSubject).where(ClassSubject.class_id == class_id)
-            existing_links = (await db.execute(del_q)).scalars().all()
-            for l in existing_links:
-                await db.delete(l)
+            await db.execute(delete(ClassSubject).where(ClassSubject.class_id == class_id))
 
             for s_id in assigned_subject_ids:
                 link = ClassSubject(class_id=class_id, subject_id=s_id)

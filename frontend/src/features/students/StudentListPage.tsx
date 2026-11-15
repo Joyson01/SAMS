@@ -426,6 +426,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
 
   // Open Guided Face Enrollment Modal
   const openFaceEnrollmentModal = (student: Student) => {
+    if (onNavigate) { onNavigate("enrollment", student.id); return; }
     setEnrollStudent(student);
     setEnrollStep('camera');
     setCurrentAngleIndex(0);
@@ -1079,6 +1080,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                           category="enrollment"
                           size="sm"
                         />
+                        <span className="block text-xs text-slate-500">{student.sample_count} poses saved</span>
                       </td>
 
                       {/* 5. ATTENDANCE RATE WITH PROGRESS BAR */}

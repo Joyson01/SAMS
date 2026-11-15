@@ -69,7 +69,11 @@ async def test_recognition_api_sync_gallery(staff_client):
 
 
 @pytest.mark.asyncio
-async def test_recognition_api_tracked_stream_and_reset(staff_client):
+async def test_recognition_api_tracked_stream_and_reset(staff_client, test_db_session):
+    from datetime import date, time
+    from backend.app.models.entities import AttendanceSession
+    test_db_session.add(AttendanceSession(id="stream_test_sess", session_code="STREAM-TEST", class_name="STREAM", subject="CV", room="Laptop", scheduled_date=date.today(), start_time=time(0), end_time=time(23,59), status="ACTIVE"))
+    await test_db_session.commit()
     test_img_path = WORKSPACE_ROOT / "tests" / "fixtures" / "sample_student.jpg"
     if not test_img_path.exists():
         pytest.skip("Test image not found")

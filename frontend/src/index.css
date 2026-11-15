@@ -34,3 +34,7 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* Keyboard navigation remains visible on all workspace controls. */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+button:disabled { cursor: not-allowed; opacity: .5; }

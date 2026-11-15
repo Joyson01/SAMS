@@ -1,0 +1,26 @@
+{
+  "result": "PASS",
+  "first_present_seconds": 1.39,
+  "similarity": 1.0,
+  "unknown_bucket": "UNKNOWN",
+  "frames": [
+    "VERIFYING",
+    "VERIFYING",
+    "VERIFYING",
+    "VERIFIED",
+    "VERIFIED",
+    "VERIFIED",
+    "VERIFIED",
+    "VERIFIED"
+  ],
+  "records": 2,
+  "final_statuses": [
+    "PRESENT",
+    "ABSENT"
+  ],
+  "csv": "PASS",
+  "enrollment_poses_tested": [
+    "FRONT"
+  ],
+  "note": "Disposable test server explicitly configures FRONT only. Seven-pose physical-webcam flow requires manual QA."
+}

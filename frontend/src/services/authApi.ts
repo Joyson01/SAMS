@@ -39,3 +39,7 @@ export const logout = async (): Promise<void> => {
     clearAuthTokens();
   }
 };
+
+export interface RegisterPayload { username: string; email: string; full_name: string; password: string; role?: string; bootstrap_token?: string }
+export const register = async (payload: RegisterPayload): Promise<AuthUser> => (await apiClient.post('/auth/register', payload)).data;
+export const bootstrapAdmin = async (payload: RegisterPayload): Promise<AuthUser> => (await apiClient.post('/auth/bootstrap-admin', payload)).data;

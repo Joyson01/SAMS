@@ -5,6 +5,7 @@ import jwt
 from fastapi import Depends, HTTPException, Security, WebSocket, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from backend.app.core.config import settings
 from backend.app.database.session import get_db
@@ -16,6 +17,25 @@ ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 REFRESH_TOKEN_EXPIRE_DAYS = settings.REFRESH_TOKEN_EXPIRE_DAYS
 
 http_bearer = HTTPBearer(auto_error=False)
+
+
+async def _development_user(db: AsyncSession) -> User:
+    """Provide a local development admin identity when login is explicitly bypassed."""
+    user = await db.scalar(select(User).where(User.username == "local-development"))
+    if user:
+        return user
+    user = User(
+        username="local-development",
+        email="local-development@localhost.invalid",
+        full_name="Local Development User",
+        role="ADMIN",
+        password_hash=hash_password(__import__("secrets").token_urlsafe(32)),
+        is_active=True,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 def hash_password(password: str) -> str:
@@ -103,6 +123,8 @@ async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Security(http_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    if settings.AUTH_BYPASS and settings.ENVIRONMENT == "development":
+        return await _development_user(db)
     if not credentials:
         raise _unauthorized("Authentication bearer token required.")
     return await _resolve_user(credentials.credentials, db, "access")
@@ -132,6 +154,9 @@ def require_roles(*allowed_roles: str):
 
 async def authenticate_staff_socket(websocket: WebSocket, db: AsyncSession) -> None:
     """Require a staff bearer token without placing it in the WebSocket URL."""
+    if settings.AUTH_BYPASS and settings.ENVIRONMENT == "development":
+        await _development_user(db)
+        return
     protocols = websocket.scope.get("subprotocols", [])
     if len(protocols) != 2 or protocols[0] != "sams-auth":
         raise _unauthorized("Staff authentication required.")

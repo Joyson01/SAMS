@@ -111,9 +111,15 @@ if [ ! -f .env ]; then
     fi
 fi
 
-PYTHON_BIN="${ROOT_DIR}/.venv/bin/python"
-if [ ! -f "${PYTHON_BIN}" ]; then
-    echo "❌ Error: Virtual environment (.venv) not found."
+export DATABASE_URL="${DATABASE_URL:-sqlite+aiosqlite:///./data/sams_dev.db}"
+export SQLITE_FALLBACK_URL="${SQLITE_FALLBACK_URL:-$DATABASE_URL}"
+
+if [ -x "${ROOT_DIR}/.venv-backend/bin/python" ]; then
+    PYTHON_BIN="${ROOT_DIR}/.venv-backend/bin/python"
+elif [ -x "${ROOT_DIR}/.venv/bin/python" ]; then
+    PYTHON_BIN="${ROOT_DIR}/.venv/bin/python"
+else
+    echo "❌ Error: Virtual environment (.venv or .venv-backend) not found."
     echo "   Please run one-time setup first: ./scripts/setup.sh"
     exit 1
 fi
@@ -124,8 +130,11 @@ echo ""
 echo "[2/5] Initializing database & running migrations..."
 "${PYTHON_BIN}" -c "
 import asyncio
-from backend.app.database.session import init_db_schema
-asyncio.run(init_db_schema())
+from backend.app.database.session import init_db_schema, get_engine
+async def main():
+    await init_db_schema()
+    await get_engine().dispose()
+asyncio.run(main())
 " > /dev/null 2>&1 || {
     echo "❌ Database initialization failed. Check backend/app/database/session.py or .env"
     exit 1

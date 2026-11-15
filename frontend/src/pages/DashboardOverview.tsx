@@ -1,3 +1,4 @@
+import { SystemHealthCard } from '../components/SystemHealthCard';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Calendar,
@@ -137,6 +138,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
   if (loading && !data) {
     return (
       <div className="space-y-6">
+      <SystemHealthCard />
         <div className="flex justify-between items-center">
           <Skeleton className="h-8 w-64" />
           <Skeleton className="h-9 w-36" />
@@ -222,19 +224,20 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           id: t.id,
           time: formatDisplayTime(t.start_time),
           subject: t.label || 'Lecture',
-          className: (t as any).class_name || 'TE-B',
-          room: t.room || 'CR 26',
+          className: (t as any).class_name || '—',
+          room: t.room || '—',
           status: 'SCHEDULED',
           isLive: false,
         }));
 
   return (
     <div className="space-y-6">
+      <SystemHealthCard />
       {/* 1. HEADER */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-            {greeting}, Dr. Raman
+            {greeting}
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">{fullFormattedDate}</p>
         </div>

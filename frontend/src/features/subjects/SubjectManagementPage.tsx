@@ -305,7 +305,11 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
     setIsClassModalOpen(true);
   };
 
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(0);
+  const filteredClasses = classes.filter(c => `${c.name} ${c.department}`.toLowerCase().includes(query.toLowerCase()));
   const filteredSubjects = subjects.filter((s) => {
+    if (!`${s.code} ${s.name}`.toLowerCase().includes(query.toLowerCase())) return false;
     if (verticalFilter && s.vertical !== verticalFilter) return false;
     return true;
   });
@@ -316,6 +320,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap gap-3 items-center"><label>Search academics<input className="ml-2 rounded border p-2" value={query} onChange={e => {setQuery(e.target.value);setPage(0);}} /></label><button disabled={!page} onClick={() => setPage(page-1)}>Previous</button><span>Page {page+1}</span><button disabled={(page+1)*10>=Math.max(filteredSubjects.length,filteredClasses.length)} onClick={() => setPage(page+1)}>Next</button></div>
       {/* Top Header & Tab Navigation */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -482,7 +487,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredSubjects.map((s) => (
+                    {filteredSubjects.slice(page*10,page*10+10).map((s) => (
                       <tr key={s.id} className="hover:bg-slate-50/75 transition">
                         <td className="py-3.5 px-4 font-mono font-bold text-blue-700">
                           {s.code}
@@ -596,7 +601,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                 <p className="text-[11px] text-slate-400">Click "Add Class Section" to create an academic class.</p>
               </div>
             ) : (
-              classes.map((clsObj) => (
+              filteredClasses.slice(page*10,page*10+10).map((clsObj) => (
                 <div
                   key={clsObj.id}
                   className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4 hover:border-blue-300 transition flex flex-col justify-between"

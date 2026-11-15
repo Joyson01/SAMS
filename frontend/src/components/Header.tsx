@@ -1,10 +1,12 @@
 import React, { useMemo } from 'react';
-import { Menu, Search, User, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Menu, User, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { ServiceHealthResponse } from '../types';
 
 interface HeaderProps {
   healthData?: ServiceHealthResponse | null;
   healthStatus?: 'healthy' | 'degraded' | 'unhealthy' | 'loading';
+  userName?: string;
+  role?: string;
   activeTab: string;
   onNavigate: (tab: string) => void;
   offlineCameraCount?: number;
@@ -12,6 +14,9 @@ interface HeaderProps {
 }
 
 const TAB_TITLES: Record<string, string> = {
+  'recognition-test': 'Recognition Test',
+  users: 'Users',
+  'my-attendance': 'My Attendance',
   dashboard: 'Dashboard',
   attendance: 'Attendance Sessions',
   students: 'Students',
@@ -27,6 +32,8 @@ const TAB_TITLES: Record<string, string> = {
 };
 
 export const Header: React.FC<HeaderProps> = ({
+  userName = "",
+  role = "",
   activeTab,
   onNavigate,
   offlineCameraCount = 0,
@@ -72,18 +79,6 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* CENTER: Global search */}
-      <div className="hidden md:flex items-center max-w-sm w-full mx-4">
-        <div className="relative w-full">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Search students, classes, records..."
-            className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-          />
-        </div>
-      </div>
-
       {/* RIGHT: System status, Notifications, User profile */}
       <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
         {/* Hardware / Camera Status Indicator (Clickable to open Cameras) */}
@@ -97,7 +92,7 @@ export const Header: React.FC<HeaderProps> = ({
           title={
             offlineCameraCount > 0
               ? `${offlineCameraCount} camera(s) offline. Click to review cameras.`
-              : 'All cameras connected. Click to view cameras.'
+              : 'View registered camera status.'
           }
         >
           {offlineCameraCount > 0 ? (
@@ -110,8 +105,8 @@ export const Header: React.FC<HeaderProps> = ({
           ) : (
             <>
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <span className="hidden sm:inline">Cameras Online</span>
-              <span className="sm:hidden">Online</span>
+              <span className="hidden sm:inline">Camera status</span>
+              <span className="sm:hidden">Cameras</span>
             </>
           )}
         </button>
@@ -123,9 +118,9 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div className="hidden xl:flex flex-col min-w-0 text-left">
             <span className="text-xs font-semibold text-slate-900 leading-tight truncate">
-              Dr. S. Raman
+              {userName}
             </span>
-            <span className="text-[10px] text-slate-500 leading-tight truncate">Faculty</span>
+            <span className="text-[10px] text-slate-500 leading-tight truncate">{role}</span>
           </div>
         </div>
       </div>

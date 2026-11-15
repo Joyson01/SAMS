@@ -1,3 +1,8 @@
+import { TimetableEditor } from './features/academics/TimetableEditor';
+import { LaptopAttendancePage } from './features/live/LaptopAttendancePage';
+import { RecognitionTestPage } from './features/recognition/RecognitionTestPage';
+import { AcademicTools } from './features/academics/AcademicTools';
+import { UsersPage, MyAttendancePage } from './features/users/UsersPage';
 import React, { useState, useEffect } from 'react';
 import { DashboardLayout } from './layouts/DashboardLayout';
 import { DashboardOverview } from './pages/DashboardOverview';
@@ -13,7 +18,6 @@ import { SubjectManagementPage } from './features/subjects/SubjectManagementPage
 import { TimetablePage } from './features/timetable/TimetablePage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { MobileCameraPage } from './features/mobile/MobileCameraPage';
-import { MobileEnrollmentPage } from './features/mobile/MobileEnrollmentPage';
 import { CameraTestPage } from './features/camera-test/CameraTestPage';
 import { AuditLogsPage } from './features/security/AuditLogsPage';
 import { fetchHealthStatus } from './services/api';
@@ -27,6 +31,7 @@ import { getCurrentUser, logout } from './services/authApi';
 
 export const App: React.FC = () => {
   const pathname = window.location.pathname;
+  const authBypass = import.meta.env.VITE_AUTH_BYPASS === 'true';
 
   if (pathname === '/attendance-capture') return <PairedAttendancePage />;
 
@@ -38,13 +43,6 @@ export const App: React.FC = () => {
       </ErrorBoundary>
     );
   }
-  if (pathname.startsWith('/mobile-enrollment')) {
-    return (
-      <ErrorBoundary fallbackTitle="Mobile Face Enrollment Error">
-        <MobileEnrollmentPage />
-      </ErrorBoundary>
-    );
-  }
   if (pathname.startsWith('/camera-test')) {
     return (
       <ErrorBoundary fallbackTitle="Camera Diagnostic Error">
@@ -53,14 +51,18 @@ export const App: React.FC = () => {
     );
   }
 
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
-  const [enrollingStudentId, setEnrollingStudentId] = useState<string | undefined>(undefined);
+  const [activeTab, setActiveTab] = useState<string>(pathname === '/recognition-test' ? 'recognition-test' : pathname === '/mobile-enrollment' ? 'enrollment' : 'dashboard');
+  const [enrollingStudentId, setEnrollingStudentId] = useState<string | undefined>(new URLSearchParams(location.search).get("student_id") || undefined);
   const [healthData, setHealthData] = useState<ServiceHealthResponse | null>(null);
   const [healthStatus, setHealthStatus] = useState<'healthy' | 'degraded' | 'unhealthy' | 'loading'>('loading');
   const [offlineCameraCount, setOfflineCameraCount] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [userName, setUserName] = useState('');
+  const [role, setRole] = useState('STUDENT');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+
+  useEffect(() => { const expired = () => { setIsAuthenticated(false); history.replaceState(null, '', '/login?expired=1'); }; window.addEventListener('auth-expired', expired); return () => window.removeEventListener('auth-expired', expired); }, []);
 
   const loadHealth = async () => {
     setIsRefreshing(true);
@@ -88,16 +90,17 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     let mounted = true;
-    if (!getAccessToken()) {
+    if (authBypass) clearAuthTokens();
+    if (!authBypass && !getAccessToken()) {
       setIsAuthChecking(false);
       return () => { mounted = false; };
     }
     getCurrentUser()
-      .then(() => { if (mounted) setIsAuthenticated(true); })
+      .then(user => { if (mounted) { setRole(user.role); setUserName(user.full_name); setIsAuthenticated(true); } })
       .catch(() => { clearAuthTokens(); })
       .finally(() => { if (mounted) setIsAuthChecking(false); });
     return () => { mounted = false; };
-  }, []);
+  }, [authBypass]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -118,7 +121,7 @@ export const App: React.FC = () => {
   }
 
   if (!isAuthenticated) {
-    return <AuthPage onLogin={() => setIsAuthenticated(true)} />;
+    return <AuthPage onLogin={() => { void getCurrentUser().then(user => { setRole(user.role); setUserName(user.full_name); setIsAuthenticated(true); }); }} />;
   }
 
   const handleLogout = async () => {
@@ -136,13 +139,10 @@ export const App: React.FC = () => {
 
   return (
     <ErrorBoundary fallbackTitle="Application Error" fallbackMessage="An error occurred in the workspace layout.">
-      <div className="fixed right-4 top-4 z-50 flex gap-2">
-        <a href="/phone-attendance" className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white">Take attendance</a>
-        <button type="button" onClick={handleLogout} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow hover:bg-slate-50">
-          Sign out
-        </button>
-      </div>
       <DashboardLayout
+        role={role}
+        userName={userName}
+        onLogout={handleLogout}
         healthData={healthData}
         healthStatus={healthStatus}
         onRefreshHealth={loadHealth}
@@ -152,23 +152,29 @@ export const App: React.FC = () => {
         offlineCameraCount={offlineCameraCount}
       >
         <ErrorBoundary key={activeTab} fallbackTitle={`Error in ${activeTab.toUpperCase()}`}>
+          {role === 'STUDENT' && <MyAttendancePage />}
+          {role !== 'STUDENT' && <>
+          {activeTab === 'recognition-test' && ['ADMIN','FACULTY'].includes(role) && <RecognitionTestPage />}
+          {activeTab === 'users' && role === 'ADMIN' && <UsersPage />}
           {activeTab === 'dashboard' && <DashboardOverview onNavigate={handleNavigate} />}
           {activeTab === 'students' && <StudentListPage onNavigate={handleNavigate} />}
-          {activeTab === 'subjects' && <SubjectManagementPage onNavigate={handleNavigate} />}
-          {activeTab === 'timetable' && <TimetablePage onNavigate={handleNavigate} />}
+          {activeTab === 'subjects' && <><SubjectManagementPage onNavigate={handleNavigate} /><AcademicTools /></>}
+          {activeTab === 'timetable' && <><TimetablePage onNavigate={handleNavigate} /><TimetableEditor /></>}
           {activeTab === 'enrollment' && (
             <FaceEnrollmentPage
               initialStudentId={enrollingStudentId}
               onNavigate={handleNavigate}
             />
           )}
-          {activeTab === 'live' && <LiveDashboardPage onNavigate={handleNavigate} />}
+          {activeTab === 'live' && <LaptopAttendancePage onAdvanced={() => setActiveTab('advanced-live')} />}
+          {activeTab === 'advanced-live' && <LiveDashboardPage onNavigate={handleNavigate} />}
           {activeTab === 'media' && <MediaAttendancePage onNavigate={handleNavigate} />}
           {activeTab === 'attendance' && <AttendancePage />}
           {activeTab === 'cameras' && <CameraManagementPage />}
           {activeTab === 'audit' && <AuditLogsPage />}
           {activeTab === 'reports' && <ReportsPage />}
-          {activeTab === 'settings' && <SettingsPage />}
+          {activeTab === 'settings' && role === 'ADMIN' && <SettingsPage />}
+          </>}
         </ErrorBoundary>
       </DashboardLayout>
     </ErrorBoundary>

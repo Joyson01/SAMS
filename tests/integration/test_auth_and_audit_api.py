@@ -12,8 +12,9 @@ async def test_auth_and_audit_api_workflow(staff_client):
         "full_name": "Dean Dr. Alok Gupta",
         "role": "ADMIN",
     }
-    public_attempt = await client.post("/api/v1/auth/register", json=reg_payload, headers={"Authorization": ""})
-    assert public_attempt.status_code == 403
+    public_attempt = await client.post("/api/v1/auth/register", json={**reg_payload, "username": "public_student", "email": "public@campus.edu"}, headers={"Authorization": ""})
+    assert public_attempt.status_code == 201
+    assert public_attempt.json()["role"] == "STUDENT"
 
     reg_resp = await client.post("/api/v1/auth/register", json=reg_payload)
     assert reg_resp.status_code == 201

@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
-from backend.app.core.security import get_current_user
+from backend.app.core.security import require_roles, get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
@@ -13,7 +13,7 @@ from backend.app.schemas.student import (
 )
 from backend.app.services.student_service import StudentService
 
-router = APIRouter(prefix="/students", tags=["Student Management"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/students", tags=["Student Management"], dependencies=[Depends(require_roles("ADMIN", "FACULTY", "OPERATOR"))])
 
 
 @router.get(
@@ -124,54 +124,20 @@ async def enroll_student_face(
     pose_type: str = Form("FRONT", description="FRONT, LEFT_15, RIGHT_15, TILT_UP, TILT_DOWN, GLASSES"),
     db: AsyncSession = Depends(get_db),
 ):
-    from dataclasses import asdict
-    import cv2
-    import numpy as np
-    from backend.app.schemas.student import FaceProfileCreate
-    from backend.app.services.recognition_service import RecognitionService, get_pipeline
-
-    contents = await file.read()
-    nparr = np.frombuffer(contents, np.uint8)
-    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-    if image is None:
-        return {"success": False, "message": "Failed to decode image buffer. Provide valid JPEG or PNG file."}
-
-    pipeline = get_pipeline()
-    is_accepted, embedding, quality, pose, guidance = pipeline.process_enrollment_image(image)
-
-    if not is_accepted or embedding is None:
-        return {
-            "success": False,
-            "message": guidance,
-            "quality": asdict(quality) if quality else None,
-            "pose": asdict(pose) if pose else None,
-        }
-
-    q_score = round(min(1.0, quality.sharpness / 120.0), 2) if quality else 1.0
-
-    # Store face profile
-    profile = await StudentService.add_face_profile(
-        db=db,
-        student_id=student_id,
-        profile_in=FaceProfileCreate(
-            embedding_data=embedding.tolist(),
-            model_name="ArcFace-ResNet50",
-            model_version="1.0.0",
-            quality_score=q_score,
-            pose_type=pose_type.upper(),
-        ),
-    )
-
-    # Sync vector matcher in memory
-    await RecognitionService.sync_gallery_from_db(db)
-
-    return {
-        "success": True,
-        "message": "Face sample successfully verified, embedded, and enrolled.",
-        "profile_id": profile.id,
-        "pose_type": profile.pose_type,
-        "quality_score": profile.quality_score,
-    }
+    from backend.app.services.enrollment_service import enroll
+    return await enroll(db, student_id, await file.read(10*1024*1024+1), pose_type.upper())
 
 
+@router.get('/{student_id}/enroll/status')
+async def get_enrollment_status(student_id: str, db: AsyncSession = Depends(get_db)):
+    from backend.app.services.enrollment_service import enrollment_status
+    return await enrollment_status(db, student_id)
+
+
+@router.post('/{student_id}/enroll/check')
+async def check_enrollment(student_id: str, file: UploadFile = File(...), pose_type: str = Form('FRONT'), db: AsyncSession = Depends(get_db)):
+    import asyncio
+    from backend.app.services.enrollment_service import check_image
+    await StudentService.get_student_by_id(db, student_id)
+    result, _ = await asyncio.to_thread(check_image, await file.read(10*1024*1024+1), pose_type.upper())
+    return result

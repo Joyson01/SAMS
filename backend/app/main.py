@@ -32,9 +32,11 @@ async def lifespan(app: FastAPI):
 
     # Initialize Face Recognition Service & Embeddings at Startup
     logger.info("Initializing InsightFace buffalo_l engine for Media & Real-time Attendance...")
-    _ = face_recognition_service.app
-    emb_count = len(face_recognition_service.load_embeddings(force_reload=True))
-    logger.info(f"InsightFace engine ready with {emb_count} student face embedding(s).")
+    try:
+        _ = face_recognition_service.app
+        logger.info("InsightFace engine ready.")
+    except Exception as exc:
+        logger.error("AI engine unavailable: %s. Run python -m scripts.check_models", exc)
 
     # Verify DB connectivity & initialize development schema if needed
     db_connected, db_info, latency = await check_database_connection()
@@ -42,6 +44,8 @@ async def lifespan(app: FastAPI):
         logger.info(f"Connected to database ({db_info}) in {latency}ms")
         try:
             await init_db_schema()
+            from scripts.create_admin import seed_development_admin
+            await seed_development_admin()
         except Exception as e:
             logger.warning(f"Auto-schema init skipped or deferred: {e}")
 
@@ -57,6 +61,16 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Pipeline pre-warm notice: {pipe_err}")
     else:
         logger.warning(f"Database connection offline at startup: {db_info}")
+
+    if db_connected and settings.ENVIRONMENT.lower() in {"production", "prod"}:
+        from sqlalchemy import select
+        from backend.app.models.entities import User
+        from backend.app.core.security import verify_password
+        from backend.app.database.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            admin = await db.scalar(select(User).where(User.username == "admin", User.is_active.is_(True)))
+            if admin and verify_password("Admin@12345", admin.password_hash):
+                raise RuntimeError("Change the default development administrator password before production use.")
 
     yield
 
@@ -76,8 +90,7 @@ app = FastAPI(
 # Configure CORS Middleware (allowing LAN mobile browsers and desktop clients)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_origin_regex=r"https?://.*",
+    allow_origins=settings.BACKEND_CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -274,17 +287,8 @@ async def redirect_openapi():
 @app.get("/health", tags=["Root"])
 async def root_health():
     """Top-level health check endpoint redirecting to v1 health logic."""
-    db_connected, db_info, latency_ms = await check_database_connection()
-    return {
-        "status": "healthy" if db_connected else "degraded",
-        "service": settings.PROJECT_NAME,
-        "version": settings.VERSION,
-        "database": {
-            "status": "connected" if db_connected else "disconnected",
-            "type": db_info,
-            "latency_ms": latency_ms,
-        },
-    }
+    from backend.app.api.v1.health import get_health_status
+    return await get_health_status()
 
 
 # Production Single Page Application (SPA) Client-Side Route Fallback

@@ -21,6 +21,10 @@ export function formatApiErrorMessage(
 
   // 2. Axios Error structure
   const responseData = errObj?.response?.data;
+  const validationDetails = responseData?.error?.details;
+  if (Array.isArray(validationDetails) && validationDetails.some((d: any) => d?.field && d?.message)) {
+    return validationDetails.filter((d: any) => d?.field && d?.message).map((d: any) => `${d.field}: ${d.message}`).join('; ');
+  }
   const detail = responseData?.detail ?? responseData?.message ?? responseData?.error ?? errObj?.detail;
 
   if (detail !== undefined && detail !== null) {
