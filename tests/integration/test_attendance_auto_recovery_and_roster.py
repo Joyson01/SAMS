@@ -4,12 +4,12 @@ from datetime import date, datetime, time, timezone
 
 
 @pytest.mark.asyncio
-async def test_attendance_auto_recovery_and_roster_workflow(client):
+async def test_attendance_auto_recovery_and_roster_workflow(staff_client):
     suffix = os.urandom(3).hex()
     class_name = f"TEST-CLASS-{suffix}"
 
     # 1. Create a Student in target class
-    stu_resp = await client.post(
+    stu_resp = await staff_client.post(
         "/api/v1/students",
         json={
             "first_name": "Arjun",
@@ -36,16 +36,16 @@ async def test_attendance_auto_recovery_and_roster_workflow(client):
         "end_time": "23:59:00",
         "late_threshold_minutes": 15,
     }
-    create_sess_resp = await client.post("/api/v1/attendance/sessions", json=sess_payload)
+    create_sess_resp = await staff_client.post("/api/v1/attendance/sessions", json=sess_payload)
     assert create_sess_resp.status_code == 201
     session_id = create_sess_resp.json()["id"]
 
     # 3. Start Session
-    start_resp = await client.put(f"/api/v1/attendance/sessions/{session_id}/start")
+    start_resp = await staff_client.put(f"/api/v1/attendance/sessions/{session_id}/start")
     assert start_resp.status_code == 200
 
     # 4. Check Initial Live Class Roster
-    roster_resp = await client.get(f"/api/v1/attendance/sessions/{session_id}/roster")
+    roster_resp = await staff_client.get(f"/api/v1/attendance/sessions/{session_id}/roster")
     assert roster_resp.status_code == 200
     roster_data = roster_resp.json()
     assert roster_data["total_enrolled"] == 1
@@ -55,7 +55,7 @@ async def test_attendance_auto_recovery_and_roster_workflow(client):
     assert roster_data["roster"][0]["attendance_status"] == "NOT_RECORDED"
 
     # 5. Mark Student Manually ABSENT
-    manual_resp = await client.post(
+    manual_resp = await staff_client.post(
         f"/api/v1/attendance/manual?session_id={session_id}&student_id={student_id}&status=ABSENT&remarks=Did not attend roll call"
     )
     assert manual_resp.status_code == 200
@@ -63,7 +63,7 @@ async def test_attendance_auto_recovery_and_roster_workflow(client):
     original_record_id = manual_resp.json()["id"]
 
     # Verify roster reflects ABSENT
-    roster_resp = await client.get(f"/api/v1/attendance/sessions/{session_id}/roster")
+    roster_resp = await staff_client.get(f"/api/v1/attendance/sessions/{session_id}/roster")
     assert roster_resp.status_code == 200
     assert roster_resp.json()["roster"][0]["attendance_status"] == "ABSENT"
 
@@ -76,7 +76,7 @@ async def test_attendance_auto_recovery_and_roster_workflow(client):
         "source": "AI",
         "remarks": "Recognized in camera frame",
     }
-    scan_resp = await client.post(f"/api/v1/attendance/sessions/{session_id}/mark", json=mark_payload)
+    scan_resp = await staff_client.post(f"/api/v1/attendance/sessions/{session_id}/mark", json=mark_payload)
     assert scan_resp.status_code == 200
     scanned_record = scan_resp.json()
 
@@ -86,7 +86,7 @@ async def test_attendance_auto_recovery_and_roster_workflow(client):
     assert scanned_record["confidence"] == 0.94
 
     # 7. Verify Live Roster is updated to PRESENT
-    roster_resp = await client.get(f"/api/v1/attendance/sessions/{session_id}/roster")
+    roster_resp = await staff_client.get(f"/api/v1/attendance/sessions/{session_id}/roster")
     assert roster_resp.status_code == 200
     updated_roster = roster_resp.json()
     assert updated_roster["present_count"] == 1
@@ -95,19 +95,19 @@ async def test_attendance_auto_recovery_and_roster_workflow(client):
     assert updated_roster["roster"][0]["attendance_status"] == "PRESENT"
 
     # 8. Repeated scans do not create duplicates (idempotency)
-    scan_resp2 = await client.post(f"/api/v1/attendance/sessions/{session_id}/mark", json=mark_payload)
+    scan_resp2 = await staff_client.post(f"/api/v1/attendance/sessions/{session_id}/mark", json=mark_payload)
     assert scan_resp2.status_code == 200
     assert scan_resp2.json()["id"] == original_record_id
-    records_resp = await client.get(f"/api/v1/attendance/sessions/{session_id}/records")
+    records_resp = await staff_client.get(f"/api/v1/attendance/sessions/{session_id}/records")
     assert len(records_resp.json()) == 1, "Duplicate records must not be created"
 
     # 9. Close session
-    close_resp = await client.put(f"/api/v1/attendance/sessions/{session_id}/close")
+    close_resp = await staff_client.put(f"/api/v1/attendance/sessions/{session_id}/close")
     assert close_resp.status_code == 200
     assert close_resp.json()["status"] == "COMPLETED"
 
     # 10. Completed session rejects further photo/recognition processing
-    locked_resp = await client.post(
+    locked_resp = await staff_client.post(
         "/api/v1/attendance/recognize-frame",
         data={"session_id": session_id, "threshold": "0.50"},
     )

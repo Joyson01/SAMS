@@ -15,9 +15,11 @@ os.environ["ENVIRONMENT"] = "testing"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["SQLITE_FALLBACK_URL"] = "sqlite+aiosqlite:///:memory:"
 
+from backend.app.core.security import hash_password
 from backend.app.database.base import Base
 from backend.app.database.session import get_db
 from backend.app.main import app
+from backend.app.models.entities import User
 
 
 @pytest.fixture(scope="session")
@@ -67,3 +69,23 @@ async def client(test_db_session):
         yield ac
 
     app.dependency_overrides.clear()
+
+@pytest_asyncio.fixture
+async def staff_client(client, test_db_session):
+    """Sign in as a staff member through the API."""
+    password = "attendance-test-password"
+    test_db_session.add(User(
+        username="test_staff",
+        email="staff@campus.edu",
+        full_name="Test Staff",
+        role="ADMIN",
+        password_hash=hash_password(password),
+    ))
+    await test_db_session.commit()
+    response = await client.post("/api/v1/auth/login", json={
+        "username_or_email": "test_staff",
+        "password": password,
+    })
+    assert response.status_code == 200, response.text
+    client.headers["Authorization"] = f"Bearer {response.json()['access_token']}"
+    return client
