@@ -145,11 +145,18 @@ async def test_live_capture_waits_for_repeated_evidence(client, test_db_session,
     pixels[0, 0] = 255 - pixels[0, 0]
     next_photo = io.BytesIO()
     Image.fromarray(np.repeat(pixels[:, :, None], 3, axis=2)).save(next_photo, format="JPEG", quality=90)
-    second = await client.post(f"{path}/capture", headers=headers, content=next_photo.getvalue())
+    refreshed_headers = {**headers, "X-Scanner-ID": "scanner-after-refresh"}
+    after_refresh = await client.post(f"{path}/capture", headers=refreshed_headers, content=next_photo.getvalue())
+    pixels[0, 1] = 255 - pixels[0, 1]
+    confirmed_photo = io.BytesIO()
+    Image.fromarray(np.repeat(pixels[:, :, None], 3, axis=2)).save(confirmed_photo, format="JPEG", quality=85)
+    second = await client.post(f"{path}/capture", headers=refreshed_headers, content=confirmed_photo.getvalue())
 
     assert first.json()["pending"] == 1
     assert first.json()["marked"] == 0
     assert retry.json()["pending"] == 1
     assert retry.json()["marked"] == 0
+    assert after_refresh.json()["pending"] == 1
+    assert after_refresh.json()["marked"] == 0
     assert second.json()["pending"] == 0
     assert second.json()["marked"] == 1

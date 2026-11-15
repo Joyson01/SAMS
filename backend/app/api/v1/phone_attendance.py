@@ -169,11 +169,19 @@ async def capture(
         if existing is not None:
             if capture_mode.lower() == "live" and existing.status == "REVIEW_REQUIRED":
                 metadata = existing.verification_metadata or {}
-                if (
-                    existing.source != "PHONE_CAPTURE" or not metadata.get("live_pending")
-                    or metadata.get("scanner_id") != scanner_id[:80]
-                    or metadata.get("frame_digest") == frame_digest
-                ):
+                if existing.source != "PHONE_CAPTURE" or not metadata.get("live_pending"):
+                    pending += 1
+                    continue
+                if metadata.get("scanner_id") != scanner_id[:80]:
+                    existing.confidence = similarity
+                    existing.verification_metadata = {
+                        "liveness_checked": False, "usable_live_frames": 1,
+                        "scanner_id": scanner_id[:80], "frame_digest": frame_digest,
+                        "live_pending": True,
+                    }
+                    pending += 1
+                    continue
+                if metadata.get("frame_digest") == frame_digest:
                     pending += 1
                     continue
             if existing.status != "REVIEW_REQUIRED" or existing.source == "MANUAL":

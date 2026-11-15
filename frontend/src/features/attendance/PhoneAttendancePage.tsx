@@ -317,7 +317,8 @@ export function PhoneAttendancePage({ onLogout }: { onLogout: () => void }) {
   const displayedRoster = roster?.session_id === sessionId ? roster : undefined;
   const visibleStudents = displayedRoster?.roster.filter(student => {
     const query = rosterSearch.trim().toLowerCase();
-    const matches = !query || `${student.student_name} ${student.roll_number}`.toLowerCase().includes(query);
+    const matches = session?.status === 'COMPLETED' || !query
+      || `${student.student_name} ${student.roll_number}`.toLowerCase().includes(query);
     return matches && (session?.status === 'COMPLETED' || rosterView === 'all' || needsReview(student.attendance_status));
   }) ?? [];
 
