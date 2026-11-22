@@ -75,10 +75,11 @@ from sqlalchemy import select, update, text, func
 from sqlalchemy.exc import IntegrityError
 from backend.app.core.config import settings
 from backend.app.core.security import require_roles, hash_password
-from backend.app.models.entities import AuthSession, Student, UserStudentLink, AttendanceRecord, AttendanceSession
+from backend.app.models.entities import AuthSession, Student, StudentPortalDetails, UserStudentLink, AttendanceRecord, AttendanceSession
 from backend.app.schemas.auth import BootstrapRequest, UserUpdateRequest, StudentLinkRequest
 
 _setup_lock = asyncio.Lock()
+_COMP_B_ACADEMIC_YEARS = {"124": "2024 - 2028", "224": "2025 - 2028"}
 
 @router.get("/setup-status")
 async def setup_status(db: AsyncSession = Depends(get_db)):
@@ -150,7 +151,29 @@ async def link_student(user_id: str, payload: StudentLinkRequest, db: AsyncSessi
 @router.get("/my-attendance")
 async def my_attendance(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     link = await db.get(UserStudentLink, user.id)
-    if not link:
+    student = await db.get(Student, link.student_id) if link else None
+    if student is None:
         return {"linked": False, "items": []}
+    details = await db.get(StudentPortalDetails, student.id)
+    mobile = details.mobile_number if details else None
+    masked_mobile = None
+    if mobile and mobile.isascii() and mobile.isdecimal() and len(mobile) == 10:
+        masked_mobile = f"{mobile[:2]}****{mobile[-4:]}"
+    profile = {
+        "name": details.roster_name if details and details.roster_name else f"{student.first_name} {student.last_name}",
+        "student_id": user.username,
+        "student_pid": student.student_code,
+        "roll_number": student.roll_number,
+        "department": student.department,
+        "class_name": student.class_name,
+        "section": student.section,
+        "admission_academic_year": details.admission_academic_year if details else None,
+        "academic_year_range": _COMP_B_ACADEMIC_YEARS.get(user.username[:3]) if details else None,
+        "branch": details.branch if details else None,
+        "current_semester": details.current_semester if details else None,
+        "email": details.college_email if details else student.email,
+        "mobile_number": masked_mobile,
+        "discipline": details.discipline if details else None,
+    }
     rows = (await db.execute(select(AttendanceRecord, AttendanceSession).join(AttendanceSession).where(AttendanceRecord.student_id == link.student_id).order_by(AttendanceSession.scheduled_date.desc()))).all()
-    return {"linked": True, "items": [{"id": r.id, "date": s.scheduled_date, "subject": s.subject, "status": r.status, "remarks": r.remarks} for r, s in rows]}
+    return {"linked": True, "profile": profile, "items": [{"id": r.id, "date": s.scheduled_date, "subject": s.subject, "status": r.status, "remarks": r.remarks} for r, s in rows]}

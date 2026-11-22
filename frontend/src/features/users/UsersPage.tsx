@@ -32,7 +32,55 @@ export function UsersPage() {
   </div>;
 }
 
-type PersonalAttendance = {linked:boolean;items:{id:string;date:string;subject:string;status:string;remarks:string}[]};
+type StudentProfile = {
+  name: string;
+  student_id: string;
+  student_pid: string;
+  roll_number: string;
+  department: string;
+  class_name: string;
+  section: string;
+  admission_academic_year: number | null;
+  academic_year_range: string | null;
+  branch: string | null;
+  current_semester: number | null;
+  email: string | null;
+  mobile_number: string | null;
+  discipline: string | null;
+};
+
+function StudentDetails({ profile }: { profile: StudentProfile }) {
+  const fields = [
+    ['Student PID', profile.student_pid],
+    ['Admission Academic Year', profile.academic_year_range ?? profile.admission_academic_year],
+    ['Branch', profile.branch],
+    ['Current Semester', profile.current_semester === 6 ? 'VI' : profile.current_semester],
+    ['Division', profile.section],
+    ['Roll No', profile.roll_number],
+    ['Name', profile.name],
+    ['E-mail', profile.email],
+    ['Mobile No', profile.mobile_number],
+    ['Discipline', profile.discipline],
+    ['Student User ID', profile.student_id],
+    ['Class', profile.class_name],
+    ['Department', profile.department],
+  ];
+  return (
+    <section className="rounded-xl border border-border bg-surface p-6">
+      <h2 className="mb-4 font-semibold">My details</h2>
+      <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+        {fields.map(([label, value]) => (
+          <div key={label}>
+            <dt className="text-sm text-text-muted">{label}</dt>
+            <dd className="mt-1 break-words font-medium">{value ?? 'Not available'}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+type PersonalAttendance = {linked:boolean;profile?:StudentProfile;items:{id:string;date:string;subject:string;status:string;remarks:string}[]};
 export function MyAttendancePage() {
  const [data,setData]=useState<PersonalAttendance|null>(null),[error,setError]=useState('');
  const load=useCallback(async()=>{try{setData((await apiClient.get<PersonalAttendance>('/auth/my-attendance')).data);setError('');}catch(e){setError(formatApiErrorMessage(e,'Unable to load attendance.'));}},[]);
@@ -41,5 +89,5 @@ export function MyAttendancePage() {
  const present=items.filter(r=>['PRESENT','LATE','MANUAL_PRESENT'].includes(r.status)).length;
  const percent=items.length?Math.round(present/items.length*100):0;
  const subjects=Array.from(new Set(items.map(r=>r.subject)));
- return <div className="space-y-6"><header><h1 className="text-2xl font-semibold">My attendance</h1><p className="mt-1 text-sm text-text-muted">Your recorded sessions and subject attendance.</p></header>{error?<EmptyState title="Attendance unavailable" description={error} actionLabel="Retry" onAction={()=>void load()}/>:!data?<Skeleton className="h-64"/>:!data.linked?<EmptyState title="Connect your student record" description="Ask your administrator to link your account using your roll number and student code."/>:!items.length?<EmptyState title="No attendance recorded yet" description="Your attendance history will appear after your first recorded session."/>:<><section className="grid gap-6 rounded-xl border border-border bg-surface p-6 sm:grid-cols-[auto_1fr]"><div className="relative mx-auto h-36 w-36"><svg viewBox="0 0 100 100" className="-rotate-90" aria-hidden="true"><circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="8" className="text-surface-muted"/><circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="8" strokeDasharray={`${percent*2.64} 264`} strokeLinecap="round" className="text-primary"/></svg><div className="absolute inset-0 flex flex-col items-center justify-center"><strong className="text-3xl">{percent}%</strong><span className="text-xs text-text-muted">Recorded presence</span></div></div><div className="space-y-4">{subjects.map(subject=>{const rows=items.filter(r=>r.subject===subject);const count=rows.filter(r=>['PRESENT','LATE','MANUAL_PRESENT'].includes(r.status)).length;return <div key={subject}><div className="mb-2 flex justify-between gap-3 text-sm"><span>{subject}</span><span className="text-text-muted">{count}/{rows.length}</span></div><div className="h-2 overflow-hidden rounded-full bg-surface-muted"><div className="h-full rounded-full bg-primary" style={{width:`${count/rows.length*100}%`}}/></div></div>;})}<p className="text-xs text-text-muted">Based on recorded sessions. Present, late and manual-present marks count as presence.</p></div></section><section className="rounded-xl border border-border bg-surface"><h2 className="border-b border-border p-5 font-semibold">Session history</h2><div className="divide-y divide-border">{items.map(r=><article key={r.id} className="flex flex-wrap items-center justify-between gap-3 p-5"><div><h3 className="text-sm font-medium">{r.subject}</h3><p className="text-xs text-text-muted">{r.date}{r.remarks?` · ${r.remarks}`:''}</p></div><StatusBadge status={r.status} category="attendance"/></article>)}</div></section></>}</div>;
+ return <div className="space-y-6"><header><h1 className="text-2xl font-semibold">My attendance</h1><p className="mt-1 text-sm text-text-muted">Your recorded sessions and subject attendance.</p></header>{!error && data?.profile && <StudentDetails profile={data.profile} />}{error?<EmptyState title="Attendance unavailable" description={error} actionLabel="Retry" onAction={()=>void load()}/>:!data?<Skeleton className="h-64"/>:!data.linked?<EmptyState title="Connect your student record" description="Ask your administrator to link your account using your roll number and student code."/>:!items.length?<EmptyState title="No attendance recorded yet" description="Your attendance history will appear after your first recorded session."/>:<><section className="grid gap-6 rounded-xl border border-border bg-surface p-6 sm:grid-cols-[auto_1fr]"><div className="relative mx-auto h-36 w-36"><svg viewBox="0 0 100 100" className="-rotate-90" aria-hidden="true"><circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="8" className="text-surface-muted"/><circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="8" strokeDasharray={`${percent*2.64} 264`} strokeLinecap="round" className="text-primary"/></svg><div className="absolute inset-0 flex flex-col items-center justify-center"><strong className="text-3xl">{percent}%</strong><span className="text-xs text-text-muted">Recorded presence</span></div></div><div className="space-y-4">{subjects.map(subject=>{const rows=items.filter(r=>r.subject===subject);const count=rows.filter(r=>['PRESENT','LATE','MANUAL_PRESENT'].includes(r.status)).length;return <div key={subject}><div className="mb-2 flex justify-between gap-3 text-sm"><span>{subject}</span><span className="text-text-muted">{count}/{rows.length}</span></div><div className="h-2 overflow-hidden rounded-full bg-surface-muted"><div className="h-full rounded-full bg-primary" style={{width:`${count/rows.length*100}%`}}/></div></div>;})}<p className="text-xs text-text-muted">Based on recorded sessions. Present, late and manual-present marks count as presence.</p></div></section><section className="rounded-xl border border-border bg-surface"><h2 className="border-b border-border p-5 font-semibold">Session history</h2><div className="divide-y divide-border">{items.map(r=><article key={r.id} className="flex flex-wrap items-center justify-between gap-3 p-5"><div><h3 className="text-sm font-medium">{r.subject}</h3><p className="text-xs text-text-muted">{r.date}{r.remarks?` · ${r.remarks}`:''}</p></div><StatusBadge status={r.status} category="attendance"/></article>)}</div></section></>}</div>;
 }

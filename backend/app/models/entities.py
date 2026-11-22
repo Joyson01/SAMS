@@ -108,6 +108,23 @@ class Student(Base):
     attendance_records = relationship("AttendanceRecord", back_populates="student", cascade="all, delete-orphan")
 
 
+class StudentPortalDetails(Base):
+    """Optional institutional roster fields used by the student's own portal."""
+
+    __tablename__ = "student_portal_details"
+
+    student_id: Mapped[str] = mapped_column(
+        GUID, ForeignKey("students.id", ondelete="CASCADE"), primary_key=True
+    )
+    roster_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    branch: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    admission_academic_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    current_semester: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    college_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    mobile_number: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    discipline: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+
+
 class FaceProfile(Base):
     __tablename__ = "face_profiles"
 
