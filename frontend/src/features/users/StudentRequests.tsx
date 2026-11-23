@@ -364,6 +364,8 @@ function FaceMatchPanel({ studentName }: { studentName?: string }) {
     }
   }
 
+  const nameParts = studentName?.trim().split(/\s+/).filter(Boolean) || [];
+  const faceLabel = nameParts.length > 1 ? `${nameParts[0]} ${nameParts[nameParts.length - 1]}` : nameParts[0] || 'Your face';
   const bounds = preview?.match.face;
   const [left, top, right, bottom] = bounds?.bbox || [0, 0, 0, 0];
 
@@ -395,7 +397,7 @@ function FaceMatchPanel({ studentName }: { studentName?: string }) {
           style={{ left: 100 * left / bounds.width + '%', top: 100 * top / bounds.height + '%',
             width: 100 * (right - left) / bounds.width + '%', height: 100 * (bottom - top) / bounds.height + '%' }}>
           <span className="absolute left-0 top-0 max-w-full truncate rounded-br bg-black/80 px-1.5 py-0.5 text-xs font-semibold text-white">
-            {preview.match.matched ? studentName || 'Your face' : 'No match'}
+            {preview.match.matched ? faceLabel : 'No match'}
           </span>
         </div>
       </div>
