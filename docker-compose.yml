@@ -31,12 +31,11 @@ services:
       ENVIRONMENT: "production"
       DEBUG: "false"
       DATABASE_FALLBACK_SQLITE: "false"
+      FORWARDED_ALLOW_IPS: "*"
       LOG_LEVEL: "INFO"
       LOG_FORMAT: "json"
       SECRET_KEY: "${SECRET_KEY:?Set a unique SECRET_KEY}"
       BACKEND_CORS_ORIGINS: "${BACKEND_CORS_ORIGINS:-[]}"
-    ports:
-      - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy

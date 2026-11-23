@@ -386,6 +386,8 @@ See [.env.example](.env.example). SQLite uses `data/sams_dev.db`; PostgreSQL acc
 
 Compose requires `POSTGRES_PASSWORD` and a unique `SECRET_KEY`. Set `BACKEND_CORS_ORIGINS` to a JSON list if the frontend runs on a separate origin. Compose disables the SQLite fallback. Use the local startup scripts for development while the Alembic upgrade chain is repaired.
 
+In production, login, live frame analysis, photo inference, and video submission have separate per-IP limits shared across the API aliases. A throttled request returns HTTP 429 with a `Retry-After` header. Compose keeps the backend on its internal network and Nginx replaces incoming forwarded-client headers. For other reverse proxies, trust only the proxy that sets the client IP. Clients behind a shared IP share each quota. The limits apply to HTTP and are stored in the backend worker’s memory.
+
 InsightFace model files live in `~/.insightface/models/buffalo_l`. `python -m scripts.check_models` prints real face counts, 512-value embedding shapes and runtime providers, or manual-install instructions. `/health` reports database and AI availability without requiring login. Use **one backend worker**; the recognition gallery and stream state are in memory.
 
 `python -m scripts.seed_demo_data` optionally adds fictional academic records, idempotently, without embeddings or attendance. It is not required for the real workflow. `./start.sh --check` starts both services, verifies HTTP readiness, then stops them. Export BACKEND_PORT/FRONTEND_PORT for alternate ports. Optional `npm run dev:https` supports HTTPS development; actual phone trust/setup remains manual.

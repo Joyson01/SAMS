@@ -21,6 +21,7 @@ from backend.app.core.config import settings
 from backend.app.core.exceptions import SAMSException
 from backend.app.core.logging import logger, setup_logging
 from backend.app.core.security import require_roles
+from backend.app.core.rate_limit import RequestRateLimit
 from backend.app.database.session import check_database_connection, init_db_schema
 from backend.app.services.face_recognition_service import face_recognition_service
 
@@ -88,6 +89,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+if settings.ENVIRONMENT.lower() in {"prod", "production"}:
+    app.add_middleware(RequestRateLimit, api_prefix=settings.API_V1_STR)
+
 # Configure CORS Middleware (allowing LAN mobile browsers and desktop clients)
 app.add_middleware(
     CORSMiddleware,
@@ -95,6 +99,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Retry-After"],
 )
 
 
