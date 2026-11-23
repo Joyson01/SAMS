@@ -3,12 +3,12 @@
 @tailwind utilities;
 :root {
  color-scheme: light;
- --background: 248 249 251; --surface: 255 255 255; --surface-muted: 243 244 246;
- --border: 226 228 232; --text: 28 32 39; --text-muted: 86 94 107;
- --primary: 79 70 229; --primary-foreground: 255 255 255;
+ --background: 248 247 241; --surface: 255 255 255; --surface-muted: 239 242 234;
+ --border: 219 224 214; --text: 28 32 39; --text-muted: 86 94 107;
+ --primary: 25 99 70; --primary-foreground: 255 255 255;
  --success: 4 120 87; --warning: 146 64 14; --danger: 190 18 60; --info: 29 78 216;
  --radius-card: 1rem; --shadow-card: 0 2px 12px rgb(15 23 42 / .035); --z-header: 30; --z-dialog: 50; --z-toast: 60;
- --slate-50: 248 249 251;
+ --slate-50: 248 247 241;
  --slate-100: 243 244 246;
  --slate-200: 226 228 232;
  --slate-300: 203 213 225;
@@ -31,7 +31,7 @@
  --indigo-900: 49 46 129;
  --indigo-950: 30 27 75;
 }
-.dark { color-scheme: dark; --background: 23 25 29; --surface: 31 34 39; --surface-muted: 40 44 50; --border: 57 62 70; --text: 240 241 243; --text-muted: 174 181 192; --primary: 165 180 252; --primary-foreground: 30 27 75; --success: 110 231 183; --warning: 252 211 77; --danger: 253 164 175; --info: 147 197 253;
+.dark { color-scheme: dark; --background: 23 25 29; --surface: 31 34 39; --surface-muted: 40 44 50; --border: 57 62 70; --text: 240 241 243; --text-muted: 174 181 192; --primary: 157 226 184; --primary-foreground: 14 55 36; --success: 110 231 183; --warning: 252 211 77; --danger: 253 164 175; --info: 147 197 253;
  --slate-50: 23 25 29;
  --slate-100: 40 44 50;
  --slate-200: 57 62 70;
@@ -57,7 +57,7 @@
  .bg-white { background-color: rgb(var(--surface)); }
  .route-enter { animation: route-enter .18s cubic-bezier(0.22, 1, 0.36, 1); }
 }
-@media (min-width: 768px) { .sidebar-nav button { min-height: 36px; height: 36px; } }
+@media (min-width: 768px) { .sidebar-nav button { min-height: 44px; } }
 .lucide { stroke-width: 1.5; }
 @keyframes route-enter { from { opacity: .6; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
@@ -86,3 +86,5 @@
 .dark .bg-purple-50 { background-color: #372354; }
 .dark .text-purple-700 { color: #d8b4fe; }
 .dark .text-indigo-600 { color: rgb(var(--primary)); }
+
+.auth-brand { background: radial-gradient(ellipse at top left, #28634d, #102e24 78%); }

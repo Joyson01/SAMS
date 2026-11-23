@@ -128,7 +128,7 @@ const Workspace: React.FC = () => {
         setActiveTab={setActiveTab}
       >
         <ErrorBoundary key={activeTab} fallbackTitle={`Error in ${activeTab.toUpperCase()}`}>
-          {currentTab === 'my-attendance' && role === 'STUDENT' && <MyAttendancePage />}
+          {currentTab === 'my-attendance' && role === 'STUDENT' && <MyAttendancePage onNavigate={setActiveTab} />}
           {currentTab === 'my-timetable' && role === 'STUDENT' && <StudentTimetable />}
           {currentTab === 'classmates' && role === 'STUDENT' && <Classmates />}
           {academicTab && currentTab === 'classroom' && <ClassroomBoard />}

@@ -1,3 +1,4 @@
+import { ArrowUpRight, BookOpen, CalendarDays, UsersRound } from 'lucide-react';
 import { PeriodCalendar, type PeriodRecord } from './PeriodCalendar';
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, Users, RefreshCw } from 'lucide-react';
@@ -179,7 +180,13 @@ function AttendanceDashboard({ items, requests, onSaved }: { items: AttendanceIt
   </>;
 }
 
-export function MyAttendancePage() {
+const studentLinks = [
+  { tab: 'my-timetable', label: 'My Timetable', icon: CalendarDays },
+  { tab: 'classmates', label: 'Classmates', icon: UsersRound },
+  { tab: 'classroom', label: 'Classroom', icon: BookOpen },
+];
+
+export function MyAttendancePage({ onNavigate }: { onNavigate: (tab: string) => void }) {
   const [data, setData] = useState<PersonalAttendance | null>(null);
   const [error, setError] = useState('');
   const [requestError, setRequestError] = useState('');
@@ -205,17 +212,27 @@ export function MyAttendancePage() {
   useEffect(() => { if (linked) void loadRequests(); }, [linked, loadRequests]);
 
   return <div className="space-y-6">
-    <header>
-      <h1 className="text-2xl font-semibold">My attendance</h1>
-      <p className="mt-1 text-sm text-text-muted">Your recorded sessions and subject attendance.</p>
+    <header className="rounded-2xl border border-border bg-surface p-5 sm:p-7">
+      <h1 className="text-3xl font-semibold tracking-tight">My attendance</h1>
+      {data?.profile && <p className="mt-2 text-sm text-text-muted">{data.profile.name} · {data.profile.class_name}</p>}
+      <nav aria-label="Student shortcuts" className="mt-5 grid gap-2 sm:grid-cols-3">
+        {studentLinks.map(({ tab, label, icon: Icon }) => <button key={tab} onClick={() => onNavigate(tab)}
+          className="flex min-h-12 items-center gap-3 rounded-xl border border-border bg-surface-muted px-3 text-left text-sm font-semibold hover:border-primary hover:text-primary">
+          <Icon size={19} aria-hidden="true" className="shrink-0 text-primary" />
+          <span className="flex-1">{label}</span><ArrowUpRight size={15} aria-hidden="true" />
+        </button>)}
+      </nav>
     </header>
     {error ? <EmptyState title="Attendance unavailable" description={error} actionLabel="Retry" onAction={() => void load()} />
       : !data ? <Skeleton className="h-64" />
       : !data.linked ? <EmptyState title="Connect your student record" description="Ask your administrator to link your account using your roll number and student code." />
       : <>
-        {data.profile && <StudentDetails profile={data.profile} />}
-        {requests && <FaceRequests state={requests} onSaved={() => void loadRequests()} />}
         <PeriodCalendar records={data.items} />
+        {data.profile && <details className="rounded-xl border border-border bg-surface p-4">
+          <summary className="cursor-pointer font-semibold">Student details</summary>
+          <div className="mt-3"><StudentDetails profile={data.profile} /></div>
+        </details>}
+        {requests && <FaceRequests state={requests} onSaved={() => void loadRequests()} />}
         <AttendanceDashboard items={data.items} requests={requests} onSaved={() => void loadRequests()} />
         {requestError && <EmptyState title="Student requests unavailable" description={requestError}
           actionLabel="Retry" onAction={() => void loadRequests()} />}

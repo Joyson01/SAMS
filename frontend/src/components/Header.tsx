@@ -58,7 +58,7 @@ export const Header: React.FC<HeaderProps> = ({
         {onToggleMobileMenu && (
           <button
             onClick={onToggleMobileMenu}
-            className="md:hidden p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition"
+            className="grid min-h-11 min-w-11 place-items-center rounded-xl text-text-muted hover:bg-surface-muted md:hidden"
             title="Open Navigation"
             aria-label="Open Navigation"
           >
@@ -84,7 +84,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* RIGHT: System status, Notifications, User profile */}
       <div className="flex items-center gap-1 sm:gap-3 shrink-0">
         {role === 'STUDENT' && <details className="relative">
-          <summary aria-label="Notifications" title="Notifications" className="grid h-10 w-10 cursor-pointer list-none place-items-center rounded-lg hover:bg-slate-100 [&::-webkit-details-marker]:hidden"><Bell size={17} /></summary>
+          <summary aria-label="Notifications" title="Notifications" className="grid h-11 w-11 cursor-pointer list-none place-items-center rounded-lg hover:bg-slate-100 [&::-webkit-details-marker]:hidden"><Bell size={17} /></summary>
           <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-border bg-surface p-3 text-text shadow-lg">
             <h2 className="text-sm font-semibold">Notifications</h2>
             <p className="mt-2 text-sm"><strong>Admin</strong> · Hello</p>

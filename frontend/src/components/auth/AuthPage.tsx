@@ -1,5 +1,6 @@
+import mascot from "../../assets/atted-mascot.webp";
 import React, { FormEvent, useEffect, useState } from 'react';
-import { Eye, EyeOff, GraduationCap } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 import { login, register, bootstrapAdmin } from '../../services/authApi';
 import { formatApiErrorMessage } from '../../utils/apiError';
 import { Button } from '../ui';
@@ -26,15 +27,17 @@ export const AuthPage: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
     } catch (e) { setError(formatApiErrorMessage(e, 'Unable to sign in or create the account.')); }
     finally { setBusy(false); }
   };
-  return <main className="flex min-h-screen items-center justify-center bg-background px-5 py-10 text-text">
-    <section className="w-full max-w-md rounded-xl border border-border bg-surface p-6 sm:p-9">
-      <div className="mb-8 flex items-center gap-3 border-b border-border pb-5">
-        <span className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-primary-foreground">
-          <GraduationCap size={21} aria-hidden="true"/>
-        </span>
-        <span className="font-semibold tracking-tight">AttedDEL</span>
-      </div>
-      <h1 className="mb-5 text-2xl font-semibold tracking-tight">{mode === 'login' ? 'Portal sign in' : mode === 'setup' ? 'First administrator' : 'Create your account'}</h1>
+  return <main className="flex min-h-screen items-center justify-center bg-background px-4 py-6 sm:px-8 text-text">
+    <div className="grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-border bg-surface shadow-card lg:grid-cols-[1fr_1.02fr]">
+      <aside className="auth-brand flex items-center gap-4 px-6 py-5 text-[#f5eddb] sm:px-10 lg:flex-col lg:items-start lg:justify-center lg:gap-8 lg:p-12">
+        <img src={mascot} alt="" width="512" height="512" className="h-16 w-16 shrink-0 lg:h-56 lg:w-56" />
+        <div>
+          <p className="text-2xl font-semibold tracking-tight lg:text-5xl">AttedDEL</p>
+          <p className="mt-1 text-sm text-[#d9e7d3] lg:mt-3 lg:text-lg">College attendance and classroom portal</p>
+        </div>
+      </aside>
+      <section className="self-center p-6 sm:p-10 lg:p-12">
+        <h1 className="mb-6 text-3xl font-semibold tracking-tight">{mode === 'login' ? 'Sign in' : mode === 'setup' ? 'First administrator' : 'Create your account'}</h1>
       {mode === 'setup' && <p className="mb-5 text-sm text-text-muted">Production setup requires a bootstrap token.</p>}
       <form onSubmit={submit} className="space-y-5">
         {(['username', ...(mode !== 'login' ? ['full_name', 'email'] : []), 'password', ...(mode === 'setup' ? ['bootstrap_token'] : [])] as (keyof typeof form)[]).map(key => <div key={key}><label htmlFor={`auth-${key}`} className="mb-2 block text-sm font-medium">{key === 'username' && mode === 'login' ? 'Username, email, or Student User ID' : <span className="capitalize">{key.replace('_', ' ')}</span>}{key === 'bootstrap_token' && <span className="ml-1 text-xs font-normal text-text-muted">if required</span>}</label><div className="relative">
@@ -54,6 +57,7 @@ export const AuthPage: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
           }}>Sign in</button>
         </nav>
       )}
-    </section>
+      </section>
+    </div>
   </main>;
 };
