@@ -1,9 +1,10 @@
 # API route inventory
 
-Generated from the current FastAPI OpenAPI schema. Schema presence alone is not proof that every route was exercised. See FINAL_REPORT.md for verified commands.
+Generated from the current FastAPI OpenAPI schema. See the [go-live guide](GO_LIVE.md) for verification steps.
 
 | Method | Path | Summary |
 |---|---|---|
+| GET | `/` | Root |
 | POST | `/api/v1/attendance/manual` | Record Manual Attendance or Excused Absence |
 | POST | `/api/v1/attendance/recognize-frame` | Recognize Faces and Mark Attendance from Camera Frame |
 | POST | `/api/v1/attendance/recognize-image` | Recognize Faces and Mark Attendance from Captured/Uploaded Photo |
@@ -48,7 +49,13 @@ Generated from the current FastAPI OpenAPI schema. Schema presence alone is not 
 | GET | `/api/v1/classes/{class_id}/subjects` | Class Subjects |
 | GET | `/api/v1/classes/{class_id}/timetable` | Get Class Timetable |
 | POST | `/api/v1/classes/{class_id}/timetable` | Add Timetable Slot |
+| GET | `/api/v1/classroom` | Board |
+| POST | `/api/v1/classroom` | Publish |
+| PUT | `/api/v1/classroom/{post_id}/submission` | Turn In |
+| GET | `/api/v1/classroom/{post_id}/submissions` | Review Submissions |
 | GET | `/api/v1/dashboard/summary` | Consolidated Dashboard Summary |
+| GET | `/api/v1/department/overview` | Overview |
+| POST | `/api/v1/detection/photo` | Detect Photo |
 | GET | `/api/v1/health` | System and Database Health Check |
 | POST | `/api/v1/media-attendance/analyze-image` | Diagnostic Face Detection & Recognition on Image |
 | POST | `/api/v1/media-attendance/image` | Analyze Static Image for Attendance |
@@ -78,14 +85,34 @@ Generated from the current FastAPI OpenAPI schema. Schema presence alone is not 
 | POST | `/api/v1/recognition/thresholds` | Update Similarity Thresholds (POST) |
 | PUT | `/api/v1/recognition/thresholds` | Update Similarity Thresholds |
 | GET | `/api/v1/reports/analytics` | Get Institutional Attendance Analytics |
-| GET | `/api/v1/reports/export/csv` | Export Attendance Records to CSV |
+| GET | `/api/v1/reports/export/{file_format}` | Export attendance records |
 | GET | `/api/v1/reports/summary` | Get Institutional Attendance Analytics Summary Alias |
+| GET | `/api/v1/semester-results/mine` | Own Results |
+| GET | `/api/v1/semester-results/students` | Roster |
+| GET | `/api/v1/semester-results/students/{student_id}` | Staff Sheet |
+| PUT | `/api/v1/semester-results/students/{student_id}` | Publish |
+| GET | `/api/v1/student-portal/classmates` | Classmates |
+| GET | `/api/v1/student-portal/classmates/inbox` | Inbox |
+| POST | `/api/v1/student-portal/classmates/{peer_id}/attachments` | Send Attachment |
+| GET | `/api/v1/student-portal/classmates/{peer_id}/attachments/{message_id}` | Download Attachment |
+| GET | `/api/v1/student-portal/classmates/{peer_id}/messages` | Messages |
+| POST | `/api/v1/student-portal/classmates/{peer_id}/messages` | Send Message |
+| POST | `/api/v1/student-portal/corrections` | Submit Correction |
+| POST | `/api/v1/student-portal/face` | Submit Face |
+| POST | `/api/v1/student-portal/face/check` | Check Face Pose |
+| POST | `/api/v1/student-portal/face/match` | Test Face Match |
+| GET | `/api/v1/student-portal/requests` | Student Requests |
+| GET | `/api/v1/student-portal/review` | Review Queue |
+| POST | `/api/v1/student-portal/review/{request_id}` | Review Request |
+| GET | `/api/v1/student-portal/timetable` | Student Timetable |
 | GET | `/api/v1/students` | List Students with Search and Filters |
 | POST | `/api/v1/students` | Register a New Student |
+| POST | `/api/v1/students/import-roster` | Import Roster |
 | GET | `/api/v1/students/stats` | Student Metrics Summary |
 | DELETE | `/api/v1/students/{student_id}` | Delete Student |
 | GET | `/api/v1/students/{student_id}` | Get Student Details |
 | PUT | `/api/v1/students/{student_id}` | Update Student Profile |
+| DELETE | `/api/v1/students/{student_id}/enroll` | Remove a student's face data |
 | POST | `/api/v1/students/{student_id}/enroll` | Capture & Enroll Face Sample |
 | POST | `/api/v1/students/{student_id}/enroll/check` | Check Enrollment |
 | GET | `/api/v1/students/{student_id}/enroll/status` | Get Enrollment Status |
@@ -98,3 +125,6 @@ Generated from the current FastAPI OpenAPI schema. Schema presence alone is not 
 | POST | `/api/v1/sync/push` | Push Batch Events from Edge |
 | GET | `/api/v1/sync/status` | Get Sync Queue Status |
 | POST | `/api/v1/sync/trigger` | Trigger Sync Flush |
+| GET | `/api/v1/teacher-assignments/{teacher_id}` | Get Assignments |
+| PUT | `/api/v1/teacher-assignments/{teacher_id}` | Save Assignments |
+| GET | `/health` | Root Health |

@@ -314,7 +314,7 @@ Operational limits also matter: SQLite has write-concurrency constraints, phone 
 Install Python 3.11–3.13 (3.11 tested), or Python plus uv; install Node.js 20+ and npm. Clone the current application branch:
 
 ```bash
-git clone --branch joyson https://github.com/Joyson01/SAMS.git
+git clone --branch codex/college-readiness-audit https://github.com/Joyson01/SAMS.git
 cd SAMS
 ```
 
@@ -330,7 +330,7 @@ The standard launcher enables authentication even if a previous local session us
 
 An empty development database gets **admin / Admin@12345**. Change that password in Users immediately; resetting a password revokes sessions. Alternative first-admin methods: `/setup` or, inside the app virtual environment, `python -m scripts.create_admin`. Setup works only while no ADMIN exists; outside development it also requires BOOTSTRAP_TOKEN. No development account is seeded in production, and the default development administrator password is rejected there.
 
-Create a class/subject in Courses & Rooms, add students, then select Enroll on your student. Complete the guided poses and open Recognition Test. Live Attendance lets you create/select a session and use the built-in webcam without registering a separate camera. Finish marks unrecorded roster members absent. Reports exports CSV. Student accounts use My Attendance after an administrator links their roll number and student code.
+Create a class/subject in Courses & Rooms, add students, then select Enroll on your student. Complete the guided poses and open Recognition Test. Live Attendance lets you create/select a session and use the built-in webcam without registering a separate camera. Finish marks unrecorded roster members absent. Reports exports CSV, Excel, and PDF. Student accounts use My Attendance after an administrator links their roll number and student code.
 
 ## Anonymous photo detection
 
@@ -449,4 +449,4 @@ These references explain the underlying methods. Their research results are not 
 - [Attendance service](backend/app/services/attendance_service.py) — session closure, record updates and manual corrections.
 - [UI direction and validation](docs/UNSLOP_DIRECTION.md) — design decisions and the scope of browser checks.
 
-Documentation describes the inspected `joyson` application as of November 16, 2026. Configuration and source code take precedence over illustrative diagrams; older reports describe their own recorded runs.
+The college-readiness branch contains the current portal, chat, photo review, and reporting workflows. Dated reports document earlier releases and their own verification results.

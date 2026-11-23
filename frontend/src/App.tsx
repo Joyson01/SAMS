@@ -32,11 +32,20 @@ const Classmates = React.lazy(() => import('./components/Classmates').then(modul
 const ClassroomBoard = React.lazy(() => import('./components/ClassroomBoard'));
 const SemesterResults = React.lazy(() => import('./components/SemesterResults').then(module => ({ default: module.SemesterResults })));
 
+function initialTab(pathname: string) {
+  switch (pathname) {
+    case '/anonymous-detection': return 'anonymous-detection';
+    case '/recognition-test': return 'recognition-test';
+    case '/mobile-enrollment': return 'enrollment';
+    default: return 'dashboard';
+  }
+}
+
 const Workspace: React.FC = () => {
   const pathname = window.location.pathname;
   const authBypass = import.meta.env.VITE_AUTH_BYPASS === 'true';
 
-  const [activeTab, setActiveTab] = useState<string>(pathname === '/anonymous-detection' ? 'anonymous-detection' : pathname === '/recognition-test' ? 'recognition-test' : pathname === '/mobile-enrollment' ? 'enrollment' : 'dashboard');
+  const [activeTab, setActiveTab] = useState(() => initialTab(pathname));
   const [chatSelection, setChatSelection] = useState<{ peerId: string }>();
   const [enrollingStudentId, setEnrollingStudentId] = useState<string | undefined>(new URLSearchParams(location.search).get("student_id") || undefined);
   const [healthData, setHealthData] = useState<ServiceHealthResponse | null>(null);
@@ -89,6 +98,7 @@ const Workspace: React.FC = () => {
   const currentTab = academicTab ? activeTab
     : role === 'STUDENT' ? (['classmates', 'my-timetable'].includes(activeTab) ? activeTab : 'my-attendance')
     : role === 'HOD' ? 'department'
+    : (activeTab === 'recognition-test' || activeTab === 'anonymous-detection') && !['ADMIN', 'FACULTY'].includes(role) ? 'dashboard'
     : role === 'FACULTY' && activeTab === 'dashboard' ? 'attendance' : activeTab;
 
   const handleNavigate = (tab: string, studentId?: string) => {
@@ -103,7 +113,19 @@ const Workspace: React.FC = () => {
   }
 
   if (!isAuthenticated) {
-    return <AuthPage onLogin={() => { void getCurrentUser().then(user => { setRole(user.role); setUserName(user.full_name); setIsAuthenticated(true); }); }} />;
+    return <AuthPage onLogin={async () => {
+      try {
+        const user = await getCurrentUser();
+        setRole(user.role);
+        setUserName(user.full_name);
+        setActiveTab(initialTab(window.location.pathname));
+        setChatSelection(undefined);
+        setIsAuthenticated(true);
+      } catch (error) {
+        clearAuthTokens();
+        throw error;
+      }
+    }} />;
   }
 
   const handleLogout = async () => {
@@ -137,12 +159,12 @@ const Workspace: React.FC = () => {
           {academicTab && currentTab === 'semester-results' && <SemesterResults studentView={role === 'STUDENT'} />}
           {currentTab === 'department' && role === 'HOD' && <DepartmentPage />}
           {role !== 'STUDENT' && role !== 'HOD' && <>
-          {activeTab === 'recognition-test' && ['ADMIN','FACULTY'].includes(role) && <RecognitionTestPage />}
-          {activeTab === 'anonymous-detection' && ['ADMIN','FACULTY'].includes(role) && <AnonymousDetectionPage />}
-          {activeTab === 'users' && role === 'ADMIN' && <UsersPage />}
-          {activeTab === 'dashboard' && role !== 'FACULTY' && <DashboardOverview onNavigate={handleNavigate} />}
-          {activeTab === 'students' && <StudentListPage onNavigate={handleNavigate} canManage={role === 'ADMIN' || role === 'OPERATOR'} />}
-          {activeTab === 'subjects' && role === 'ADMIN' && <><SubjectManagementPage onNavigate={handleNavigate} /><AcademicTools /></>}
+          {currentTab === 'recognition-test' && ['ADMIN','FACULTY'].includes(role) && <RecognitionTestPage />}
+          {currentTab === 'anonymous-detection' && ['ADMIN','FACULTY'].includes(role) && <AnonymousDetectionPage />}
+          {currentTab === 'users' && role === 'ADMIN' && <UsersPage />}
+          {currentTab === 'dashboard' && role !== 'FACULTY' && <DashboardOverview onNavigate={handleNavigate} />}
+          {currentTab === 'students' && <StudentListPage onNavigate={handleNavigate} canManage={role === 'ADMIN' || role === 'OPERATOR'} />}
+          {currentTab === 'subjects' && role === 'ADMIN' && <><SubjectManagementPage onNavigate={handleNavigate} /><AcademicTools /></>}
           {activeTab === 'timetable' && <><TimetablePage onNavigate={handleNavigate} canEdit={role === 'ADMIN'} />{role === 'ADMIN' && <TimetableEditor />}</>}
           {activeTab === 'enrollment' && (
             <FaceEnrollmentPage

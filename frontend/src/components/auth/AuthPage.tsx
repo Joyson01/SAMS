@@ -5,7 +5,7 @@ import { login, register, bootstrapAdmin } from '../../services/authApi';
 import { formatApiErrorMessage } from '../../utils/apiError';
 import { Button } from '../ui';
 
-export const AuthPage: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
+export const AuthPage: React.FC<{ onLogin: () => Promise<void> }> = ({ onLogin }) => {
   const [mode, setMode] = useState(window.location.pathname === '/setup' ? 'setup' : window.location.pathname === '/register' ? 'register' : 'login');
   useEffect(() => {
     if (window.location.pathname === '/student-login') {
@@ -23,7 +23,8 @@ export const AuthPage: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
       if (mode === 'register') await register(form);
       if (mode === 'setup') await bootstrapAdmin(form);
       await login(form.username.trim(), form.password);
-      history.replaceState(null, '', '/'); onLogin();
+      await onLogin();
+      history.replaceState(null, '', '/');
     } catch (e) { setError(formatApiErrorMessage(e, 'Unable to sign in or create the account.')); }
     finally { setBusy(false); }
   };
