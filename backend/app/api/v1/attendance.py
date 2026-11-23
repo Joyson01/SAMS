@@ -2,7 +2,10 @@ from datetime import date
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from backend.app.core.security import require_roles, get_current_user
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from backend.app.core.teacher_access import require_class_access, require_session_access
+from backend.app.models.entities import AttendanceRecord, AttendanceSession, ClassSection, User
 
 from backend.app.database.session import get_db
 from backend.app.schemas.attendance import (
@@ -21,6 +24,17 @@ from backend.app.services.attendance_service import AttendanceService
 router = APIRouter(prefix="/attendance", tags=["Attendance Management"], dependencies=[Depends(require_roles("ADMIN", "FACULTY", "OPERATOR"))])
 
 
+async def require_roster_access(db: AsyncSession, user: User, session_id: str, student_ids: set[str]):
+    await require_session_access(db, user, session_id)
+    if user.role == "FACULTY":
+        from backend.app.services.photo_attendance_service import eligible_photo_students
+
+        session = await db.get(AttendanceSession, session_id)
+        roster = await eligible_photo_students(db, session)
+        if not student_ids.issubset({student.id for student in roster}):
+            raise HTTPException(403, "Select a student on the assigned session roster.")
+
+
 @router.post(
     "/sessions",
     response_model=SessionResponse,
@@ -31,8 +45,15 @@ router = APIRouter(prefix="/attendance", tags=["Attendance Management"], depende
 async def create_session(
     session_in: SessionCreate,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> SessionResponse:
-    session = await AttendanceService.create_session(db, session_in)
+    if user.role == "FACULTY":
+        class_id = session_in.class_id or await db.scalar(
+            select(ClassSection.id).where(ClassSection.name == session_in.class_name)
+        )
+        await require_class_access(db, user, class_id)
+        session_in = session_in.model_copy(update={"class_id": class_id})
+    session = await AttendanceService.create_session(db, session_in, creator_user_id=user.id)
     return await AttendanceService.get_session_by_id(db, session.id)
 
 
@@ -51,6 +72,7 @@ async def list_sessions(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> List[SessionResponse]:
     sessions, _ = await AttendanceService.list_sessions(
         db=db,
@@ -61,6 +83,7 @@ async def list_sessions(
         scheduled_date=scheduled_date,
         page=page,
         page_size=page_size,
+        teacher_id=user.id if user.role == "FACULTY" else None,
     )
     return sessions
 
@@ -74,7 +97,9 @@ async def list_sessions(
 async def get_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> SessionResponse:
+    await require_session_access(db, user, session_id)
     return await AttendanceService.get_session_by_id(db, session_id)
 
 
@@ -87,7 +112,9 @@ async def get_session(
 async def start_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> SessionResponse:
+    await require_session_access(db, user, session_id)
     return await AttendanceService.start_session(db, session_id)
 
 
@@ -101,7 +128,9 @@ async def close_session(
     session_id: str,
     auto_mark_absent: bool = Query(True, description="Whether to automatically populate ABSENT records for unverified class students"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> SessionResponse:
+    await require_session_access(db, user, session_id)
     res = await AttendanceService.close_session(db, session_id, auto_mark_absent=auto_mark_absent)
     from backend.app.services.recognition_service import RecognitionService
     RecognitionService.reset_stream_state(session_id=session_id)
@@ -118,7 +147,9 @@ async def mark_attendance(
     session_id: str,
     payload: AttendanceMarkPayload,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> AttendanceRecordResponse:
+    await require_roster_access(db, user, session_id, {payload.student_id})
     return await AttendanceService.mark_attendance(db, session_id, payload)
 
 
@@ -132,7 +163,9 @@ async def batch_mark_attendance(
     session_id: str,
     payload: BatchAttendanceMarkPayload,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> List[AttendanceRecordResponse]:
+    await require_roster_access(db, user, session_id, {item.student_id for item in payload.records})
     results = []
     for item in payload.records:
         rec = await AttendanceService.mark_attendance(db, session_id, item)
@@ -150,7 +183,9 @@ async def get_session_records(
     session_id: str,
     status: Optional[str] = Query(None, description="Filter by status (PRESENT, LATE, ABSENT, MANUAL_PRESENT, MANUAL_ABSENT)"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> List[AttendanceRecordResponse]:
+    await require_session_access(db, user, session_id)
     return await AttendanceService.get_session_records(db, session_id, status=status)
 
 
@@ -166,7 +201,9 @@ async def mark_manual_attendance(
     status: str = Query("PRESENT", description="Status (PRESENT, ABSENT, LATE, EXCUSED)"),
     remarks: str = Query("Manual Attendance", description="Optional remarks or leave reason"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> AttendanceRecordResponse:
+    await require_roster_access(db, user, session_id, {student_id})
     return await AttendanceService.mark_manual_attendance(
         db=db,
         session_id=session_id,
@@ -186,8 +223,14 @@ async def override_record(
     record_id: str,
     override_in: AttendanceOverridePayload,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> AttendanceRecordResponse:
-    return await AttendanceService.override_record(db, record_id, override_in)
+    if user.role == "FACULTY":
+        session_id = await db.scalar(select(AttendanceRecord.session_id).where(AttendanceRecord.id == record_id))
+        if session_id is None:
+            raise HTTPException(404, "Attendance record not found.")
+        await require_session_access(db, user, session_id)
+    return await AttendanceService.override_record(db, record_id, override_in, user_id=user.id)
 
 
 @router.get(
@@ -197,7 +240,10 @@ async def override_record(
 )
 async def get_session_presence(
     session_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
+    await require_session_access(db, user, session_id)
     from backend.app.services.presence_service import presence_manager
     return presence_manager.get_session_presence(session_id)
 
@@ -211,7 +257,9 @@ async def get_session_presence(
 async def get_session_roster(
     session_id: str,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> SessionRosterResponse:
+    await require_session_access(db, user, session_id)
     return await AttendanceService.get_session_roster(db, session_id)
 
 
@@ -224,7 +272,10 @@ async def get_session_roster(
 async def get_student_attendance(
     student_id: str,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
+    if user.role == "FACULTY":
+        raise HTTPException(403, "Use the assigned class session roster to review attendance.")
     return await AttendanceService.get_student_attendance_history(db, student_id)
 
 
@@ -263,7 +314,6 @@ async def recognize_frame_or_image_attendance(
 ):
     import cv2
     from backend.app.services.photo_attendance_service import decode_photo
-    from backend.app.models.entities import AttendanceSession
 
     target_session_id = session_id or sessionId
     if not target_session_id or target_session_id.strip() == "":
@@ -272,9 +322,9 @@ async def recognize_frame_or_image_attendance(
             detail="Please select an attendance session before recognizing photo.",
         )
 
-    # 1. Validate Session
-    from sqlalchemy import select
+    await require_session_access(db, user, target_session_id.strip())
 
+    # 1. Validate Session
     sess_res = await db.execute(
         select(AttendanceSession).where(
             AttendanceSession.id == target_session_id.strip()

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.exceptions import SAMSException
 from backend.app.database.session import get_db
+from backend.app.models.entities import User
 from backend.app.schemas.class_section import (
     ClassSectionCreate,
     ClassSectionResponse,
@@ -46,12 +47,14 @@ async def list_classes(
     semester: Optional[int] = Query(None, description="Filter by semester"),
     status: Optional[str] = Query(None, description="Filter by status (ACTIVE, INACTIVE)"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> List[ClassSectionResponse]:
     return await ClassService.list_classes(
         db=db,
         department=department,
         semester=semester,
         status=status,
+        teacher_id=user.id if user.role == "FACULTY" else None,
     )
 
 

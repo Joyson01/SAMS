@@ -15,6 +15,7 @@ from backend.app.core.exceptions import (
     StudentNotFoundError,
 )
 from backend.app.core.logging import logger
+from backend.app.core.teacher_access import assigned_classes
 from backend.app.models.entities import AttendanceRecord, AttendanceSession, AuditLog, ClassSection, Student, Subject
 from backend.app.schemas.attendance import (
     AttendanceMarkPayload,
@@ -202,10 +203,13 @@ class AttendanceService:
         scheduled_date: Optional[date] = None,
         page: int = 1,
         page_size: int = 20,
+        teacher_id: str | None = None,
     ) -> Tuple[List[SessionResponse], int]:
         """Lists attendance sessions with filtering and pagination."""
         query = select(AttendanceSession)
         filters = []
+        if teacher_id is not None:
+            filters.append(AttendanceSession.class_id.in_(assigned_classes(teacher_id)))
 
         if class_name:
             filters.append(AttendanceSession.class_name == class_name)

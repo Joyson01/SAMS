@@ -152,14 +152,14 @@ def require_roles(*allowed_roles: str):
     return role_checker
 
 
-async def authenticate_staff_socket(websocket: WebSocket, db: AsyncSession) -> None:
+async def authenticate_staff_socket(websocket: WebSocket, db: AsyncSession) -> User:
     """Require a staff bearer token without placing it in the WebSocket URL."""
     if settings.AUTH_BYPASS and settings.ENVIRONMENT == "development":
-        await _development_user(db)
-        return
+        return await _development_user(db)
     protocols = websocket.scope.get("subprotocols", [])
     if len(protocols) != 2 or protocols[0] != "sams-auth":
         raise _unauthorized("Staff authentication required.")
     user = await _resolve_user(protocols[1], db)
     if user.role not in {"ADMIN", "FACULTY", "OPERATOR"}:
         raise HTTPException(403, "A staff account is required.")
+    return user

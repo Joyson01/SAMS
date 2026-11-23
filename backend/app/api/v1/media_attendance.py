@@ -5,6 +5,8 @@ import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from backend.app.core.security import require_roles, get_current_user
+from backend.app.core.teacher_access import require_session_access
+from backend.app.models.entities import MediaProcessingJob, User
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.logging import logger
@@ -38,7 +40,9 @@ router = APIRouter(prefix="/media-attendance", tags=["Media Attendance"], depend
 async def validate_session_biometrics(
     session_id: str,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> SessionBiometricValidationResponse:
+    await require_session_access(db, user, session_id)
     try:
         return await MediaAttendanceService.validate_session_biometrics(db, session_id)
     except SessionNotFoundError as err:
@@ -124,6 +128,7 @@ async def analyze_image_attendance(
             detail="Please select an attendance session before processing image.",
         )
 
+    await require_session_access(db, user, target_session_id.strip())
     upload_file = file or image or photo
     if upload_file is None:
         raise HTTPException(
@@ -174,6 +179,7 @@ async def process_video_attendance(
     video: Optional[UploadFile] = File(None, description="Recorded video file alias"),
     clip: Optional[UploadFile] = File(None, description="Recorded video file alias"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> MediaJobResponse:
     target_session_id = session_id or sessionId
     if not target_session_id or target_session_id.strip() == "":
@@ -182,6 +188,7 @@ async def process_video_attendance(
             detail="Please select an attendance session before uploading video.",
         )
 
+    await require_session_access(db, user, target_session_id.strip())
     upload_file = file or video or clip
     if upload_file is None:
         raise HTTPException(
@@ -246,8 +253,14 @@ async def list_media_jobs(
     session_id: Optional[str] = Query(None, description="Filter by attendance session"),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> List[MediaJobResponse]:
-    return await MediaAttendanceService.list_jobs(db, session_id=session_id, limit=limit)
+    if session_id:
+        await require_session_access(db, user, session_id)
+    return await MediaAttendanceService.list_jobs(
+        db, session_id=session_id, limit=limit,
+        teacher_id=user.id if user.role == "FACULTY" else None,
+    )
 
 
 @router.get(
@@ -258,10 +271,12 @@ async def list_media_jobs(
 async def get_media_job(
     job_id: str,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> MediaJobResponse:
     job = await MediaAttendanceService.get_job_by_id(db, job_id)
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media job not found.")
+    await require_session_access(db, user, job.session_id)
     return job
 
 
@@ -273,10 +288,12 @@ async def get_media_job(
 async def get_media_job_results(
     job_id: str,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     job = await MediaAttendanceService.get_job_by_id(db, job_id)
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media job not found.")
+    await require_session_access(db, user, job.session_id)
     return {
         "job": job.model_dump(),
         "summary": job.summary_json or {},
@@ -290,7 +307,13 @@ async def get_media_job_results(
 async def cancel_media_job(
     job_id: str,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
+    if user.role == "FACULTY":
+        job = await db.get(MediaProcessingJob, job_id)
+        if job is None:
+            raise HTTPException(404, "Media job not found.")
+        await require_session_access(db, user, job.session_id)
     cancelled = await MediaAttendanceService.cancel_job(db, job_id)
     if not cancelled:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job could not be cancelled or was not active.")
@@ -305,7 +328,13 @@ async def cancel_media_job(
 async def delete_media_job(
     job_id: str,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
+    if user.role == "FACULTY":
+        job = await db.get(MediaProcessingJob, job_id)
+        if job is None:
+            raise HTTPException(404, "Media job not found.")
+        await require_session_access(db, user, job.session_id)
     deleted = await MediaAttendanceService.delete_job(db, job_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media job not found.")

@@ -4,6 +4,7 @@ from sqlalchemy import and_, func, select, delete
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.core.teacher_access import assigned_classes
 from backend.app.core.exceptions import SAMSException
 from backend.app.core.logging import logger
 from backend.app.models.entities import AttendanceSession, ClassSection, ClassSubject, Student, Subject, TimetableEntry
@@ -100,10 +101,13 @@ class ClassService:
         department: Optional[str] = None,
         semester: Optional[int] = None,
         status: Optional[str] = None,
+        teacher_id: str | None = None,
     ) -> List[ClassSectionResponse]:
         """Lists registered class sections."""
         query = select(ClassSection)
         filters = []
+        if teacher_id is not None:
+            filters.append(ClassSection.id.in_(assigned_classes(teacher_id)))
         if department:
             filters.append(ClassSection.department.ilike(f"%{department}%"))
         if semester:

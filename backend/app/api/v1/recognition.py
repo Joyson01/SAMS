@@ -1,6 +1,8 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from backend.app.core.security import require_roles, get_current_user
+from backend.app.core.teacher_access import require_session_access
+from backend.app.models.entities import User
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
@@ -27,11 +29,13 @@ async def process_recognition_image(
     session_id: Optional[str] = Query(None, description="Optional active session ID for attendance logging"),
     camera_id: Optional[str] = Query(None, description="Optional camera identifier"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> RecognitionResponse:
     from backend.app.services.attendance_service import AttendanceService
     from backend.app.schemas.attendance import AttendanceMarkPayload
 
     if session_id:
+        await require_session_access(db, user, session_id)
         from backend.app.models.entities import AttendanceSession
         await AttendanceService.lock_session(db, session_id)
         session = await db.get(AttendanceSession, session_id)

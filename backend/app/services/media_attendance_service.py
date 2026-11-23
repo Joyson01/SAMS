@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.core.config import settings
+from backend.app.core.teacher_access import assigned_classes
 from backend.app.models.entities import (
     AttendanceRecord,
     AttendanceSession,
@@ -454,6 +455,7 @@ class MediaAttendanceService:
         db: AsyncSession,
         session_id: Optional[str] = None,
         limit: int = 50,
+        teacher_id: str | None = None,
     ) -> List[MediaJobResponse]:
         """Lists historical media processing jobs ordered by creation date."""
         query = (
@@ -464,6 +466,11 @@ class MediaAttendanceService:
         )
         if session_id:
             query = query.where(MediaProcessingJob.session_id == session_id)
+
+        if teacher_id is not None:
+            query = query.join(MediaProcessingJob.session).where(
+                AttendanceSession.class_id.in_(assigned_classes(teacher_id))
+            )
 
         res = await db.execute(query)
         jobs = res.scalars().all()

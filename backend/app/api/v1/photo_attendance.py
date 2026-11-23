@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.security import get_current_user
+from backend.app.core.teacher_access import require_session_access
 from backend.app.database.session import get_db
 from backend.app.models.entities import User
 from backend.app.services.attendance_service import AttendanceService
@@ -56,6 +57,7 @@ async def preview(
         images = form.getlist("images")
         if not isinstance(session_id, str) or not 1 <= len(images) <= 3:
             raise HTTPException(400, "Select a session and one to three photos")
+        await require_session_access(db, user, session_id)
         uploads = []
         for image in images:
             if not hasattr(image, "read"):
@@ -74,6 +76,7 @@ async def confirm(
     user: User = Depends(get_current_user),
 ):
     staff(user)
+    await require_session_access(db, user, payload.session_id)
     try:
         return await AttendanceService.confirm_photo_attendance(
             db, payload.session_id, payload.selections, user.id

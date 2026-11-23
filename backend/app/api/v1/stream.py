@@ -51,7 +51,9 @@ async def websocket_live_stream(
     """Real-time bi-directional WebSocket streaming camera frames and returning bounding boxes, telemetry, and automated attendance marking."""
     try:
         async with AsyncSessionLocal() as db:
-            await authenticate_staff_socket(websocket, db)
+            user = await authenticate_staff_socket(websocket, db)
+            if user.role == "FACULTY":
+                raise HTTPException(403, "Use the direct device camera for faculty attendance.")
     except HTTPException:
         await websocket.close(code=1008)
         return
