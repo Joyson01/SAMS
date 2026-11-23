@@ -90,6 +90,24 @@ type AttendanceItem = PeriodRecord & { remarks: string | null };
 type PersonalAttendance = { linked: boolean; profile?: StudentProfile; items: AttendanceItem[] };
 const presenceStatuses = new Set(['PRESENT', 'LATE', 'MANUAL_PRESENT']);
 
+function downloadAttendance(items: AttendanceItem[]) {
+  const escapeCell = (value: string) => {
+    const safe = /^[\s]*[=+@-]|^[\t\r\n]/.test(value) ? "'" + value : value;
+    return '"' + safe.replace(/"/g, '""') + '"';
+  };
+  const rows = [
+    ['Date', 'Start', 'End', 'Subject', 'Status'],
+    ...items.map(row => [row.date, row.start_time || '', row.end_time || '', row.subject, row.status]),
+  ];
+  const csv = rows.map(row => row.map(escapeCell).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'my-attendance.csv';
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function AttendanceDashboard({ items, requests, onSaved }: { items: AttendanceItem[]; requests: RequestState | null; onSaved: () => void }) {
   const [subject, setSubject] = useState('');
   const [from, setFrom] = useState('');
@@ -115,7 +133,10 @@ function AttendanceDashboard({ items, requests, onSaved }: { items: AttendanceIt
 
   return <>
     <section className="space-y-5 rounded-xl border border-border bg-surface p-6">
-      <h2 className="font-semibold">Attendance overview</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-semibold">Attendance overview</h2>
+        <Button variant="secondary" disabled={!total} onClick={() => downloadAttendance(filtered)}>Download CSV</Button>
+      </div>
       <div className="grid gap-4 sm:grid-cols-3">
         <label className="block text-sm font-medium">Subject
           <select className={fieldClass} value={subject} onChange={event => setSubject(event.target.value)}>
@@ -133,7 +154,17 @@ function AttendanceDashboard({ items, requests, onSaved }: { items: AttendanceIt
       {!datesValid && <p role="alert" className="text-sm text-danger">Choose an end date on or after the start date.</p>}
       {datesValid && total === 0 && <p className="text-sm text-text-muted">No sessions match these filters.</p>}
       {total > 0 && <>
-        <p><strong>{percentage}%</strong> · {attended} of {total} recorded sessions attended</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            { label: 'Attendance', value: percentage + '%' },
+            { label: 'Sessions attended', value: attended },
+            { label: 'Absences', value: filtered.filter(row => row.status === 'ABSENT' || row.status === 'MANUAL_ABSENT').length },
+            { label: 'Recorded sessions', value: total },
+          ].map(metric => <div key={metric.label} className="rounded-xl bg-surface-muted p-3">
+            <p className="text-xs font-medium text-text-muted">{metric.label}</p>
+            <p className="mt-1 text-xl font-semibold">{metric.value}</p>
+          </div>)}
+        </div>
         {attended * 100 < 75 * total && (
           <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-900">
             Attendance in this view is below 75%. Review the sessions below and request a correction if a mark is incorrect.
@@ -171,7 +202,7 @@ function AttendanceDashboard({ items, requests, onSaved }: { items: AttendanceIt
         {filtered.map(row => <article key={row.id} className="flex flex-wrap items-center justify-between gap-3 p-5">
           <div>
             <h3 className="text-sm font-medium">{row.subject}</h3>
-            <p className="text-xs text-text-muted">{row.date}{row.remarks ? ` · ${row.remarks}` : ''}</p>
+            <p className="text-xs text-text-muted">{row.date}{row.start_time && row.end_time ? ' · ' + row.start_time.slice(0, 5) + '–' + row.end_time.slice(0, 5) : ''}{row.remarks ? ` · ${row.remarks}` : ''}</p>
           </div>
           <StatusBadge status={row.status} category="attendance" />
           {requests && <CorrectionForm record={row} request={requests.items.find(req => req.record_id === row.id)} onSaved={onSaved} />}

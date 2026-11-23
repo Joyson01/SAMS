@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, Check, Upload } from 'lucide-react';
+import { Camera, Check, ScanFace, Upload } from 'lucide-react';
 import { FrameResult, WebcamPanel } from '../../components/camera/WebcamPanel';
 import { Button } from '../../components/ui';
 import { apiClient } from '../../services/api';
@@ -124,8 +124,8 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
   const [savedPoses, setSavedPoses] = useState<string[] | null>(null);
   const [checkingMatch, setCheckingMatch] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [automatic, setAutomatic] = useState(true);
-  const autoEnabled = useRef(true);
+  const [automatic, setAutomatic] = useState(false);
+  const autoEnabled = useRef(false);
   const saving = useRef(false);
   const stable = useRef<{ pose: string; since: number; lastFrame: number } | null>(null);
   const enrolled = new Set(savedPoses ?? state.existing_poses);
@@ -186,11 +186,16 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
     }
   }
 
-  return <section className="overflow-hidden rounded-xl border border-border bg-surface">
-    <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6">
-      <div>
-        <h2 className="text-lg font-semibold">{complete ? 'Face registered' : 'Face registration'}</h2>
-        <p className="text-sm text-text-muted">{complete ? `All ${count} required poses saved.` : 'Follow the pose prompts to save your face for attendance.'}</p>
+  return <section id="face-registration" className="scroll-mt-24 overflow-hidden rounded-2xl border border-border bg-surface">
+    <header className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 sm:px-6">
+      <div className="flex items-center gap-3">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+          {complete ? <Check size={22} aria-hidden /> : <ScanFace size={22} aria-hidden />}
+        </span>
+        <div>
+          <h2 className="text-lg font-semibold">{complete ? 'Face registered' : 'Set up face recognition'}</h2>
+          <p className="text-sm text-text-muted">{complete ? `${count} of ${state.required_poses.length} photos saved` : 'Save one picture at a time. Your progress is saved as you go.'}</p>
+        </div>
       </div>
       <div className="flex flex-wrap gap-2">
         {enrolled.size > 0 && <Button variant="secondary" disabled={busy} onClick={() => {
@@ -207,41 +212,24 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
         }}>{editing ? 'Close editor' : 'Update photos'}</Button>}
       </div>
     </header>
-    {checkingMatch ? <FaceMatchPanel studentName={studentName} /> : (!complete || editing) && <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.85fr)]">
-      <div className="min-w-0 lg:col-start-2 lg:row-start-1">
-        <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-          <h3 className="font-semibold">Required poses</h3>
-          <span className="text-text-muted">{count} of {state.required_poses.length} saved</span>
-        </div>
-        <progress className="mb-4 block h-2 w-full accent-primary" aria-label="Saved poses"
-          max={Math.max(1, state.required_poses.length)} value={count} />
-        <ul className="space-y-1.5">
-          {state.required_poses.map(item => {
-            const approved = enrolled.has(item);
-            return <li key={item}>
-              <button type="button" aria-pressed={item === pose} disabled={busy}
-                onClick={() => { if (item !== pose) { stable.current = null; setSelected(item); setImage(null); setError(''); } }}
-                className={`flex min-h-11 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${item === pose ? 'border-primary bg-primary/10' : 'border-transparent bg-background'}`}>
-                {approved ? <Check size={16} className="shrink-0 text-success" aria-hidden />
-                  : <Camera size={16} className="shrink-0 text-text-muted" aria-hidden />}
-                <span className="flex-1 font-medium">{poseNames[item] ?? label(item)}</span>
-                {approved && <span className="text-xs text-text-muted">Saved</span>}
-              </button>
-            </li>;
-          })}
-        </ul>
+    {checkingMatch ? <FaceMatchPanel studentName={studentName} /> : (!complete || editing) && <div className="space-y-4 border-t border-border px-5 py-5 sm:px-6">
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="font-semibold">Registration progress</span>
+        <span className="text-text-muted">{count} / {state.required_poses.length} saved</span>
       </div>
-      <div className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-1">
+      <progress className="block h-2 w-full accent-primary" aria-label="Saved poses"
+        max={Math.max(1, state.required_poses.length)} value={count} />
+      <div className="max-w-2xl space-y-4">
         {pose ? <>
-          <div>
-            <h3 className="font-semibold">{poseNames[pose] ?? label(pose)}</h3>
+          <div className="rounded-xl bg-surface-muted p-4">
+            <h3 className="font-semibold">{enrolled.has(pose) ? 'Update photo' : `Photo ${count + 1} of ${state.required_poses.length}`} · {poseNames[pose] ?? label(pose)}</h3>
             <p className="mt-1 text-sm text-text-muted">{state.hints[pose]}</p>
           </div>
           {image && preview && <div className="overflow-hidden rounded-xl border border-border bg-background">
             <img src={preview} alt="Photo selected for this pose" className="aspect-video w-full object-contain" />
           </div>}
-          <div hidden={Boolean(image)}>
-            <WebcamPanel
+          {!image && <div className="space-y-3">
+            <WebcamPanel compact
             onCapture={blob => choosePhoto(new File([blob], 'face.jpg', {type: 'image/jpeg'}))}
             onFrame={async (blob, signal): Promise<FrameResult> => {
               if (image || saving.current) return {};
@@ -281,16 +269,16 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
                   autoEnabled.current = event.target.checked;
                   setAutomatic(event.target.checked);
                 }} />
-              Automatically capture and save after 1 second of a valid pose
+              Save automatically when the pose is ready
             </label>
-          </div>
+          </div>}
           <div className="flex flex-wrap gap-2">
             {image && <Button type="button" variant="secondary" disabled={busy} icon={<Camera size={16} />}
               onClick={() => { setImage(null); setError(''); }}>
               Retake with camera
             </Button>}
             <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium focus-within:outline focus-within:outline-2 focus-within:outline-primary">
-              <Upload size={16} aria-hidden /> {image ? 'Replace photo' : 'Upload JPEG'}
+              <Upload size={16} aria-hidden /> {image ? 'Replace photo' : 'Upload a photo'}
               <input type="file" className="sr-only" accept="image/jpeg" disabled={busy} onChange={event => {
                 const file = event.target.files?.[0];
                 if (file) choosePhoto(file);
@@ -305,6 +293,19 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
         </> : <p className="rounded-lg bg-background p-4 text-sm text-text-muted">
           All required poses are saved. Select a pose to update it.
         </p>}
+        <details className="rounded-xl border border-border p-3">
+          <summary className="cursor-pointer font-medium">{complete ? 'Choose a photo to update' : 'See all poses'}</summary>
+          <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+            {state.required_poses.map(item => <li key={item}>
+              <button type="button" aria-pressed={item === pose} disabled={busy}
+                className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg bg-surface-muted px-3 text-left text-sm"
+                onClick={() => { stable.current = null; setSelected(item); setImage(null); setError(''); }}>
+                {poseNames[item] ?? label(item)}
+                <span className="text-xs text-text-muted">{enrolled.has(item) ? 'Saved' : 'To do'}</span>
+              </button>
+            </li>)}
+          </ul>
+        </details>
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
         {notice && <p role="status" className="text-sm text-success">{notice}</p>}
       </div>
