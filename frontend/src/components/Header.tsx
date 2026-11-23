@@ -21,7 +21,7 @@ const TAB_TITLES: Record<string, string> = {
   'my-attendance': 'My Attendance',
   dashboard: 'Dashboard',
   'my-timetable': 'My Timetable',
-  classmates: 'Classmates',
+  classmates: 'Chats / Classmates',
   classroom: 'Classroom',
   'semester-results': 'Semester marksheets',
   department: 'Department',

@@ -141,7 +141,7 @@ export function Classmates({ selection, onSelectionHandled }: {
   const students = directory?.students.filter(student =>
     (student.roll_number + ' ' + name(student)).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) || [];
   return <section className="mx-auto max-w-4xl space-y-4">
-    <h1 className="text-2xl font-semibold">Classmates</h1>
+    <h1 className="text-2xl font-semibold">Chats / Classmates</h1>
     {peer ? <Chat key={peer.id} peer={peer} close={() => setPeer(undefined)} />
       : error ? <div role="alert">{error} <Button onClick={() => setAttempt(attempt + 1)}>Retry</Button></div>
       : !directory ? <p role="status">Loading your class…</p>

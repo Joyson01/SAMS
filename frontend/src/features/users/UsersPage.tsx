@@ -183,7 +183,7 @@ function AttendanceDashboard({ items, requests, onSaved }: { items: AttendanceIt
 
 const studentLinks = [
   { tab: 'my-timetable', label: 'My Timetable', icon: CalendarDays },
-  { tab: 'classmates', label: 'Classmates', icon: UsersRound },
+  { tab: 'classmates', label: 'Chats / Classmates', icon: UsersRound },
   { tab: 'classroom', label: 'Classroom', icon: BookOpen },
 ];
 
