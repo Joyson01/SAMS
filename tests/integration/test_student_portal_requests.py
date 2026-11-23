@@ -90,6 +90,7 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
     async def match_face():
         return await client.post(f"{portal}/face/match", headers=student_headers, files=files)
 
+    assert (await client.post(f"{portal}/face/match", files=files)).status_code == 403
     assert (await match_face()).status_code == 409
     registered = await submit_face()
     assert registered.status_code == 201, registered.text
@@ -99,6 +100,14 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
     refreshed = await client.get(f"{portal}/requests", headers=student_headers)
     assert refreshed.json()["existing_poses"] == ["FRONT"]
     candidate = -candidate
+    other_profile = FaceProfile(student_id=other.id, pose_type="FRONT", embedding_data=candidate.tolist())
+    test_db_session.add(other_profile)
+    await test_db_session.commit()
+    redirected = await client.post(f"{portal}/face/match", headers=student_headers,
+                                   data={"student_id": other.id}, files=files)
+    assert redirected.json() == {"matched": False}
+    await test_db_session.delete(other_profile)
+    await test_db_session.commit()
     assert (await match_face()).json() == {"matched": False}
     assert (await submit_face()).status_code == 422
     candidate = -candidate

@@ -123,6 +123,7 @@ export function FaceRequests({ state, onSaved }: { state: RequestState; onSaved:
   const [notice, setNotice] = useState('');
   const [savedPoses, setSavedPoses] = useState<string[] | null>(null);
   const [checkingMatch, setCheckingMatch] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [automatic, setAutomatic] = useState(true);
   const autoEnabled = useRef(true);
   const saving = useRef(false);
@@ -132,6 +133,8 @@ export function FaceRequests({ state, onSaved }: { state: RequestState; onSaved:
   const currentPose = useRef(pose);
   currentPose.current = pose;
   const count = state.required_poses.filter(pose => enrolled.has(pose)).length;
+
+  const complete = count > 0 && count === state.required_poses.length;
 
   useEffect(() => { setSavedPoses(null); }, [state.existing_poses]);
 
@@ -169,6 +172,7 @@ export function FaceRequests({ state, onSaved }: { state: RequestState; onSaved:
       payload.append('file', photo);
       const { data } = await apiClient.post<{ completed_poses: string[] }>('/student-portal/face', payload);
       setSavedPoses(data.completed_poses);
+      setEditing(false);
       setImage(null);
       setSelected('');
       setNotice(`${poseNames[targetPose] ?? label(targetPose)} photo saved.`);
@@ -183,18 +187,27 @@ export function FaceRequests({ state, onSaved }: { state: RequestState; onSaved:
   }
 
   return <section className="overflow-hidden rounded-xl border border-border bg-surface">
-    <header className="space-y-1 border-b border-border px-5 py-5 sm:px-6">
-      <h2 className="text-lg font-semibold">Face registration</h2>
-      <p className="text-sm text-text-muted">Follow the pose prompts to save your face for attendance.</p>
+    <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6">
+      <div>
+        <h2 className="text-lg font-semibold">{complete ? 'Face registered' : 'Face registration'}</h2>
+        <p className="text-sm text-text-muted">{complete ? `All ${count} required poses saved.` : 'Follow the pose prompts to save your face for attendance.'}</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {enrolled.size > 0 && <Button variant="secondary" disabled={busy} onClick={() => {
+          stable.current = null;
+          setImage(null);
+          setCheckingMatch(!checkingMatch);
+          setEditing(false);
+        }}>{checkingMatch ? 'Close match check' : 'Check face match'}</Button>}
+        {complete && <Button variant="secondary" disabled={busy} onClick={() => {
+          setCheckingMatch(false);
+          setEditing(!editing);
+          setSelected('');
+          setImage(null);
+        }}>{editing ? 'Close editor' : 'Update photos'}</Button>}
+      </div>
     </header>
-    {enrolled.size > 0 && <div className="px-5 pt-4 sm:px-6">
-      <Button variant="secondary" disabled={busy} onClick={() => {
-        stable.current = null;
-        setImage(null);
-        setCheckingMatch(!checkingMatch);
-      }}>{checkingMatch ? 'Back to enrollment' : 'Check face match'}</Button>
-    </div>}
-    {checkingMatch ? <FaceMatchPanel /> : <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.85fr)]">
+    {checkingMatch ? <FaceMatchPanel /> : (!complete || editing) && <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.85fr)]">
       <div className="min-w-0 lg:col-start-2 lg:row-start-1">
         <div className="mb-2 flex items-center justify-between gap-3 text-sm">
           <h3 className="font-semibold">Required poses</h3>
@@ -304,16 +317,28 @@ function FaceMatchPanel() {
   const [result, setResult] = useState('');
   const [error, setError] = useState('');
 
+  const [source, setSource] = useState<'camera' | 'upload'>('camera');
+  const lastFrame = useRef(-Infinity);
+
+  async function compare(photo: Blob, signal?: AbortSignal) {
+    const payload = new FormData();
+    payload.append('file', photo, 'face.' + (photo.type === 'image/png' ? 'png' : 'jpg'));
+    const { data } = await apiClient.post<{ matched: boolean }>('/student-portal/face/match', payload, { signal });
+    return data.matched ? 'Face matches your saved scan.' : 'Face did not match your saved scan.';
+  }
+
   async function check(photo: Blob) {
     if (busy) return;
+    if (photo.size > 2 * 1024 * 1024 || !['image/jpeg', 'image/png'].includes(photo.type)) {
+      setResult('');
+      setError('Choose a JPEG or PNG photo under 2 MB.');
+      return;
+    }
     setBusy(true);
     setResult('');
     setError('');
     try {
-      const payload = new FormData();
-      payload.append('file', photo, 'face.jpg');
-      const { data } = await apiClient.post<{ matched: boolean }>('/student-portal/face/match', payload);
-      setResult(data.matched ? 'Face matches your saved scan.' : 'Face did not match your saved scan.');
+      setResult(await compare(photo));
     } catch (err) {
       setError(formatApiErrorMessage(err, 'Could not check your face match.'));
     } finally {
@@ -323,8 +348,34 @@ function FaceMatchPanel() {
 
   return <div className="space-y-4 p-5 sm:p-6">
     <h3 className="font-semibold">Check face match</h3>
-    <p className="text-sm text-text-muted">Look straight ahead and capture a photo to compare it with your saved face.</p>
-    <WebcamPanel onCapture={photo => void check(photo)} />
+    <p className="text-sm text-text-muted">Use your camera or choose a photo with one face looking straight ahead. Only your saved face is checked.</p>
+    <div className="flex gap-2">
+      {(['camera', 'upload'] as const).map(mode => <Button key={mode} variant={source === mode ? 'primary' : 'secondary'}
+        disabled={busy} aria-pressed={source === mode} onClick={() => {
+          setSource(mode);
+          setResult('');
+          setError('');
+          lastFrame.current = -Infinity;
+        }}>{mode === 'camera' ? 'Live camera' : 'Upload photo'}</Button>)}
+    </div>
+    {source === 'upload' ? <label className="block text-sm font-medium">Check an uploaded photo
+      <input type="file" accept="image/jpeg,image/png" disabled={busy} className="mt-2 block max-w-full"
+        onChange={event => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (file) void check(file);
+        }} />
+    </label> : <WebcamPanel onFrame={async (frame, signal) => {
+      if (performance.now() - lastFrame.current < 1500) return {};
+      lastFrame.current = performance.now();
+      try {
+        const message = await compare(frame, signal);
+        if (!signal.aborted) { setResult(message); setError(''); }
+      } catch (err) {
+        if (!signal.aborted) { setResult(''); setError(formatApiErrorMessage(err, 'Could not check this frame.')); }
+      }
+      return {};
+    }} />}
     {busy && <p role="status" className="text-sm">Checking face…</p>}
     {result && <p role="status" className="text-sm font-medium">{result}</p>}
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}

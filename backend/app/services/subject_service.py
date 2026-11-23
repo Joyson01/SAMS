@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.exceptions import SAMSException
 from backend.app.core.logging import logger
+from backend.app.models.semester_result import SemesterResult
 from backend.app.models.entities import AttendanceSession, ClassSection, ClassSubject, Subject
 from backend.app.schemas.subject import SubjectCreate, SubjectResponse, SubjectUpdate
 
@@ -168,11 +169,12 @@ class SubjectService:
         sessions_q = select(func.count(AttendanceSession.id)).where(AttendanceSession.subject_id == subject_id)
         session_count = (await db.execute(sessions_q)).scalar_one()
 
-        if session_count > 0:
+        has_results = await db.scalar(select(SemesterResult.student_id).where(SemesterResult.subject_id == subject_id).limit(1))
+        if session_count > 0 or has_results:
             # Soft-deactivate to preserve historical records
             subject.status = "INACTIVE"
             await db.commit()
-            logger.info(f"Subject '{subject.code}' has {session_count} sessions; deactivated status to INACTIVE.")
+            logger.info(f"Subject '{subject.code}' has academic history and was deactivated.")
             return True
 
         await db.delete(subject)

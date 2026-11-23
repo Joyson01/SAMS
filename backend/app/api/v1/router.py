@@ -5,6 +5,9 @@ from backend.app.api.v1 import (
     audit,
     auth,
     classes,
+    classmates,
+    classroom,
+    semester_results,
     dashboard,
     department,
     health,
@@ -31,6 +34,9 @@ api_router.include_router(teacher_assignments.router)
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(student_portal.router)
+api_router.include_router(classmates.router)
+api_router.include_router(classroom.router)
+api_router.include_router(semester_results.router)
 api_router.include_router(student_import.router)
 api_router.include_router(students.router)
 api_router.include_router(subjects.router)

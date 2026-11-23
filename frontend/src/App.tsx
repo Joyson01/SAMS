@@ -27,6 +27,10 @@ const TimetablePage = React.lazy(() => import('./features/timetable/TimetablePag
 const SettingsPage = React.lazy(() => import('./features/settings/SettingsPage').then(module => ({ default: module.SettingsPage })));
 const AuditLogsPage = React.lazy(() => import('./features/security/AuditLogsPage').then(module => ({ default: module.AuditLogsPage })));
 
+const Classmates = React.lazy(() => import('./components/Classmates').then(module => ({ default: module.Classmates })));
+const ClassroomBoard = React.lazy(() => import('./components/ClassroomBoard'));
+const SemesterResults = React.lazy(() => import('./components/SemesterResults').then(module => ({ default: module.SemesterResults })));
+
 const Workspace: React.FC = () => {
   const pathname = window.location.pathname;
   const authBypass = import.meta.env.VITE_AUTH_BYPASS === 'true';
@@ -79,6 +83,12 @@ const Workspace: React.FC = () => {
     return () => clearInterval(interval);
   }, [isAuthenticated]);
 
+  const academicTab = ['classroom', 'semester-results'].includes(activeTab) && ['STUDENT', 'FACULTY', 'HOD', 'ADMIN'].includes(role);
+  const currentTab = academicTab ? activeTab
+    : role === 'STUDENT' ? (activeTab === 'classmates' ? 'classmates' : 'my-attendance')
+    : role === 'HOD' ? 'department'
+    : role === 'FACULTY' && activeTab === 'dashboard' ? 'attendance' : activeTab;
+
   const handleNavigate = (tab: string, studentId?: string) => {
     if (studentId) {
       setEnrollingStudentId(studentId);
@@ -113,12 +123,15 @@ const Workspace: React.FC = () => {
         healthStatus={healthStatus}
         onRefreshHealth={loadHealth}
         isRefreshing={isRefreshing}
-        activeTab={role === 'STUDENT' ? 'my-attendance' : role === 'HOD' ? 'department' : role === 'FACULTY' && activeTab === 'dashboard' ? 'attendance' : activeTab}
+        activeTab={currentTab}
         setActiveTab={setActiveTab}
       >
         <ErrorBoundary key={activeTab} fallbackTitle={`Error in ${activeTab.toUpperCase()}`}>
-          {role === 'STUDENT' && <MyAttendancePage />}
-          {role === 'HOD' && <DepartmentPage />}
+          {currentTab === 'my-attendance' && role === 'STUDENT' && <MyAttendancePage />}
+          {currentTab === 'classmates' && role === 'STUDENT' && <Classmates />}
+          {academicTab && currentTab === 'classroom' && <ClassroomBoard />}
+          {academicTab && currentTab === 'semester-results' && <SemesterResults studentView={role === 'STUDENT'} />}
+          {currentTab === 'department' && role === 'HOD' && <DepartmentPage />}
           {role !== 'STUDENT' && role !== 'HOD' && <>
           {activeTab === 'recognition-test' && ['ADMIN','FACULTY'].includes(role) && <RecognitionTestPage />}
           {activeTab === 'anonymous-detection' && ['ADMIN','FACULTY'].includes(role) && <AnonymousDetectionPage />}

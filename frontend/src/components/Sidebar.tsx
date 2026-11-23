@@ -6,11 +6,15 @@ interface SidebarProps { role?: string; userName?: string; onLogout?: () => void
 export const Sidebar: React.FC<SidebarProps> = ({role = 'STUDENT', userName = '', onLogout, activeTab, setActiveTab, mobileOpen = false, onCloseMobile}) => {
  const [collapsed, setCollapsed] = useState(false); const [signOut, setSignOut] = useState(false);
  const mobileRef = useDialog(mobileOpen, () => onCloseMobile?.());
- const groups = role === 'STUDENT' ? [{label: 'Overview', items: [{id:'my-attendance', label:'My Attendance', icon:CheckSquare}]}] : role === 'HOD' ? [{label:'Overview',items:[{id:'department',label:'Department',icon:LayoutDashboard}]}] : [
+ const academicItems = [
+   {id:'classroom', label:'Classroom', icon:BookOpen},
+   {id:'semester-results', label:'Semester marksheets', icon:BarChart2},
+ ];
+ const groups = role === 'STUDENT' ? [{label: 'Overview', items: [{id:'my-attendance', label:'My Attendance', icon:CheckSquare},{id:'classmates',label:'Classmates',icon:Users},...academicItems]}] : role === 'HOD' ? [{label:'Overview',items:[{id:'department',label:'Department',icon:LayoutDashboard},...academicItems]}] : [
  ...(role === 'FACULTY' ? [] : [{label:'Overview',items:[{id:'dashboard',label:'Dashboard',icon:LayoutDashboard}]}]),
  {label:'Attendance',items:[{id:'live',label:'Live Attendance',icon:CheckSquare},{id:'attendance',label:'Attendance Sessions',icon:Calendar},{id:'media',label:'Photo Attendance',icon:ImageIcon}]},
  {label:'People',items:[{id:'students',label:'Students',icon:Users}]},
- {label:'Academics',items:[{id:'timetable',label:'Timetable',icon:Calendar},...(role === 'ADMIN' ? [{id:'subjects',label:'Courses & Rooms',icon:BookOpen}] : [])]},
+ {label:'Academics',items:[...(['ADMIN','FACULTY'].includes(role) ? academicItems : []),{id:'timetable',label:'Timetable',icon:Calendar},...(role === 'ADMIN' ? [{id:'subjects',label:'Courses & Rooms',icon:BookOpen}] : [])]},
  {label:'Recognition tools',items:[...(['ADMIN','FACULTY'].includes(role) ? [{id:'recognition-test',label:'Recognition Test',icon:Camera},{id:'anonymous-detection',label:'Anonymous Detection',icon:ImageIcon}] : [])]},
  {label:'Reports',items:[{id:'reports',label:'Reports',icon:BarChart2},...(role === 'ADMIN' ? [{id:'audit',label:'Audit Logs',icon:ShieldAlert}] : [])]},
  ...(role === 'ADMIN' ? [{label:'Admin',items:[{id:'users',label:'Users',icon:Users},{id:'settings',label:'Settings',icon:Settings}]}] : [])];
