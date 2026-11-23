@@ -507,3 +507,14 @@ class StudentPortalRequest(Base):
     review_note: Mapped[Optional[str]] = mapped_column(String(1000))
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class TeacherClassAssignment(Base):
+    __tablename__ = "teacher_class_assignments"
+
+    teacher_id: Mapped[str] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    class_id: Mapped[str] = mapped_column(
+        GUID, ForeignKey("classes.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
