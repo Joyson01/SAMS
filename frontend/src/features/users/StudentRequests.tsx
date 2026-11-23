@@ -1,3 +1,4 @@
+import mascotIcon from '../../assets/atted-icon.png';
 import { useEffect, useRef, useState } from 'react';
 import { Camera, Check, ScanFace, Upload } from 'lucide-react';
 import { FrameResult, WebcamPanel } from '../../components/camera/WebcamPanel';
@@ -124,8 +125,8 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
   const [savedPoses, setSavedPoses] = useState<string[] | null>(null);
   const [checkingMatch, setCheckingMatch] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [automatic, setAutomatic] = useState(false);
-  const autoEnabled = useRef(false);
+  const [automatic, setAutomatic] = useState(true);
+  const autoEnabled = useRef(true);
   const saving = useRef(false);
   const stable = useRef<{ pose: string; since: number; lastFrame: number } | null>(null);
   const enrolled = new Set(savedPoses ?? state.existing_poses);
@@ -220,6 +221,10 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
       <progress className="block h-2 w-full accent-primary" aria-label="Saved poses"
         max={Math.max(1, state.required_poses.length)} value={count} />
       <div className="max-w-2xl space-y-4">
+        <aside className="flex items-center gap-3 rounded-xl bg-primary/5 p-3 text-sm text-text-muted">
+          <img src={mascotIcon} alt="" width={40} height={40} className="shrink-0" />
+          <p><strong className="text-text">Face privacy.</strong> We process your photo to create a face template for attendance. We save the template and discard the photo.</p>
+        </aside>
         {pose ? <>
           <div className="rounded-xl bg-surface-muted p-4">
             <h3 className="font-semibold">{enrolled.has(pose) ? 'Update photo' : `Photo ${count + 1} of ${state.required_poses.length}`} · {poseNames[pose] ?? label(pose)}</h3>
