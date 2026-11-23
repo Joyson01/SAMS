@@ -1,6 +1,8 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from backend.app.core.security import require_roles, get_current_user
+from backend.app.core.teacher_access import require_student_access
+from backend.app.models.entities import User
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
@@ -32,6 +34,7 @@ async def list_students(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> StudentListResponse:
     return await StudentService.get_students(
         db=db,
@@ -43,6 +46,7 @@ async def list_students(
         enrollment_status=enrollment_status,
         page=page,
         limit=limit,
+        teacher_id=user.id if user.role == "FACULTY" else None,
     )
 
 
@@ -54,8 +58,9 @@ async def list_students(
 )
 async def get_student_statistics(
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> StudentStatsResponse:
-    return await StudentService.get_student_statistics(db=db)
+    return await StudentService.get_student_statistics(db, teacher_id=user.id if user.role == "FACULTY" else None)
 
 
 @router.post(
@@ -68,8 +73,9 @@ async def get_student_statistics(
 async def create_student(
     payload: StudentCreate,
     db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_roles("ADMIN", "OPERATOR")),
 ) -> StudentResponse:
-    return await StudentService.create_student(db=db, payload=payload)
+    return await StudentService.create_student(db=db, payload=payload, user_id=actor.id)
 
 
 @router.get(
@@ -81,7 +87,9 @@ async def create_student(
 async def get_student(
     student_id: str,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> StudentResponse:
+    await require_student_access(db, user, student_id)
     return await StudentService.get_student_by_id(db=db, student_id=student_id)
 
 
@@ -95,8 +103,9 @@ async def update_student(
     student_id: str,
     payload: StudentUpdate,
     db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_roles("ADMIN", "OPERATOR")),
 ) -> StudentResponse:
-    return await StudentService.update_student(db=db, student_id=student_id, payload=payload)
+    return await StudentService.update_student(db=db, student_id=student_id, payload=payload, user_id=actor.id)
 
 
 @router.delete(
@@ -108,8 +117,9 @@ async def update_student(
 async def delete_student(
     student_id: str,
     db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_roles("ADMIN", "OPERATOR")),
 ):
-    await StudentService.delete_student(db=db, student_id=student_id)
+    await StudentService.delete_student(db=db, student_id=student_id, user_id=actor.id)
     return {"status": "success", "message": f"Student '{student_id}' has been permanently deleted."}
 
 
@@ -123,13 +133,18 @@ async def enroll_student_face(
     file: UploadFile = File(..., description="JPEG/PNG face image capture"),
     pose_type: str = Form("FRONT", description="FRONT, LEFT_15, RIGHT_15, TILT_UP, TILT_DOWN, GLASSES"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     from backend.app.services.enrollment_service import enroll
+    await require_student_access(db, user, student_id)
     return await enroll(db, student_id, await file.read(10*1024*1024+1), pose_type.upper())
 
 
 @router.get('/{student_id}/enroll/status')
-async def get_enrollment_status(student_id: str, db: AsyncSession = Depends(get_db)):
+async def get_enrollment_status(
+    student_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+):
+    await require_student_access(db, user, student_id)
     from backend.app.services.enrollment_service import enrollment_status
     return await enrollment_status(db, student_id)
 
@@ -144,7 +159,11 @@ async def remove_student_face_data(
 
 
 @router.post('/{student_id}/enroll/check')
-async def check_enrollment(student_id: str, file: UploadFile = File(...), pose_type: str = Form('FRONT'), db: AsyncSession = Depends(get_db)):
+async def check_enrollment(
+    student_id: str, file: UploadFile = File(...), pose_type: str = Form('FRONT'),
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    await require_student_access(db, user, student_id)
     import asyncio
     from backend.app.services.enrollment_service import check_image
     await StudentService.get_student_by_id(db, student_id)

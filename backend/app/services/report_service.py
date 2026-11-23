@@ -1,9 +1,9 @@
 import csv
 import io
 from collections import defaultdict
-from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
-from sqlalchemy import and_, func, or_, select
+from datetime import date, timedelta
+from typing import Any, Dict, List, Optional
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -24,6 +24,25 @@ def spreadsheet_cell(value: str) -> str:
     return value
 
 
+ATTENDANCE_COLUMNS = (
+    "Record ID",
+    "Session Code",
+    "Subject",
+    "Class",
+    "Room",
+    "Date",
+    "Student Code",
+    "Roll Number",
+    "Student Name",
+    "Department",
+    "Status",
+    "Confidence (%)",
+    "First Seen",
+    "Last Seen",
+    "Remarks",
+)
+
+
 class ReportService:
     """Service generating institutional attendance analytics, trend charts, defaulter lists, and CSV exports."""
 
@@ -36,6 +55,7 @@ class ReportService:
         department: Optional[str] = None,
         class_name: Optional[str] = None,
         teacher_id: str | None = None,
+        subject: str | None = None,
     ) -> InstitutionAnalyticsResponse:
         """Computes comprehensive analytics across sessions, classes, and individual student histories."""
         if not end_date:
@@ -74,6 +94,9 @@ class ReportService:
         if class_name:
             session_query = session_query.where(AttendanceSession.class_name == class_name)
 
+        if subject:
+            session_query = session_query.where(func.lower(AttendanceSession.subject) == subject.lower())
+
         session_res = await db.execute(session_query)
         sessions = session_res.scalars().all()
         total_sessions_conducted = len(sessions)
@@ -96,7 +119,10 @@ class ReportService:
         if department:
             records_query = records_query.where(Student.department == department)
         if class_name:
-            records_query = records_query.where(Student.class_name == class_name)
+            records_query = records_query.where(AttendanceSession.class_name == class_name)
+
+        if subject:
+            records_query = records_query.where(func.lower(AttendanceSession.subject) == subject.lower())
 
         records_res = await db.execute(records_query)
         records = records_res.scalars().all()
@@ -259,7 +285,7 @@ class ReportService:
         )
 
     @classmethod
-    async def export_attendance_csv(
+    async def get_attendance_export_rows(
         cls,
         db: AsyncSession,
         session_id: Optional[str] = None,
@@ -267,8 +293,8 @@ class ReportService:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
         teacher_id: str | None = None,
-    ) -> str:
-        """Generates an RFC-4180 compliant CSV string containing detailed attendance logs."""
+        subject: str | None = None,
+    ) -> list[list[str]]:
         query = (
             select(AttendanceRecord)
             .join(AttendanceSession, AttendanceRecord.session_id == AttendanceSession.id)
@@ -287,36 +313,15 @@ class ReportService:
         if end_date:
             filters.append(AttendanceSession.scheduled_date <= end_date)
 
-        if filters:
-            query = query.where(and_(*filters))
+        if subject:
+            filters.append(func.lower(AttendanceSession.subject) == subject.lower())
+
+        query = query.where(*filters)
 
         query = query.order_by(AttendanceSession.scheduled_date.desc(), Student.roll_number.asc())
         records = (await db.execute(query)).scalars().all()
 
-        output = io.StringIO()
-        writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
-
-        # Write CSV Headers
-        writer.writerow(
-            [
-                "Record ID",
-                "Session Code",
-                "Subject",
-                "Class",
-                "Room",
-                "Date",
-                "Student Code",
-                "Roll Number",
-                "Student Name",
-                "Department",
-                "Status",
-                "Confidence (%)",
-                "First Seen",
-                "Last Seen",
-                "Remarks",
-            ]
-        )
-
+        rows = []
         for r in records:
             st = r.student
             sess = r.session
@@ -337,7 +342,98 @@ class ReportService:
                 r.last_seen.strftime("%H:%M:%S") if r.last_seen else "N/A",
                 r.remarks or "",
             ]
-            writer.writerow(spreadsheet_cell(value) for value in row)
+            rows.append(row)
+        return rows
 
-        return output.getvalue()
+    @classmethod
+    async def export_attendance_csv(
+        cls,
+        db: AsyncSession,
+        session_id: str | None = None,
+        class_name: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        teacher_id: str | None = None,
+        subject: str | None = None,
+    ) -> str:
+        rows = await cls.get_attendance_export_rows(
+            db,
+            session_id=session_id,
+            class_name=class_name,
+            start_date=start_date,
+            end_date=end_date,
+            teacher_id=teacher_id,
+            subject=subject,
+        )
+        return attendance_csv(rows)
 
+
+def attendance_csv(rows: list[list[str]]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(ATTENDANCE_COLUMNS)
+    writer.writerows([spreadsheet_cell(value) for value in row] for row in rows)
+    return output.getvalue()
+
+
+def attendance_xlsx(rows: list[list[str]]) -> bytes:
+    from openpyxl import Workbook
+    from openpyxl.cell import WriteOnlyCell
+    from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+
+    workbook = Workbook(write_only=True)
+    sheet = workbook.create_sheet("Attendance")
+    sheet.freeze_panes = "A2"
+    sheet.append(ATTENDANCE_COLUMNS)
+    confidence_index = ATTENDANCE_COLUMNS.index("Confidence (%)")
+    for row in rows:
+        cells = []
+        for index, value in enumerate(row):
+            if index == confidence_index:
+                cells.append(float(value))
+                continue
+            cell = WriteOnlyCell(sheet, value=ILLEGAL_CHARACTERS_RE.sub("", value))
+            cell.data_type = "s"
+            cells.append(cell)
+        sheet.append(cells)
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def attendance_pdf(rows: list[list[str]]) -> bytes:
+    from html import escape
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import LongTable, Paragraph, SimpleDocTemplate, TableStyle
+
+    output = io.BytesIO()
+    document = SimpleDocTemplate(
+        output, pagesize=landscape(A4), leftMargin=30, rightMargin=30, title="Attendance Report"
+    )
+    styles = getSampleStyleSheet()
+    styles["BodyText"].fontSize = 8
+    styles["BodyText"].leading = 10
+    story = [Paragraph("Attendance Report", styles["Title"])]
+    columns = ("Date", "Class", "Subject", "Roll Number", "Student Name", "Status")
+    column_indexes = [ATTENDANCE_COLUMNS.index(column) for column in columns]
+    if not rows:
+        story.append(Paragraph("No attendance records match these filters.", styles["Normal"]))
+    else:
+        table_rows = [columns]
+        table_rows.extend(
+            [Paragraph(escape(row[index]), styles["BodyText"]) for index in column_indexes]
+            for row in rows
+        )
+        table = LongTable(table_rows, colWidths=[75, 95, 175, 90, 205, 125], repeatRows=1)
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E2E8F0")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story.append(table)
+    document.build(story)
+    return output.getvalue()

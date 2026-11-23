@@ -1,11 +1,12 @@
 import math
 from typing import Any, Dict, List, Optional, Tuple
-from sqlalchemy import distinct, func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.core.exceptions import StudentAlreadyExistsError, StudentNotFoundError
 from backend.app.core.logging import logger
+from backend.app.core.teacher_access import assigned_class_names, assigned_classes
 from backend.app.models.entities import AuditLog, FaceProfile, Student
 from backend.app.schemas.student import (
     StudentCreate,
@@ -43,9 +44,13 @@ class StudentService:
         enrollment_status: Optional[str] = None,
         page: int = 1,
         limit: int = 20,
+        teacher_id: str | None = None,
     ) -> StudentListResponse:
         """Retrieves a paginated list of students with optional search and filters."""
         query = select(Student).options(selectinload(Student.face_profiles))
+
+        if teacher_id is not None:
+            query = query.where(Student.class_name.in_(assigned_class_names(teacher_id)))
 
         # Apply search filter (name, code, roll, email)
         if search and search.strip():
@@ -87,8 +92,7 @@ class StudentService:
         # Batch-aggregate attendance metrics for students on this page in ONE query (eliminates N+1)
         attendance_stats: Dict[str, Tuple[float, int, int]] = {}
         if students:
-            from backend.app.models.entities import AttendanceRecord
-            from sqlalchemy import case
+            from backend.app.models.entities import AttendanceRecord, AttendanceSession
             st_ids = [s.id for s in students]
             stats_q = (
                 select(
@@ -100,6 +104,10 @@ class StudentService:
                 .where(AttendanceRecord.student_id.in_(st_ids))
                 .group_by(AttendanceRecord.student_id)
             )
+            if teacher_id is not None:
+                stats_q = stats_q.join(AttendanceSession).where(
+                    AttendanceSession.class_id.in_(assigned_classes(teacher_id))
+                )
             stats_res = await db.execute(stats_q)
             for sid, tot_cnt, p_l, p_only in stats_res.all():
                 tot_val = tot_cnt or 0
@@ -186,6 +194,8 @@ class StudentService:
         db: AsyncSession,
         payload: StudentCreate,
         user_id: Optional[str] = None,
+        *,
+        commit: bool = True,
     ) -> StudentResponse:
         """Registers a new student after verifying field uniqueness."""
         # 1. Check duplicate student_code
@@ -236,7 +246,8 @@ class StudentService:
             new_values=payload.model_dump(),
         )
         db.add(audit)
-        await db.commit()
+        if commit:
+            await db.commit()
 
         logger.info(f"Created student {new_student.first_name} {new_student.last_name} ({new_student.roll_number}) with ID {new_student.id}")
 
@@ -423,45 +434,29 @@ class StudentService:
         return True
 
     @staticmethod
-    async def get_student_statistics(db: AsyncSession) -> StudentStatsResponse:
-        """Calculates system-wide student count metrics."""
-        total_res = await db.execute(select(func.count(Student.id)))
-        total = total_res.scalar_one() or 0
-
-        enrolled_res = await db.execute(
-            select(func.count(Student.id)).where(Student.enrollment_status == "ENROLLED")
-        )
-        enrolled = enrolled_res.scalar_one() or 0
-
-        not_enrolled_res = await db.execute(
-            select(func.count(Student.id)).where(Student.enrollment_status != "ENROLLED")
-        )
-        not_enrolled = not_enrolled_res.scalar_one() or 0
-
-        active_res = await db.execute(
-            select(func.count(Student.id)).where(Student.status == "ACTIVE")
-        )
-        active = active_res.scalar_one() or 0
-
-        inactive_res = await db.execute(
-            select(func.count(Student.id)).where(Student.status != "ACTIVE")
-        )
-        inactive = inactive_res.scalar_one() or 0
-
-        dept_res = await db.execute(select(distinct(Student.department)))
-        depts = [d for (d,) in dept_res.all() if d]
-
-        class_res = await db.execute(select(distinct(Student.class_name)))
-        classes = [c for (c,) in class_res.all() if c]
-
+    async def get_student_statistics(
+        db: AsyncSession, teacher_id: str | None = None
+    ) -> StudentStatsResponse:
+        """Calculate directory totals within the caller's class scope."""
+        filters = []
+        if teacher_id is not None:
+            filters.append(Student.class_name.in_(assigned_class_names(teacher_id)))
+        totals = await db.execute(select(
+            func.count(Student.id),
+            func.count(case((Student.enrollment_status == "ENROLLED", 1))),
+            func.count(case((Student.status == "ACTIVE", 1))),
+        ).where(*filters))
+        total, enrolled, active = totals.one()
+        departments = await db.scalars(select(Student.department).where(*filters).distinct())
+        classes = await db.scalars(select(Student.class_name).where(*filters).distinct())
         return StudentStatsResponse(
             total_students=total,
             enrolled_count=enrolled,
-            not_enrolled_count=not_enrolled,
+            not_enrolled_count=total - enrolled,
             active_count=active,
-            inactive_count=inactive,
-            departments=sorted(depts),
-            classes=sorted(classes),
+            inactive_count=total - active,
+            departments=sorted(filter(None, departments)),
+            classes=sorted(filter(None, classes)),
         )
 
     @classmethod

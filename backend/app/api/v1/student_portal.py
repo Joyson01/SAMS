@@ -24,6 +24,7 @@ router = APIRouter(prefix="/student-portal", tags=["Student Portal"])
 student_only = require_roles("STUDENT")
 admin_only = require_roles("ADMIN")
 MAX_PHOTO_SIZE = 2 * 1024 * 1024
+ATTENDANCE_REQUEST_KINDS = ("CORRECTION", "LEAVE", "MEDICAL", "ON_DUTY")
 Note = Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=1000)]
 
 
@@ -31,6 +32,7 @@ class CorrectionRequest(BaseModel):
     record_id: str = Field(min_length=1, max_length=36)
     requested_status: Literal["PRESENT", "ABSENT", "LATE", "EXCUSED"]
     reason: Note
+    kind: Literal["CORRECTION", "LEAVE", "MEDICAL", "ON_DUTY"] = "CORRECTION"
 
 
 class ReviewRequest(BaseModel):
@@ -75,7 +77,7 @@ async def student_requests(db: AsyncSession = Depends(get_db), user: User = Depe
     requests = (await db.scalars(
         select(StudentPortalRequest).options(defer(StudentPortalRequest.photo))
         .where(StudentPortalRequest.student_id == sid, StudentPortalRequest.requested_by == user.id,
-               StudentPortalRequest.kind == "CORRECTION")
+               StudentPortalRequest.kind.in_(ATTENDANCE_REQUEST_KINDS))
         .order_by(StudentPortalRequest.created_at.desc())
     )).all()
     poses = (await db.scalars(select(FaceProfile.pose_type).where(FaceProfile.student_id == sid).distinct())).all()
@@ -93,10 +95,14 @@ async def submit_correction(
     record = await db.get(AttendanceRecord, payload.record_id)
     if record is None or record.student_id != sid:
         raise HTTPException(404, "Attendance record not found.")
+    if payload.kind != "CORRECTION" and (
+        payload.requested_status != "EXCUSED" or record.status not in {"ABSENT", "MANUAL_ABSENT"}
+    ):
+        raise HTTPException(422, "Leave requests can excuse an existing absence.")
     if record.status.removeprefix("MANUAL_") == payload.requested_status:
         raise HTTPException(422, "Choose a status different from the recorded mark.")
     return await save_request(db, StudentPortalRequest(
-        student_id=sid, requested_by=user.id, kind="CORRECTION",
+        student_id=sid, requested_by=user.id, kind=payload.kind,
         pending_key=f"record:{record.id}", record_id=record.id,
         requested_status=payload.requested_status, reason=payload.reason,
     ))
@@ -158,7 +164,7 @@ async def review_queue(db: AsyncSession = Depends(get_db), _: User = Depends(adm
         .join(Student, StudentPortalRequest.student_id == Student.id)
         .outerjoin(AttendanceRecord, StudentPortalRequest.record_id == AttendanceRecord.id)
         .outerjoin(AttendanceSession, AttendanceRecord.session_id == AttendanceSession.id)
-        .where(StudentPortalRequest.status == "PENDING", StudentPortalRequest.kind == "CORRECTION")
+        .where(StudentPortalRequest.status == "PENDING", StudentPortalRequest.kind.in_(ATTENDANCE_REQUEST_KINDS))
         .order_by(StudentPortalRequest.created_at, StudentPortalRequest.id).limit(100)
     )).all()
     return [{
@@ -186,7 +192,7 @@ async def review_request(
     db: AsyncSession = Depends(get_db), admin: User = Depends(admin_only),
 ):
     request = await db.get(StudentPortalRequest, request_id)
-    if request is None or request.status != "PENDING" or request.kind != "CORRECTION":
+    if request is None or request.status != "PENDING" or request.kind not in ATTENDANCE_REQUEST_KINDS:
         raise HTTPException(409, "This request is no longer pending.")
 
     async def claim():

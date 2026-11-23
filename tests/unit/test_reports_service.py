@@ -108,3 +108,16 @@ async def test_report_service_analytics_and_defaulters(test_db_session):
     assert "STU-AARAV" in csv_data
     assert "STU-DIYA" in csv_data
 
+
+    filtered = await ReportService.get_institution_analytics(
+        test_db_session, subject="algorithms", start_date=date.today(), end_date=date.today()
+    )
+    assert filtered.total_sessions_conducted == 1
+    assert filtered.class_breakdowns[0].present_count == 2
+    assert filtered.defaulter_students_count == 1
+
+    filtered_csv = await ReportService.export_attendance_csv(
+        test_db_session, subject="algorithms", start_date=date.today(), end_date=date.today()
+    )
+    assert "SESS-REP-01" in filtered_csv
+    assert "SESS-REP-02" not in filtered_csv

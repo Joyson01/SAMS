@@ -7,29 +7,60 @@ import {
 } from 'lucide-react';
 import {
   fetchInstitutionAnalytics,
-  downloadAttendanceCsv,
+  downloadAttendanceReport,
+  type AnalyticsFilterParams,
+  type ReportFormat,
 } from '../../services/reportsApi';
+import { fetchClasses, fetchSubjects } from '../../services/subjectApi';
 import {
   InstitutionAnalyticsResponse,
   ClassAttendanceSummary,
 } from '../../types/reports';
 
+function localDate(value: Date): string {
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${value.getFullYear()}-${month}-${day}`;
+}
+
+function initialFilters(): AnalyticsFilterParams {
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(today.getDate() - 30);
+  return { start_date: localDate(start), end_date: localDate(today) };
+}
+
+const filterInput = 'mt-1 block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text';
+const exportFormats: { value: ReportFormat; label: string }[] = [
+  { value: 'csv', label: 'CSV' },
+  { value: 'xlsx', label: 'Excel' },
+  { value: 'pdf', label: 'PDF' },
+];
+
 export const ReportsPage: React.FC = () => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [analytics, setAnalytics] = useState<InstitutionAnalyticsResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [exporting, setExporting] = useState<boolean>(false);
-  const [selectedClass, setSelectedClass] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState<ReportFormat | null>(null);
+  const [classNames, setClassNames] = useState<string[]>([]);
+  const [subjectNames, setSubjectNames] = useState<string[]>([]);
+  const [draft, setDraft] = useState(initialFilters);
+  const [applied, setApplied] = useState(draft);
+  const [format, setFormat] = useState<ReportFormat>('csv');
 
-  const loadData = async () => {
+  const filtersChanged = draft.start_date !== applied.start_date
+    || draft.end_date !== applied.end_date
+    || draft.class_name !== applied.class_name
+    || draft.subject !== applied.subject;
+
+  const loadData = async (filters: AnalyticsFilterParams) => {
     setLoading(true);
     setError('');
+    setNotice('');
     try {
-      const data = await fetchInstitutionAnalytics(
-        selectedClass ? { class_name: selectedClass } : undefined
-      );
-      setAnalytics(data);
+      setAnalytics(await fetchInstitutionAnalytics(filters));
+      setApplied(filters);
     } catch (err) {
       setError(formatApiErrorMessage(err, 'Unable to load reports. Please try again.'));
     } finally {
@@ -38,16 +69,27 @@ export const ReportsPage: React.FC = () => {
   };
 
   useEffect(() => {
-    loadData();
-  }, [selectedClass]);
+    void loadData(draft);
+    void fetchClasses().then(classes => {
+      setClassNames([...new Set(classes.map(item => item.name))].sort());
+    }).catch(() => {});
+    void fetchSubjects().then(subjects => {
+      setSubjectNames([...new Set(subjects.map(item => item.name))].sort());
+    }).catch(() => {});
+  }, []);
 
   const handleExport = async () => {
-    setExporting(true); setError(''); setNotice('');
+    setExporting(format);
+    setError('');
+    setNotice('');
     try {
-      await downloadAttendanceCsv(selectedClass ? { class_name: selectedClass } : undefined);
-      setNotice('Your CSV report has been downloaded.');
-    } catch (err) { setError(formatApiErrorMessage(err, 'Unable to export the report. Please try again.')); }
-    finally { setExporting(false); }
+      await downloadAttendanceReport(format, applied);
+      setNotice(`Your ${exportFormats.find(option => option.value === format)?.label} report has been downloaded.`);
+    } catch (err) {
+      setError(formatApiErrorMessage(err, 'Unable to export the report. Please try again.'));
+    } finally {
+      setExporting(null);
+    }
   };
 
   return (
@@ -61,21 +103,55 @@ export const ReportsPage: React.FC = () => {
           </p>
         </div>
 
-        {/* Clean Export Actions */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => handleExport()}
-            disabled={exporting}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface border border-border hover:bg-surface-muted text-text text-xs font-medium transition shadow-sm"
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            aria-label="Report export format"
+            value={format}
+            onChange={event => setFormat(event.target.value as ReportFormat)}
+            className="rounded-lg border border-border bg-surface px-3 py-2 text-sm"
           >
-            <Download className="w-3.5 h-3.5 text-text-muted" />
-            <span>{exporting ? 'Exporting…' : 'Export CSV'}</span>
-          </button>
-
+            {exportFormats.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+          <Button onClick={() => void handleExport()} disabled={loading || !analytics || filtersChanged || exporting !== null}>
+            <Download className="h-4 w-4" aria-hidden="true" />
+            {exporting ? 'Exporting…' : 'Download report'}
+          </Button>
         </div>
       </div>
 
-      {error && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/30 bg-danger/10 p-4 text-sm text-danger"><p>{error}</p><Button variant="secondary" size="sm" onClick={() => void loadData()}>Retry</Button></div>}
+      <form className="grid gap-3 rounded-xl border border-border bg-surface p-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end" onSubmit={event => {
+        event.preventDefault();
+        void loadData(draft);
+      }}>
+        <label className="text-sm font-medium">
+          From
+          <input className={filterInput} type="date" required max={draft.end_date} value={draft.start_date}
+            onChange={event => setDraft({ ...draft, start_date: event.target.value })} />
+        </label>
+        <label className="text-sm font-medium">
+          To
+          <input className={filterInput} type="date" required min={draft.start_date} value={draft.end_date}
+            onChange={event => setDraft({ ...draft, end_date: event.target.value })} />
+        </label>
+        <label className="text-sm font-medium">
+          Class
+          <input className={filterInput} list="report-class-names" placeholder="All classes" maxLength={64} value={draft.class_name ?? ''}
+            onChange={event => setDraft({ ...draft, class_name: event.target.value || undefined })} />
+        </label>
+        <datalist id="report-class-names">
+          {classNames.map(name => <option key={name} value={name} />)}
+        </datalist>
+        <label className="text-sm font-medium">
+          Subject
+          <input className={filterInput} list="report-subject-names" placeholder="All subjects" maxLength={128} value={draft.subject ?? ''}
+            onChange={event => setDraft({ ...draft, subject: event.target.value || undefined })} />
+        </label>
+        <datalist id="report-subject-names">
+          {subjectNames.map(name => <option key={name} value={name} />)}
+        </datalist>
+        <Button type="submit" variant="secondary" disabled={loading}>Apply filters</Button>
+      </form>
+      {error && <p role="alert" className="rounded-xl border border-danger/30 bg-danger/10 p-4 text-sm text-danger">{error}</p>}
       {notice && <p role="status" className="rounded-xl bg-success/10 p-4 text-sm text-success">{notice}</p>}
       {/* 4 Summary Metrics Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -114,22 +190,7 @@ export const ReportsPage: React.FC = () => {
 
       {/* Class Breakdowns Section */}
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-text">Class Performance</h2>
-          <select
-            aria-label="Filter reports by class"
-            value={selectedClass}
-            onChange={(e) => setSelectedClass(e.target.value)}
-            className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:outline-none focus:border-indigo-500 shadow-sm"
-          >
-            <option value="">All Classes</option>
-            {analytics?.class_breakdowns?.map((c: ClassAttendanceSummary) => (
-              <option key={c.class_name} value={c.class_name}>
-                {c.class_name} ({c.department})
-              </option>
-            ))}
-          </select>
-        </div>
+        <h2 className="text-lg font-semibold text-text">Class Performance</h2>
 
         {/* Clean Table */}
         <div className="bg-surface border border-border rounded-xl overflow-hidden shadow-sm">
@@ -139,7 +200,7 @@ export const ReportsPage: React.FC = () => {
               Loading report data...
             </div>
           ) : !analytics || analytics.class_breakdowns.length === 0 ? (
-            <EmptyState title="No attendance reports yet" description="Complete an attendance session to see your class performance here."/>
+            <EmptyState title="No matching class data" description="Try a different date range, class, or subject."/>
           ) : (
             <div><div className="divide-y divide-border md:hidden">{analytics.class_breakdowns.map(cls=><article key={cls.class_name} className="space-y-3 p-4"><div className="flex items-center justify-between gap-3"><h3 className="font-semibold">{cls.class_name}</h3><strong className="text-primary">{cls.avg_attendance_pct}%</strong></div><p className="text-sm text-text-muted">{cls.department}</p><div className="flex justify-between text-xs text-text-muted"><span>{cls.total_students_enrolled} enrolled</span><span>{cls.present_count} present marks</span></div><div className="h-2 rounded-full bg-surface-muted"><div className="h-full rounded-full bg-primary" style={{width:`${Math.min(100,Math.max(0,cls.avg_attendance_pct))}%`}}/></div></article>)}</div><div className="hidden overflow-x-auto md:block">
               <table className="w-full text-left text-xs">

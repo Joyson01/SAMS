@@ -9,8 +9,8 @@ The repository is named **SAMS**. Use the **`joyson` branch** for the current ap
 - **Dashboard:** attendance summaries, daily classes, recent activity and system health. Administrators can create an HOD account from **Users** by entering the department name as it appears on an existing class. HODs see the class, active student, and active session counts for their assigned department.
 - **Student portal:** personal details, subject and date filters, an attendance target calculator, correction requests, face enrollment, and a face-match check.
 - **Attendance sessions:** scheduling, session records, roster review and manual attendance. Assign classes to Faculty accounts under **Users → Manage → Assigned classes**. Faculty can work with sessions linked to one of their assigned classes. An administrator can handle older sessions without a linked class.
-- **Students and academics:** student directory, classes, subjects, batches and timetable management. Administrators manage the academic setup. Faculty read the timetable, class details, batches, and subject mappings for their assigned classes.
-- **Reports:** attendance analytics and CSV exports. Faculty reports and exports cover assigned classes. Faculty sign-in opens Attendance Sessions.
+- **Students and academics:** student directory, classes, subjects, batches and timetable management. Administrators manage the academic setup and can preview and import CSV or Excel rosters from **Students**. Faculty read the timetable, class details, batches, and subject mappings for their assigned classes.
+- **Reports:** attendance analytics with date, subject, and class filters, plus CSV, Excel, and printable PDF exports. Faculty reports and exports cover assigned classes. Faculty sign-in opens Attendance Sessions.
 - **Anonymous detection:** upload a photo to locate visible faces without matching identities or recording attendance.
 - **Interface:** light and dark themes, compact desktop navigation, responsive tables, keyboard focus states and mobile navigation.
 
@@ -357,6 +357,8 @@ The count represents detected visible faces, not everyone in the room. Small, co
 The original recognition smoke tests configured **FRONT only** on disposable servers. Later Chromium checks exercised seven-pose student capture and progression with a simulated camera and mocked pose responses. Physical webcam behavior, real-person matching, Windows/macOS startup, direct capture on physical phones, PostgreSQL, and CUDA still require validation. See [manual QA](docs/MANUAL_QA.md), [troubleshooting](docs/TROUBLESHOOTING.md), [audit](docs/AUDIT.md) and [final verification report](docs/FINAL_REPORT.md).
 
 For the November 16, 2026 updates, the anonymous detection and photo-detector checks passed (14 tests). The frontend production build passed after UI polishing. Browser checks covered navigation, directory search, dialog controls, desktop and phone layouts, dark mode and keyboard focus. These are scoped results, not a new full-suite certification. See the [UI polish report](docs/UNSLOP_DIRECTION.md) and [anonymous detection design](docs/anonymous-detection-design.md).
+
+See the [go-live checklist and staff manual](docs/GO_LIVE.md) for pilot acceptance, recovery, and deployment checks.
 
 ## Verification commands
 

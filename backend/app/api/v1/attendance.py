@@ -1,10 +1,10 @@
 from datetime import date
-from typing import List, Optional, Dict, Any
+from typing import List, Literal, Optional, Dict, Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from backend.app.core.security import require_roles, get_current_user
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.app.core.teacher_access import require_class_access, require_session_access
+from backend.app.core.teacher_access import require_class_access, require_session_access, require_student_access
 from backend.app.models.entities import AttendanceRecord, AttendanceSession, ClassSection, User
 
 from backend.app.database.session import get_db
@@ -198,7 +198,7 @@ async def get_session_records(
 async def mark_manual_attendance(
     session_id: str = Query(..., description="Session ID"),
     student_id: str = Query(..., description="Student ID"),
-    status: str = Query("PRESENT", description="Status (PRESENT, ABSENT, LATE, EXCUSED)"),
+    status: Literal["PRESENT", "ABSENT", "LATE", "EXCUSED", "MANUAL_PRESENT", "MANUAL_ABSENT", "MANUAL_EXCUSED"] = Query("PRESENT"),
     remarks: str = Query("Manual Attendance", description="Optional remarks or leave reason"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -210,6 +210,7 @@ async def mark_manual_attendance(
         student_id=student_id,
         status=status,
         remarks=remarks,
+        user_id=user.id,
     )
 
 
@@ -274,9 +275,10 @@ async def get_student_attendance(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if user.role == "FACULTY":
-        raise HTTPException(403, "Use the assigned class session roster to review attendance.")
-    return await AttendanceService.get_student_attendance_history(db, student_id)
+    await require_student_access(db, user, student_id)
+    return await AttendanceService.get_student_attendance_history(
+        db, student_id, teacher_id=user.id if user.role == "FACULTY" else None
+    )
 
 
 @router.post(

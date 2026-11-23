@@ -131,6 +131,11 @@ function AttendanceDashboard({ items, requests, onSaved }: { items: AttendanceIt
       {datesValid && total === 0 && <p className="text-sm text-text-muted">No sessions match these filters.</p>}
       {total > 0 && <>
         <p><strong>{percentage}%</strong> · {attended} of {total} recorded sessions attended</p>
+        {attended * 100 < 75 * total && (
+          <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-900">
+            Attendance in this view is below 75%. Review the sessions below and request a correction if a mark is incorrect.
+          </p>
+        )}
         <div className="space-y-2">
           {subjects.filter(name => !subject || name === subject).map(name => {
             const records = filtered.filter(row => row.subject === name);

@@ -26,6 +26,7 @@ from sqlalchemy import select, or_
 from backend.app.database.session import AsyncSessionLocal, init_db_schema
 from backend.app.models.entities import User
 from backend.app.core.security import hash_password
+from backend.app.schemas.auth import UserRegisterRequest
 
 
 async def bootstrap_admin(username: str, email: str, password: str, role: str = "ADMIN", full_name: str = "System Administrator"):
@@ -78,11 +79,19 @@ def main():
     parser = argparse.ArgumentParser(description="Bootstrap initial SAMS admin/staff user.")
     parser.add_argument("--username", default=os.getenv("BOOTSTRAP_ADMIN_USERNAME", "admin"), help="Username")
     parser.add_argument("--email", default=os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@college.edu"), help="Email address")
-    parser.add_argument("--password", default=os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "AdminPass123!"), help="Account password")
+    parser.add_argument("--password", default=os.getenv("BOOTSTRAP_ADMIN_PASSWORD"), help="Account password")
     parser.add_argument("--role", default=os.getenv("BOOTSTRAP_ADMIN_ROLE", "ADMIN"), help="User role (ADMIN, FACULTY, STUDENT)")
     parser.add_argument("--full-name", default=os.getenv("BOOTSTRAP_ADMIN_FULL_NAME", "System Administrator"), help="Full Name")
 
     args = parser.parse_args()
+    if not args.password:
+        parser.error("Set BOOTSTRAP_ADMIN_PASSWORD before provisioning the account.")
+    try:
+        UserRegisterRequest.validate_password(args.password)
+        if len(args.password) < 8:
+            raise ValueError("Password needs at least 8 characters.")
+    except ValueError as error:
+        parser.error(str(error))
 
     asyncio.run(bootstrap_admin(
         username=args.username,

@@ -7,6 +7,7 @@ async def test_teacher_can_work_only_in_assigned_sessions(staff_client):
     sessions = {}
     classes = {}
     slots = {}
+    students = {}
     for class_name in ("CS-A", "CS-B"):
         section = await client.post("/api/v1/classes", json={"name": class_name, "department": "CS"})
         assert section.status_code == 201, section.text
@@ -31,6 +32,7 @@ async def test_teacher_can_work_only_in_assigned_sessions(staff_client):
             "department": "CS", "class_name": class_name,
         })
         assert student.status_code == 201, student.text
+        students[class_name] = student.json()["id"]
         marked = await client.post("/api/v1/attendance/manual", params={
             "session_id": sessions[class_name], "student_id": student.json()["id"],
             "remarks": "=1+1",
@@ -108,3 +110,17 @@ async def test_teacher_can_work_only_in_assigned_sessions(staff_client):
         "code": "TEST", "name": "Test", "department": "CS",
     })).status_code == 403
     assert (await client.get("/api/v1/sync/pull")).status_code == 403
+
+    directory = await client.get("/api/v1/students")
+    assert directory.status_code == 200, directory.text
+    assert [item["id"] for item in directory.json()["items"]] == [students["CS-A"]]
+    stats = await client.get("/api/v1/students/stats")
+    assert stats.json()["total_students"] == 1
+    assert (await client.get(f"/api/v1/students/{students['CS-A']}/enroll/status")).status_code == 200
+    assert (await client.get(f"/api/v1/students/{students['CS-B']}/enroll/status")).status_code == 403
+    assert (await client.get(f"/api/v1/students/{students['CS-B']}")).status_code == 403
+    assert (await client.get(f"/api/v1/attendance/students/{students['CS-A']}")).status_code == 200
+    assert (await client.get(f"/api/v1/attendance/students/{students['CS-B']}")).status_code == 403
+    assert (await client.put(f"/api/v1/students/{students['CS-A']}", json={
+        "class_name": "CS-B",
+    })).status_code == 403

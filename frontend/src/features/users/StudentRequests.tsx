@@ -7,7 +7,7 @@ import { formatApiErrorMessage } from '../../utils/apiError';
 
 export type StudentRequest = {
   id: string;
-  kind: 'CORRECTION' | 'FACE_REGISTER' | 'FACE_UPDATE';
+  kind: 'CORRECTION' | 'FACE_REGISTER' | 'FACE_UPDATE' | 'LEAVE' | 'MEDICAL' | 'ON_DUTY';
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   record_id: string | null;
   requested_status: string | null;
@@ -34,8 +34,14 @@ type ReviewItem = StudentRequest & {
 export const fieldClass = 'mt-2 min-h-11 w-full rounded-lg border border-border bg-surface px-3 py-2 text-text';
 const marks = ['PRESENT', 'ABSENT', 'LATE', 'EXCUSED'];
 const label = (value: string) => value.replace(/_/g, ' ').toLowerCase();
-const requestLabel = (kind: StudentRequest['kind']) =>
-  kind === 'CORRECTION' ? 'Attendance correction' : kind === 'FACE_REGISTER' ? 'Face registration' : 'Face update';
+const requestLabels: Record<StudentRequest['kind'], string> = {
+  CORRECTION: 'Attendance correction',
+  FACE_REGISTER: 'Face registration',
+  FACE_UPDATE: 'Face update',
+  LEAVE: 'Leave request',
+  MEDICAL: 'Medical request',
+  ON_DUTY: 'On-duty request',
+};
 
 export function CorrectionForm({ record, request, onSaved }: {
   record: { id: string; status: string };
@@ -44,39 +50,51 @@ export function CorrectionForm({ record, request, onSaved }: {
 }) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState('');
+  const [kind, setKind] = useState<StudentRequest['kind']>('CORRECTION');
+  const recordedAbsence = record.status.replace(/^MANUAL_/, '') === 'ABSENT';
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   return <div className="basis-full text-sm">
-    {request && <p className="mb-2">Correction {label(request.status)}{request.review_note && ` · ${request.review_note}`}</p>}
+    {request && <p className="mb-2">{requestLabels[request.kind]} · {label(request.status)}{request.review_note && ` · ${request.review_note}`}</p>}
     {request?.status !== 'PENDING' && (
-      <Button size="sm" variant="secondary" onClick={() => setOpen(!open)}>{open ? 'Cancel' : 'Request correction'}</Button>
+      <Button size="sm" variant="secondary" onClick={() => setOpen(!open)}>{open ? 'Cancel' : 'Request a change'}</Button>
     )}
     {open && request?.status !== 'PENDING' && <form className="mt-3 max-w-md space-y-3" onSubmit={async event => {
       event.preventDefault();
       setBusy(true);
       setError('');
       try {
-        await apiClient.post('/student-portal/corrections', { record_id: record.id, requested_status: status, reason });
+        await apiClient.post('/student-portal/corrections', { record_id: record.id, requested_status: kind === 'CORRECTION' ? status : 'EXCUSED', reason, kind });
         setOpen(false);
         setStatus('');
+        setKind('CORRECTION');
         setReason('');
         onSaved();
       } catch (err) {
-        setError(formatApiErrorMessage(err, 'Could not submit your correction.'));
+        setError(formatApiErrorMessage(err, 'Could not submit your request.'));
       } finally {
         setBusy(false);
       }
     }}>
-      <label className="block">Requested mark
+      {recordedAbsence && (
+        <label className="block">Request type
+          <select className={fieldClass} value={kind} onChange={event => setKind(event.target.value as StudentRequest['kind'])}>
+            {(['CORRECTION', 'LEAVE', 'MEDICAL', 'ON_DUTY'] as const).map(value => (
+              <option key={value} value={value}>{requestLabels[value]}</option>
+            ))}
+          </select>
+        </label>
+      )}
+      {kind === 'CORRECTION' && <label className="block">Requested mark
         <select required className={fieldClass} value={status} onChange={event => setStatus(event.target.value)}>
           <option value="">Choose a mark</option>
           {marks.filter(mark => mark !== record.status.replace(/^MANUAL_/, '')).map(mark => (
             <option value={mark} key={mark}>{label(mark)}</option>
           ))}
         </select>
-      </label>
+      </label>}
       <label className="block">Reason
         <textarea required minLength={2} maxLength={1000} className={fieldClass} value={reason} onChange={event => setReason(event.target.value)} />
       </label>
@@ -332,7 +350,7 @@ function ReviewCard({ item, onReviewed }: { item: ReviewItem; onReviewed: () => 
   }
 
   return <article className="space-y-3 border-t border-border p-4">
-    <h3 className="font-medium">{requestLabel(item.kind)} · {item.student_name}</h3>
+    <h3 className="font-medium">{requestLabels[item.kind]} · {item.student_name}</h3>
     <p className="text-sm text-text-muted">{item.student_pid}{item.subject && ` · ${item.subject} · ${item.date}`}</p>
     <p className="text-sm">{label(item.current_status ?? '')} → {label(item.requested_status ?? '')}</p>
     <p className="whitespace-pre-wrap break-words text-sm">{item.reason}</p>

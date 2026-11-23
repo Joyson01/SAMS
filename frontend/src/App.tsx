@@ -124,7 +124,7 @@ const Workspace: React.FC = () => {
           {activeTab === 'anonymous-detection' && ['ADMIN','FACULTY'].includes(role) && <AnonymousDetectionPage />}
           {activeTab === 'users' && role === 'ADMIN' && <UsersPage />}
           {activeTab === 'dashboard' && role !== 'FACULTY' && <DashboardOverview onNavigate={handleNavigate} />}
-          {activeTab === 'students' && <StudentListPage onNavigate={handleNavigate} />}
+          {activeTab === 'students' && <StudentListPage onNavigate={handleNavigate} canManage={role === 'ADMIN' || role === 'OPERATOR'} />}
           {activeTab === 'subjects' && role === 'ADMIN' && <><SubjectManagementPage onNavigate={handleNavigate} /><AcademicTools /></>}
           {activeTab === 'timetable' && <><TimetablePage onNavigate={handleNavigate} canEdit={role === 'ADMIN'} />{role === 'ADMIN' && <TimetableEditor />}</>}
           {activeTab === 'enrollment' && (

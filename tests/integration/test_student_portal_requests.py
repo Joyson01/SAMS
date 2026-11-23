@@ -56,6 +56,18 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
     assert own_record.status == "PRESENT"
     assert (await client.post(f"{portal}/review/{correction_id}", json=decision)).status_code == 409
 
+    own_record.status = "ABSENT"
+    await test_db_session.commit()
+    leave = await client.post(f"{portal}/corrections", headers=student_headers, json={
+        "record_id": own_record.id, "kind": "ON_DUTY", "requested_status": "EXCUSED",
+        "reason": "Represented the college at an event.",
+    })
+    assert leave.status_code == 201, leave.text
+    assert leave.json()["kind"] == "ON_DUTY"
+    reviewed = await client.post(f"{portal}/review/{leave.json()['id']}", json=decision)
+    assert reviewed.status_code == 200, reviewed.text
+    assert own_record.status == "EXCUSED"
+
     candidate = np.ones(512, dtype=np.float32) / np.sqrt(512)
 
     def validated_image(data, pose, embed=False, **kwargs):
@@ -100,4 +112,4 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
     assert removed.json()["completed_poses"] == []
     assert own.enrollment_status == "NOT_ENROLLED"
     assert await test_db_session.scalar(select(FaceProfile.id)) is None
-    assert own_record.status == "PRESENT"
+    assert own_record.status == "EXCUSED"

@@ -1,6 +1,6 @@
 import { useDialogFeedback } from '../../components/common/useDialogFeedback';
 import { PhotoAttendancePanel } from '../../components/PhotoAttendancePanel';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Calendar,
   Users,
@@ -11,23 +11,23 @@ import {
   Edit3,
   Sparkles,
   MoreVertical,
-  Upload,
   CheckCircle2,
 } from 'lucide-react';
 import {
   fetchSessions,
-  fetchSessionById,
   createSession,
   startSession,
   closeSession,
-  fetchSessionRecords,
+  fetchSessionRoster,
+  markManualAttendance,
+  type ClassRosterStudentItem,
+  type SessionRosterResponse,
   overrideRecord,
 } from '../../services/attendanceApi';
 import { fetchSubjects, fetchClasses, fetchClassTimetable } from '../../services/subjectApi';
 import { formatApiErrorMessage } from '../../utils/apiError';
 import { fetchCurrentTimetableEntry } from '../../services/timetableApi';
 import {
-  AttendanceRecord,
   AttendanceSession,
   SessionCreatePayload,
 } from '../../types/attendance';
@@ -48,10 +48,6 @@ import {
   Progress,
 } from '../../components/ui';
 
-interface AttendancePageProps {
-  onNavigate?: (tab: string) => void;
-}
-
 const formatDisplayTime = (timeStr?: string): string => {
   if (!timeStr) return '--:--';
   const parts = timeStr.split(':');
@@ -64,7 +60,7 @@ const formatDisplayTime = (timeStr?: string): string => {
   return `${String(displayHour).padStart(2, '0')}:${minute} ${ampm}`;
 };
 
-export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) => {
+export const AttendancePage: React.FC = () => {
   const { confirmAction, notify, feedback } = useDialogFeedback();
   // Session List State
   const [sessions, setSessions] = useState<AttendanceSession[]>([]);
@@ -77,9 +73,13 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
   const [filterDateRange, setFilterDateRange] = useState<string>('all'); // all, today
 
   // Selected Session Drawer
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<AttendanceSession | null>(null);
-  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const selectedSessionId = selectedSession?.id ?? null;
+  const [roster, setRoster] = useState<SessionRosterResponse | null>(null);
+  const [rosterError, setRosterError] = useState('');
+  const rosterRequest = useRef(0);
+  const rosterHeading = useRef<HTMLHeadingElement>(null);
+  const [sessionMode, setSessionMode] = useState<'photo' | 'manual'>('photo');
   const [loadingRecords, setLoadingRecords] = useState<boolean>(false);
   const [recordFilterStatus, setRecordFilterStatus] = useState<string>('');
   const [recordSearch, setRecordSearch] = useState<string>('');
@@ -118,7 +118,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
 
   // Manual Override Modal
   const [isOverrideModalOpen, setIsOverrideModalOpen] = useState<boolean>(false);
-  const [selectedRecord, setSelectedRecord] = useState<AttendanceRecord | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<ClassRosterStudentItem | null>(null);
   const [overrideStatus, setOverrideStatus] = useState<
     'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED' | 'MANUAL_PRESENT' | 'MANUAL_ABSENT' | 'MANUAL_EXCUSED'
   >('PRESENT');
@@ -129,10 +129,6 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
   // Form error message
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [creatingSession, setCreatingSession] = useState<boolean>(false);
-
-  // Multi-Photo Upload State
-  const [uploadingPhotos] = useState<boolean>(false);
-  const [uploadProgress] = useState<string>('');
 
   // Row Menu Popover
   const [activeMenuSessionId, setActiveMenuSessionId] = useState<string | null>(null);
@@ -206,28 +202,33 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
     }
   }, [isCreateModalOpen, creationMode, loadDayTimetable]);
 
-  // Load Selected Session Details & Records
   const loadSessionDetails = useCallback(async (sessionId: string) => {
+    const request = ++rosterRequest.current;
     setLoadingRecords(true);
+    setRosterError('');
     try {
-      const [sess, recList] = await Promise.all([
-        fetchSessionById(sessionId),
-        fetchSessionRecords(sessionId, recordFilterStatus || undefined),
-      ]);
-      setSelectedSession(sess);
-      setRecords(recList);
+      const result = await fetchSessionRoster(sessionId);
+      if (request === rosterRequest.current) setRoster(result);
     } catch (err) {
-      console.error('Failed to load session details:', err);
+      if (request === rosterRequest.current) {
+        setRosterError(formatApiErrorMessage(err, 'Unable to load the class roster.'));
+      }
     } finally {
-      setLoadingRecords(false);
+      if (request === rosterRequest.current) setLoadingRecords(false);
     }
-  }, [recordFilterStatus]);
+  }, []);
 
   useEffect(() => {
-    if (selectedSessionId) {
-      loadSessionDetails(selectedSessionId);
-    }
+    if (selectedSessionId) void loadSessionDetails(selectedSessionId);
+    return () => { rosterRequest.current++; };
   }, [selectedSessionId, loadSessionDetails]);
+
+  function openSession(session: AttendanceSession, mode: 'photo' | 'manual' = 'photo') {
+    setSessionMode(mode);
+    setRecordFilterStatus('');
+    setRecordSearch('');
+    setSelectedSession(session);
+  }
 
   // Auto Detect Current Class Action
   const handleAutoDetectCurrentClass = async () => {
@@ -247,11 +248,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
       );
 
       if (existing) {
-        if (existing.status === 'ACTIVE') {
-          if (onNavigate) onNavigate('live');
-        } else {
-          setSelectedSessionId(existing.id);
-        }
+        openSession(existing, existing.status === 'ACTIVE' ? 'photo' : 'manual');
       } else {
         // Pre-fill creation modal
         setSelectedClassId(activeEntry.class_id);
@@ -280,9 +277,10 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
   // Start / Close Actions
   const handleStart = async (sessionId: string) => {
     try {
-      await startSession(sessionId);
-      await loadSessions();
-      if (onNavigate) onNavigate('live');
+      const started = await startSession(sessionId);
+      setSessions(current => current.map(session => session.id === sessionId ? started : session));
+      openSession(started);
+      if (selectedSessionId === started.id) void loadSessionDetails(started.id);
     } catch (err) {
       notify('Failed to start session.');
     }
@@ -295,11 +293,12 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
       )
     ) {
       try {
-        await closeSession(sessionId, true);
-        await loadSessions();
+        const completed = await closeSession(sessionId, true);
         if (selectedSessionId === sessionId) {
-          loadSessionDetails(sessionId);
+          setSelectedSession(current => current?.id === sessionId ? completed : current);
+          void loadSessionDetails(sessionId);
         }
+        await loadSessions();
       } catch (err) {
         notify('Failed to close session.');
       }
@@ -315,8 +314,8 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
     try {
       const newSession = await createSession(createForm);
       setIsCreateModalOpen(false);
-      await loadSessions();
-      setSelectedSessionId(newSession.id);
+      setSessions(current => [newSession, ...current]);
+      openSession(newSession, newSession.status === 'ACTIVE' ? 'photo' : 'manual');
     } catch (err: unknown) {
       setErrorMessage(formatApiErrorMessage(err, 'Failed to create session.'));
     } finally {
@@ -324,28 +323,25 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
     }
   };
 
-  // Photo Upload Handler
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!selectedSessionId || !e.target.files) return;
-    window.dispatchEvent(new CustomEvent('photo-review-files', {detail: {sessionId:selectedSessionId,files:Array.from(e.target.files)}}));
-    e.target.value = '';
-  };
-
   // Manual Override Record Submit
   const handleOverrideSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedRecord) return;
+    if (!selectedRecord || !selectedSessionId) return;
+    if (selectedRecord.record_id && overrideRemarks.trim().length < 2) {
+      notify('Enter a reason before changing an existing mark.');
+      return;
+    }
 
     setOverrideSubmitting(true);
     try {
-      await overrideRecord(selectedRecord.id, {
-        status: overrideStatus,
-        remarks: overrideRemarks || 'Faculty manual adjustment',
-      });
-      setIsOverrideModalOpen(false);
-      if (selectedSessionId) {
-        loadSessionDetails(selectedSessionId);
+      const remarks = overrideRemarks.trim() || 'Faculty manual adjustment';
+      if (selectedRecord.record_id) {
+        await overrideRecord(selectedRecord.record_id, { status: overrideStatus, remarks });
+      } else {
+        await markManualAttendance(selectedSessionId, selectedRecord.student_id, overrideStatus, remarks);
       }
+      setIsOverrideModalOpen(false);
+      await Promise.all([loadSessionDetails(selectedSessionId), loadSessions()]);
     } catch (err: unknown) {
       notify(formatApiErrorMessage(err, 'Failed to override attendance status.'));
     } finally {
@@ -353,33 +349,20 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
     }
   };
 
-  // Filtered records in drawer
+  const sessionRoster = roster?.session_id === selectedSessionId ? roster : null;
   const filteredRecords = useMemo(() => {
-    return records.filter((r) => {
-      const matchesSearch =
-        !recordSearch ||
-        r.student_name.toLowerCase().includes(recordSearch.toLowerCase()) ||
-        (r.roll_number && r.roll_number.toLowerCase().includes(recordSearch.toLowerCase()));
-      const matchesStatus =
-        !recordFilterStatus || r.status.toUpperCase().includes(recordFilterStatus.toUpperCase());
-      return matchesSearch && matchesStatus;
+    const search = recordSearch.trim().toLowerCase();
+    return (sessionRoster?.roster ?? []).filter(student => {
+      const matchesSearch = [student.student_name, student.roll_number, student.student_code]
+        .some(value => value?.toLowerCase().includes(search));
+      const status = student.attendance_status.replace('MANUAL_', '');
+      return matchesSearch && (!recordFilterStatus || status === recordFilterStatus);
     });
-  }, [records, recordSearch, recordFilterStatus]);
+  }, [sessionRoster, recordSearch, recordFilterStatus]);
 
-  // Active session stats
-  const drawerStats = useMemo(() => {
-    if (!records.length) {
-      return { present: 0, late: 0, absent: 0, total: 0, rate: 0 };
-    }
-    const present = records.filter(
-      (r) => r.status === 'PRESENT' || r.status === 'MANUAL_PRESENT'
-    ).length;
-    const late = records.filter((r) => r.status === 'LATE').length;
-    const absent = records.filter((r) => r.status === 'ABSENT' || r.status === 'MANUAL_ABSENT').length;
-    const total = records.length;
-    const rate = total > 0 ? Math.round(((present + late) / total) * 100) : 0;
-    return { present, late, absent, total, rate };
-  }, [records]);
+  const absentCount = sessionRoster?.roster.filter(student =>
+    ['ABSENT', 'MANUAL_ABSENT'].includes(student.attendance_status)
+  ).length ?? 0;
 
   return (
     <div className="space-y-5">
@@ -555,7 +538,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1.5">
                       {isLive ? (
-                        <Button size="sm" onClick={() => setSelectedSessionId(sess.id)}>Take attendance</Button>
+                        <Button size="sm" onClick={() => openSession(sess)}>Take attendance</Button>
                       ) : isScheduled ? (
                         <Button
                           onClick={() => handleStart(sess.id)}
@@ -568,7 +551,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                       ) : null}
 
                       <Button
-                        onClick={() => setSelectedSessionId(sess.id)}
+                        onClick={() => openSession(sess, 'manual')}
                         variant="ghost"
                         size="sm"
                       >
@@ -593,7 +576,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                             <button
                               onClick={() => {
                                 setActiveMenuSessionId(null);
-                                setSelectedSessionId(sess.id);
+                                openSession(sess, 'manual');
                               }}
                               className="w-full text-left px-3 py-1.5 hover:bg-surface-muted text-text flex items-center gap-2"
                             >
@@ -627,7 +610,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
       {/* 4. Session Details Drawer */}
       <Drawer
         isOpen={Boolean(selectedSessionId)}
-        onClose={() => setSelectedSessionId(null)}
+        onClose={() => setSelectedSession(null)}
         title={selectedSession ? `${selectedSession.class_name} • ${selectedSession.subject}` : 'Session Details'}
         subtitle={
           selectedSession
@@ -638,22 +621,10 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
         footer={
           selectedSession ? (
             <div className="flex items-center justify-between w-full">
-              <div className="flex items-center gap-2">
-                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-surface-muted hover:bg-surface-muted text-text rounded-lg text-xs font-medium cursor-pointer transition">
-                  <Upload className="w-3.5 h-3.5 text-text-muted" />
-                  <span>{uploadingPhotos ? uploadProgress : 'Upload Photo'}</span>
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    onChange={handlePhotoUpload}
-                    disabled={uploadingPhotos}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-
-              <div className="flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-2">
+                {selectedSession.status === 'SCHEDULED' && (
+                  <Button onClick={() => handleStart(selectedSession.id)} size="sm">Start session</Button>
+                )}
                 {selectedSession.status === 'ACTIVE' && (
                   <Button
                     onClick={() => handleClose(selectedSession.id)}
@@ -665,7 +636,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                   </Button>
                 )}
                 <Button
-                  onClick={() => setSelectedSessionId(null)}
+                  onClick={() => setSelectedSession(null)}
                   variant="secondary"
                   size="sm"
                 >
@@ -678,119 +649,149 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
       >
         {selectedSession && (
           <div className="space-y-5">
-            <PhotoAttendancePanel key={selectedSessionId} sessionId={selectedSessionId || ""} active={selectedSession.id === selectedSessionId && selectedSession.status === 'ACTIVE'} onConfirmed={() => loadSessionDetails(selectedSession.id)} />
-            {/* KPI Summary Strip */}
-            <div className="grid grid-cols-4 gap-2 bg-surface-muted p-3 rounded-lg border border-border text-center text-xs">
-              <div>
-                <div className="text-xs text-text-muted font-semibold">Total</div>
-                <div className="font-semibold text-text text-sm mt-0.5">{drawerStats.total}</div>
-              </div>
-              <div>
-                <div className="text-xs text-emerald-600 font-semibold">Present</div>
-                <div className="font-semibold text-emerald-600 text-sm mt-0.5">{drawerStats.present}</div>
-              </div>
-              <div>
-                <div className="text-xs text-amber-600 font-semibold">Late</div>
-                <div className="font-semibold text-amber-600 text-sm mt-0.5">{drawerStats.late}</div>
-              </div>
-              <div>
-                <div className="text-xs text-rose-600 font-semibold">Absent</div>
-                <div className="font-semibold text-rose-600 text-sm mt-0.5">{drawerStats.absent}</div>
-              </div>
-            </div>
-
-            {/* Attendance Rate */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-text">Attendance Rate</span>
-                <span className="font-semibold text-text">{drawerStats.rate}%</span>
-              </div>
-              <Progress value={drawerStats.rate} max={100} size="sm" variant="auto" />
-            </div>
-
-            {/* Records Section */}
-            <div className="space-y-2.5 pt-2">
-              <div className="flex items-center justify-between gap-2">
-                <h4 className="text-xs font-semibold text-text">
-                  Attendance Records ({filteredRecords.length})
-                </h4>
-                <div className="flex items-center gap-1.5">
-                  <select
-                    aria-label="Filter attendance status" value={recordFilterStatus}
-                    onChange={(e) => setRecordFilterStatus(e.target.value)}
-                    className="px-2 py-1 bg-surface border border-border rounded text-xs text-text focus:outline-none"
-                  >
-                    <option value="">All Statuses</option>
-                    <option value="PRESENT">Present</option>
-                    <option value="LATE">Late</option>
-                    <option value="ABSENT">Absent</option>
-                  </select>
+            {selectedSession.status === 'ACTIVE' && (
+              <>
+                <div className="flex flex-wrap gap-2" aria-label="Attendance method">
+                  <Button aria-pressed={sessionMode === 'photo'} variant={sessionMode === 'photo' ? 'primary' : 'secondary'} onClick={() => setSessionMode('photo')}>Class photo</Button>
+                  <Button aria-pressed={sessionMode === 'manual'} variant={sessionMode === 'manual' ? 'primary' : 'secondary'} onClick={() => setSessionMode('manual')}>Manual roster</Button>
+                </div>
+                <div hidden={sessionMode !== 'photo'}>
+                  <PhotoAttendancePanel
+                    key={selectedSession.id}
+                    sessionId={selectedSession.id}
+                    active
+                    visible={sessionMode === 'photo'}
+                    onConfirmed={async () => { await Promise.all([loadSessionDetails(selectedSession.id), loadSessions()]); }}
+                    onManualReview={() => {
+                      setSessionMode('manual');
+                      setRecordFilterStatus('NOT_RECORDED');
+                      requestAnimationFrame(() => rosterHeading.current?.focus());
+                    }}
+                  />
+                </div>
+              </>
+            )}
+            {(selectedSession.status !== 'ACTIVE' || sessionMode === 'manual') && <>
+              {/* KPI Summary Strip */}
+              <div className="grid grid-cols-4 gap-2 bg-surface-muted p-3 rounded-lg border border-border text-center text-xs">
+                <div>
+                  <div className="text-xs text-text-muted font-semibold">Total</div>
+                  <div className="font-semibold text-text text-sm mt-0.5">{sessionRoster?.total_enrolled ?? 0}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-emerald-600 font-semibold">Present</div>
+                  <div className="font-semibold text-emerald-600 text-sm mt-0.5">{sessionRoster?.present_count ?? 0}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-amber-600 font-semibold">Late</div>
+                  <div className="font-semibold text-amber-600 text-sm mt-0.5">{sessionRoster?.late_count ?? 0}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-rose-600 font-semibold">Absent</div>
+                  <div className="font-semibold text-rose-600 text-sm mt-0.5">{absentCount}</div>
                 </div>
               </div>
 
-              <input
-                type="text"
-                aria-label="Search attendees" value={recordSearch}
-                onChange={(e) => setRecordSearch(e.target.value)}
-                placeholder="Search attendee by name or roll..."
-                className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text placeholder-slate-400 focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-
-              {loadingRecords ? (
-                <div className="py-8 text-center text-text-muted text-xs">Loading records...</div>
-              ) : filteredRecords.length === 0 ? (
-                <div className="py-8 text-center text-text-muted text-xs border border-dashed border-border rounded-lg">
-                  No attendance records found for this filter.
+              {/* Attendance Rate */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-text">Attendance Rate</span>
+                  <span className="font-semibold text-text">{sessionRoster?.attendance_rate_pct ?? 0}%</span>
                 </div>
-              ) : (
-                <div className="border border-border rounded-lg overflow-hidden max-h-[380px] overflow-y-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-surface-muted border-b border-border text-text-muted text-xs font-semibold sticky top-0">
-                      <tr>
-                        <th className="px-3 py-2">Student</th>
-                        <th className="px-3 py-2">Status</th>
-                        <th className="px-3 py-2">Confidence</th>
-                        <th className="px-3 py-2 text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {filteredRecords.map((r) => (
-                        <tr key={r.id} className="hover:bg-surface-muted">
-                          <td className="px-3 py-2">
-                            <div className="font-semibold text-text">{r.student_name}</div>
-                            <div className="text-xs text-text-muted font-mono">
-                              {r.roll_number || r.student_code}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2">
-                            <StatusBadge status={r.status} category="attendance" size="sm" />
-                          </td>
-                          <td className="px-3 py-2 font-mono text-text-muted text-[11px]">
-                            {r.confidence ? `${Math.round(r.confidence * 100)}%` : 'Manual'}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <button
-                              onClick={() => {
-                                setSelectedRecord(r);
-                                setOverrideStatus(
-                                  (r.status.replace('MANUAL_', '') as typeof overrideStatus) || 'PRESENT'
-                                );
-                                setOverrideRemarks(r.remarks || '');
-                                setIsOverrideModalOpen(true);
-                              }}
-                              className="p-1 text-text-muted hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
-                              title="Manual Override"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
+                <Progress value={sessionRoster?.attendance_rate_pct ?? 0} max={100} size="sm" variant="auto" />
+              </div>
+
+              {/* Records Section */}
+              <div className="space-y-2.5 pt-2">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 ref={rosterHeading} tabIndex={-1} className="text-sm font-semibold text-text">
+                    Class roster ({filteredRecords.length})
+                  </h4>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      aria-label="Filter attendance status" value={recordFilterStatus}
+                      onChange={(e) => setRecordFilterStatus(e.target.value)}
+                      className="px-2 py-1 bg-surface border border-border rounded text-xs text-text focus:outline-none"
+                    >
+                      <option value="">All Statuses</option>
+                      <option value="PRESENT">Present</option>
+                      <option value="LATE">Late</option>
+                      <option value="ABSENT">Absent</option>
+                      <option value="EXCUSED">Excused</option>
+                      <option value="NOT_RECORDED">Unmarked</option>
+                    </select>
+                  </div>
+                </div>
+
+                <input
+                  type="text"
+                  aria-label="Search attendees" value={recordSearch}
+                  onChange={(e) => setRecordSearch(e.target.value)}
+                  placeholder="Search by name, roll number, or student code"
+                  className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text placeholder-slate-400 focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+
+                {loadingRecords ? (
+                  <div className="py-8 text-center text-text-muted text-xs">Loading class roster…</div>
+                ) : rosterError ? (
+                  <div role="alert" className="space-y-2 py-4 text-sm">
+                    <p>{rosterError}</p>
+                    <Button size="sm" variant="secondary" onClick={() => loadSessionDetails(selectedSession.id)}>Retry roster</Button>
+                  </div>
+                ) : filteredRecords.length === 0 ? (
+                  <div className="py-8 text-center text-text-muted text-xs border border-dashed border-border rounded-lg">
+                    No students match this filter.
+                  </div>
+                ) : (
+                  <div className="border border-border rounded-lg overflow-hidden max-h-[380px] overflow-y-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-surface-muted border-b border-border text-text-muted text-xs font-semibold sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2">Student</th>
+                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2 text-right">Action</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {filteredRecords.map((r) => (
+                          <tr key={r.student_id} className="hover:bg-surface-muted">
+                            <td className="px-3 py-2">
+                              <div className="font-semibold text-text">{r.student_name}</div>
+                              <div className="text-xs text-text-muted font-mono">
+                                {r.roll_number || r.student_code}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">
+                              {r.attendance_status === 'NOT_RECORDED' ? 'Unmarked' : (
+                                <StatusBadge status={r.attendance_status} category="attendance" size="sm" />
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {(r.record_id || selectedSession.status === 'ACTIVE') && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedRecord(r);
+                                    const status = r.attendance_status.replace('MANUAL_', '');
+                                    setOverrideStatus(status === 'LATE' || status === 'ABSENT' || status === 'EXCUSED' ? status : 'PRESENT');
+                                    setOverrideRemarks('');
+                                    setIsOverrideModalOpen(true);
+                                  }}
+                                  className="inline-flex min-h-9 items-center gap-1 rounded px-2 font-semibold text-primary hover:bg-surface-muted"
+                                  aria-label={`${r.record_id ? 'Edit' : 'Mark'} attendance for ${r.student_name}`}
+                                >
+                                  <Edit3 className="h-3.5 w-3.5" />
+                                  {r.record_id ? 'Edit' : 'Mark'}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>}
           </div>
         )}
       </Drawer>
@@ -1019,8 +1020,8 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
             <label className="block text-xs font-semibold text-text mb-1.5">
               Attendance Status
             </label>
-            <div className="grid grid-cols-3 gap-2">
-              {(['PRESENT', 'LATE', 'ABSENT'] as const).map((st) => (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {(['PRESENT', 'LATE', 'ABSENT', 'EXCUSED'] as const).map((st) => (
                 <button
                   key={st}
                   type="button"
@@ -1043,11 +1044,13 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
 
           <div>
             <label className="block text-xs font-semibold text-text mb-1">
-              Remarks / Justification
+              {selectedRecord?.record_id ? 'Reason for changing the mark (required)' : 'Remarks (optional)'}
             </label>
             <input
               type="text"
               aria-label="Override remarks" value={overrideRemarks}
+              required={Boolean(selectedRecord?.record_id)}
+              minLength={selectedRecord?.record_id ? 2 : undefined}
               onChange={(e) => setOverrideRemarks(e.target.value)}
               placeholder="e.g. Verified in classroom roll call"
               className="w-full bg-surface-muted border border-border rounded-lg p-2 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"

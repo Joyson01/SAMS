@@ -3,13 +3,28 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.models.entities import AttendanceSession, TeacherClassAssignment, User
+from backend.app.models.entities import AttendanceSession, ClassSection, Student, TeacherClassAssignment, User
 
 
 def assigned_classes(teacher_id: str):
     return select(TeacherClassAssignment.class_id).where(
         TeacherClassAssignment.teacher_id == teacher_id
     )
+
+
+def assigned_class_names(teacher_id: str):
+    return select(ClassSection.name).where(ClassSection.id.in_(assigned_classes(teacher_id)))
+
+
+async def require_student_access(db: AsyncSession, user: User, student_id: str) -> None:
+    if user.role == "FACULTY":
+        permitted = await db.scalar(
+            select(Student.id).where(
+                Student.id == student_id, Student.class_name.in_(assigned_class_names(user.id))
+            )
+        )
+        if permitted is None:
+            raise HTTPException(403, "This student is outside your assigned classes.")
 
 
 async def require_class_access(db: AsyncSession, user: User, class_id: str | None) -> None:

@@ -740,6 +740,12 @@ class AttendanceService:
         existing = (await db.execute(query)).scalars().first()
 
         if existing:
+            if user_id:
+                db.add(AuditLog(
+                    user_id=user_id, action="MANUAL_MARK", entity_type="AttendanceRecord",
+                    entity_id=existing.id, old_values={"status": existing.status},
+                    new_values={"status": status, "remarks": remarks},
+                ))
             existing.status = status
             existing.source = "MANUAL"
             existing.remarks = remarks
@@ -769,6 +775,12 @@ class AttendanceService:
             marked_by_user_id=user_id,
         )
         db.add(new_rec)
+        if user_id:
+            await db.flush()
+            db.add(AuditLog(
+                user_id=user_id, action="MANUAL_MARK", entity_type="AttendanceRecord",
+                entity_id=new_rec.id, new_values={"status": status, "remarks": remarks},
+            ))
         await db.commit()
         await db.refresh(new_rec)
 
@@ -941,6 +953,7 @@ class AttendanceService:
         cls,
         db: AsyncSession,
         student_id: str,
+        teacher_id: str | None = None,
     ) -> StudentAttendanceSummary:
         """Retrieves historical attendance analytics for a student."""
         student = await db.get(Student, student_id)
@@ -952,6 +965,10 @@ class AttendanceService:
             .where(AttendanceRecord.student_id == student_id)
             .order_by(AttendanceRecord.first_seen.desc())
         )
+        if teacher_id is not None:
+            query = query.join(AttendanceSession).where(
+                AttendanceSession.class_id.in_(assigned_classes(teacher_id))
+            )
         records = (await db.execute(query)).scalars().all()
 
         total = len(records)

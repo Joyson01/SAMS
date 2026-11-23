@@ -6,6 +6,7 @@ export interface AnalyticsFilterParams {
   end_date?: string;
   department?: string;
   class_name?: string;
+  subject?: string;
 }
 
 export const fetchInstitutionAnalytics = async (
@@ -17,21 +18,25 @@ export const fetchInstitutionAnalytics = async (
   return response.data;
 };
 
-export const downloadAttendanceCsv = async (filters?: AnalyticsFilterParams): Promise<void> => {
-  const response = await apiClient.get('/reports/export/csv', {
+export type ReportFormat = 'csv' | 'xlsx' | 'pdf';
+
+export const downloadAttendanceReport = async (
+  format: ReportFormat,
+  filters?: AnalyticsFilterParams,
+): Promise<void> => {
+  const response = await apiClient.get<Blob>(`/reports/export/${format}`, {
     params: filters,
     responseType: 'blob',
   });
 
   // Create temporary anchor link for browser download
-  const blob = new Blob([response.data], { type: 'text/csv' });
-  const url = window.URL.createObjectURL(blob);
+  const url = window.URL.createObjectURL(response.data);
   const link = document.createElement('a');
   link.href = url;
-  link.setAttribute('download', `attendance_report_${new Date().toISOString().split('T')[0]}.csv`);
+  link.download = `attendance_report_${new Date().toISOString().split('T')[0]}.${format}`;
   document.body.appendChild(link);
   link.click();
   link.remove();
-  window.URL.revokeObjectURL(url);
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
 };
 

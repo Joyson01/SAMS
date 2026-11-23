@@ -121,8 +121,7 @@ async def enroll(db, student_id, data, target, *, self_enrollment: bool = False)
             if profile.student_id==student_id: continue
             vector=np.asarray(profile.embedding_data,dtype=np.float32)
             if vector.shape==(512,) and np.linalg.norm(vector)>0 and float(np.dot(embedding,vector/np.linalg.norm(vector)))>=0.80:
-                other = None if self_enrollment else await db.get(Student, profile.student_id)
-                raise HTTPException(409,f'This face is already enrolled for {other.first_name if other else "another student"}. Ask an administrator to review the identity.')
+                raise HTTPException(409, "This face is already enrolled for another student. Ask an administrator to review the identity.")
         same=[p for p in profiles if p.student_id==student_id and p.pose_type==target]
         profile=same[0] if same else FaceProfile(student_id=student_id,pose_type=target)
         profile.embedding_data=embedding.tolist()

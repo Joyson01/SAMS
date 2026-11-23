@@ -7,7 +7,6 @@ import {
   Play,
   RefreshCw,
   CheckCircle2,
-  HelpCircle,
   Trash2,
   X,
   StopCircle,
@@ -15,10 +14,7 @@ import {
   AlertTriangle,
   Check,
   ArrowRight,
-  Sparkles,
   Users,
-  Eye,
-  EyeOff,
 } from 'lucide-react';
 import { fetchSessions } from '../../services/attendanceApi';
 import { AttendanceSession } from '../../types/attendance';
@@ -31,8 +27,6 @@ import {
   validateSessionBiometrics,
 } from '../../services/mediaAttendanceApi';
 import {
-  MediaAnalysisResponse,
-  DetectedMediaFaceItem,
   MediaJobResponse,
   SessionBiometricValidationResponse,
 } from '../../types/mediaAttendance';
@@ -42,37 +36,11 @@ interface MediaAttendancePageProps {
   onNavigate?: (tab: string, extra?: string) => void;
 }
 
-const MAX_IMAGE_SIZE_MB = 20;
-const MAX_VIDEO_SIZE_MB = 500;
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-const ALLOWED_IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
-const ALLOWED_VIDEO_EXTS = ['.mp4', '.avi', '.mkv', '.mov', '.webm'];
 
-/** Safe rounded rectangle drawing helper with universal browser canvas fallback */
-function drawCanvasRoundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number = 4
-) {
-  if (typeof ctx.roundRect === 'function') {
-    ctx.roundRect(x, y, w, h, r);
-  } else {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-  }
-}
+const MAX_VIDEO_SIZE_MB = 500;
+
+
+const ALLOWED_VIDEO_EXTS = ['.mp4', '.avi', '.mkv', '.mov', '.webm'];
 
 export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavigate }) => {
   const [activeTab, setActiveTab] = useState<'IMAGE' | 'VIDEO'>('IMAGE');
@@ -84,14 +52,6 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
   // Notifications
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  // Image Mode State
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
-  const [imageMetadata, setImageMetadata] = useState<{ dimensions: string; size: string; width: number; height: number } | null>(null);
-  const [analyzingImage] = useState<boolean>(false);
-  const [imageResult, setImageResult] = useState<MediaAnalysisResponse | null>(null);
-  const [showOverlays, setShowOverlays] = useState<boolean>(true);
 
   // Video Mode State
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -110,20 +70,12 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
   const [selectedJobDetails, setSelectedJobDetails] = useState<MediaJobResponse | null>(null);
 
   // Refs for cleanup and overlay canvas
-  const imageOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
-  const imagePreviewRef = useRef<HTMLImageElement>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const activeImageBlobUrlRef = useRef<string | null>(null);
   const activeVideoBlobUrlRef = useRef<string | null>(null);
 
   // Clean up object URLs upon unmount to prevent browser memory leaks
   useEffect(() => {
     return () => {
-      if (activeImageBlobUrlRef.current) {
-        try {
-          URL.revokeObjectURL(activeImageBlobUrlRef.current);
-        } catch (_) {}
-      }
       if (activeVideoBlobUrlRef.current) {
         try {
           URL.revokeObjectURL(activeVideoBlobUrlRef.current);
@@ -215,157 +167,6 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
     };
   }, [activeVideoJob]);
 
-  // Draw Bounding Boxes Over Image Preview
-  const drawImageBoundingBoxes = useCallback((faces: (DetectedMediaFaceItem & { confidence?: number })[], imgEl: HTMLImageElement | null) => {
-    const canvas = imageOverlayCanvasRef.current;
-    if (!canvas || !imgEl) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const nw = imgEl.naturalWidth || 800;
-    const nh = imgEl.naturalHeight || 600;
-
-    canvas.width = nw;
-    canvas.height = nh;
-    ctx.clearRect(0, 0, nw, nh);
-
-    if (!showOverlays || !Array.isArray(faces) || faces.length === 0) return;
-
-    faces.forEach((face) => {
-      const bbox = Array.isArray(face.bbox) ? face.bbox : [];
-      if (bbox.length < 4) return;
-      const [x1, y1, x2, y2] = bbox;
-      const boxW = Math.max(1, x2 - x1);
-      const boxH = Math.max(1, y2 - y1);
-
-      const status = face.status || 'UNKNOWN';
-      const isVerified = status === 'VERIFIED';
-      const isVerifying = status === 'VERIFYING';
-      const isLowQuality = status === 'LOW_QUALITY';
-
-      let strokeColor = '#94a3b8'; // Slate
-      let bgColor = 'rgba(51, 65, 85, 0.95)';
-      let label = 'UNKNOWN PERSON';
-      const confVal = Math.round((face.recognition_confidence || face.confidence || 0) * 100);
-      let subLabel = `${confVal}% Similarity`;
-
-      if (isLowQuality) {
-        strokeColor = '#f43f5e';
-        bgColor = 'rgba(225, 29, 72, 0.95)';
-        label = 'LOW QUALITY FACE';
-        subLabel = face.rejection_reason || 'Blurry / steep angle';
-      } else if (isVerified) {
-        strokeColor = '#10b981';
-        bgColor = 'rgba(5, 150, 105, 0.95)';
-        label = `${(face.identity || 'STUDENT').toUpperCase()} (VERIFIED • ${confVal}%)`;
-        subLabel = 'MARKED PRESENT';
-      } else if (isVerifying) {
-        strokeColor = '#f59e0b';
-        bgColor = 'rgba(217, 119, 6, 0.95)';
-        label = `POSSIBLE MATCH (${confVal}%)`;
-        subLabel = 'Needs Review • Unconfirmed';
-      }
-
-      // Draw Face Bounding Box
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = isVerified ? 4 : 3;
-      ctx.beginPath();
-      drawCanvasRoundRect(ctx, x1, y1, boxW, boxH, 8);
-      ctx.stroke();
-
-      // Top label badge
-      ctx.font = 'bold 12px Inter, sans-serif';
-      const mainTextWidth = ctx.measureText(label).width;
-      const subTextWidth = ctx.measureText(subLabel).width;
-      const pillWidth = Math.max(mainTextWidth, subTextWidth) + 18;
-      const pillHeight = 34;
-      const pillY = Math.max(6, y1 - pillHeight - 4);
-
-      ctx.fillStyle = bgColor;
-      ctx.beginPath();
-      drawCanvasRoundRect(ctx, x1, pillY, pillWidth, pillHeight, 6);
-      ctx.fill();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(label, x1 + 8, pillY + 14);
-
-      ctx.font = 'normal 10px Inter, sans-serif';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.fillText(subLabel, x1 + 8, pillY + 28);
-    });
-  }, [showOverlays]);
-
-  // Re-render bounding boxes when results or overlay toggle changes
-  useEffect(() => {
-    if (imagePreviewRef.current) {
-      if (imageResult?.faces && showOverlays) {
-        drawImageBoundingBoxes(imageResult.faces, imagePreviewRef.current);
-      } else {
-        const canvas = imageOverlayCanvasRef.current;
-        if (canvas) {
-          const ctx = canvas.getContext('2d');
-          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-        }
-      }
-    }
-  }, [imageResult, showOverlays, drawImageBoundingBoxes]);
-
-  // Handle Image Selection with Complete File Validation & Safe Object URL
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
-    // 1. File size check
-    const sizeMb = file.size / (1024 * 1024);
-    if (sizeMb > MAX_IMAGE_SIZE_MB) {
-      setErrorMessage(`Image file is too large (${sizeMb.toFixed(1)} MB). Maximum allowed size is ${MAX_IMAGE_SIZE_MB} MB.`);
-      return;
-    }
-
-    // 2. File type check
-    const ext = '.' + (file.name.split('.').pop() || '').toLowerCase();
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type) && !ALLOWED_IMAGE_EXTS.includes(ext)) {
-      setErrorMessage(`Unsupported image format (${file.type || ext}). Please upload a JPEG, PNG, or WEBP photo.`);
-      return;
-    }
-
-    // 3. Clean up previous object URL if any
-    if (activeImageBlobUrlRef.current) {
-      try {
-        URL.revokeObjectURL(activeImageBlobUrlRef.current);
-      } catch (_) {}
-    }
-
-    // 4. Create safe object URL
-    try {
-      const url = URL.createObjectURL(file);
-      activeImageBlobUrlRef.current = url;
-      setImageFile(file);
-      setImageResult(null);
-      setImagePreviewUrl(url);
-
-      const img = new Image();
-      img.onload = () => {
-        setImageMetadata({
-          dimensions: `${img.naturalWidth} × ${img.naturalHeight} px`,
-          size: `${sizeMb.toFixed(2)} MB`,
-          width: img.naturalWidth,
-          height: img.naturalHeight,
-        });
-      };
-      img.onerror = () => {
-        setErrorMessage('Failed to decode image file. Please verify file is not corrupted.');
-      };
-      img.src = url;
-    } catch (urlErr) {
-      console.error('Error creating image preview URL:', urlErr);
-      setErrorMessage('Could not load image preview. Please try another file.');
-    }
-  };
-
   // Handle Video Selection with Complete Validation & Safe Object URL
   const handleVideoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -423,12 +224,6 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
       console.error('Error creating video preview URL:', urlErr);
       setErrorMessage('Could not load video preview. Please try another file.');
     }
-  };
-
-  // Submit Image Analysis & Mark Attendance
-  const handleAnalyzeImage = async () => {
-    if (!selectedSessionId || !imageFile) return;
-    window.dispatchEvent(new CustomEvent('photo-review-files', {detail: {sessionId:selectedSessionId,files:[imageFile]}}));
   };
 
   // Submit Video Processing
@@ -493,7 +288,6 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
 
   return (
     <div className="space-y-6">
-      {selectedSessionId && <PhotoAttendancePanel sessionId={selectedSessionId} active={selectedSession?.status === 'ACTIVE'} />}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -613,11 +407,11 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
           </div>
         )}
 
-        {isSessionCompleted && (
+        {activeTab === 'VIDEO' && isSessionCompleted && (
           <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
             <span>
-              <strong>Historical Session Notice:</strong> This session is marked as <strong>COMPLETED</strong>. Processing media will append verified attendance records to this session.
+              <strong>Historical Session Notice:</strong> This session is marked as <strong>COMPLETED</strong>. Processing video will append verified attendance records to this session.
             </span>
           </div>
         )}
@@ -656,240 +450,14 @@ export const MediaAttendancePage: React.FC<MediaAttendancePageProps> = ({ onNavi
         </button>
       </div>
 
-      {/* ========================================================================= */}
-      {/* TAB 1: IMAGE ATTENDANCE */}
-      {/* ========================================================================= */}
-      {activeTab === 'IMAGE' && (
-        <div className="space-y-6">
-          <div className="bg-surface border border-border rounded-3xl p-6 shadow-sm space-y-4">
-            <div className="space-y-1">
-              <h2 className="text-base font-bold text-text flex items-center gap-2">
-                <ImageIcon className="w-4 h-4 text-primary" />
-                <span>Upload Classroom Photo</span>
-              </h2>
-              <p className="text-xs text-text-muted">
-                Upload a group classroom photo or portrait (JPEG, PNG, WEBP). Multiple students in a single frame are detected, aligned, quality-filtered, and evaluated independently.
-              </p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center gap-4 pt-2">
-              <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-primary text-xs font-bold transition border border-blue-200">
-                <Upload className="w-4 h-4" />
-                <span>Choose Image (JPG, PNG, WEBP)</span>
-                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageSelect} className="hidden" />
-              </label>
-
-              {imageFile && (
-                <div className="text-xs font-mono text-text-muted flex items-center gap-2">
-                  <span className="font-bold text-emerald-600 flex items-center gap-1">
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Selected: {imageFile.name}</span>
-                  </span>
-                  {imageMetadata && (
-                    <span className="text-slate-400">
-                      ({imageMetadata.dimensions} · {imageMetadata.size})
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Image Preview & Bounding Box Overlay Canvas */}
-            {imagePreviewUrl && (
-              <div className="space-y-4 pt-2">
-                <div className="relative max-h-[500px] rounded-2xl overflow-hidden border border-border bg-slate-950 flex items-center justify-center shadow-inner">
-                  <img
-                    ref={imagePreviewRef}
-                    src={imagePreviewUrl}
-                    alt="Classroom Preview"
-                    onLoad={() => {
-                      if (imagePreviewRef.current && imageResult?.faces) {
-                        drawImageBoundingBoxes(imageResult.faces, imagePreviewRef.current);
-                      }
-                    }}
-                    className="max-h-[500px] w-auto object-contain block select-none"
-                  />
-                  <canvas
-                    ref={imageOverlayCanvasRef}
-                    className="absolute inset-0 w-full h-full pointer-events-none"
-                  />
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => setShowOverlays(!showOverlays)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
-                        showOverlays
-                          ? 'bg-blue-50 text-primary border-blue-200'
-                          : 'bg-surface-muted text-text-muted border-border'
-                      }`}
-                    >
-                      {showOverlays ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                      <span>{showOverlays ? 'AI Overlays Visible' : 'AI Overlays Hidden'}</span>
-                    </button>
-                    <span className="text-xs text-slate-400 hidden sm:inline">
-                      Click <strong>Review Photo Attendance</strong> to process.
-                    </span>
-                  </div>
-
-                  <button
-                    onClick={handleAnalyzeImage}
-                    disabled={analyzingImage || !selectedSessionId || (sessionBiometrics !== null && !sessionBiometrics.can_process)}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary hover:bg-primary text-white text-xs font-bold shadow-sm transition disabled:opacity-50"
-                  >
-                    {analyzingImage ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Analyzing Photo & Marking Attendance...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4" />
-                        <span>Review Photo Attendance</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Image Analysis Results */}
-          {imageResult && (
-            <div className="bg-surface border border-border rounded-3xl p-6 shadow-sm space-y-5 animate-in fade-in-50">
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <div>
-                  <h3 className="text-base font-black text-text flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-primary" />
-                    <span>Image Attendance Results</span>
-                  </h3>
-                  <p className="text-xs text-text-muted mt-0.5">
-                    Session: <strong className="text-text">{imageResult.session_subject}</strong> ({imageResult.session_class}) · Latency: {imageResult.processing_time_ms} ms
-                  </p>
-                </div>
-                <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Processing Done</span>
-                </span>
-              </div>
-
-              {/* Stat Summary Metrics */}
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-center">
-                <div className="bg-surface-muted border border-border/70 rounded-2xl p-3">
-                  <div className="text-[10px] uppercase font-bold text-slate-400">Faces Detected</div>
-                  <div className="text-xl font-black text-text mt-1">{imageResult.faces_detected || 0}</div>
-                </div>
-                <div className="bg-emerald-50/70 border border-emerald-200/60 rounded-2xl p-3">
-                  <div className="text-[10px] uppercase font-bold text-emerald-600">Verified</div>
-                  <div className="text-xl font-black text-emerald-700 mt-1">{imageResult.recognized_count || 0}</div>
-                </div>
-                <div className="bg-blue-50/70 border border-blue-200/60 rounded-2xl p-3">
-                  <div className="text-[10px] uppercase font-bold text-primary">Marked Present</div>
-                  <div className="text-xl font-black text-primary mt-1">{imageResult.attendance_marked_count || 0}</div>
-                </div>
-                <div className="bg-amber-50/70 border border-amber-200/60 rounded-2xl p-3">
-                  <div className="text-[10px] uppercase font-bold text-amber-600">Verifying</div>
-                  <div className="text-xl font-black text-amber-700 mt-1">{imageResult.uncertain_count || 0}</div>
-                </div>
-                <div className="bg-surface-muted border border-border rounded-2xl p-3">
-                  <div className="text-[10px] uppercase font-bold text-text-muted">Unknown</div>
-                  <div className="text-xl font-black text-text mt-1">{imageResult.unknown_count || 0}</div>
-                </div>
-                <div className="bg-rose-50/70 border border-rose-200/60 rounded-2xl p-3">
-                  <div className="text-[10px] uppercase font-bold text-rose-600">Low Quality</div>
-                  <div className="text-xl font-black text-rose-700 mt-1">{imageResult.low_quality_count || 0}</div>
-                </div>
-              </div>
-
-              {/* Table of Recognized Students */}
-              {Array.isArray(imageResult.recognized_students) && imageResult.recognized_students.length > 0 ? (
-                <div className="space-y-2">
-                  <h4 className="text-xs font-bold text-text">Verified Students Marked Present</h4>
-                  <div className="overflow-x-auto border border-border rounded-2xl">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-surface-muted text-text-muted border-b border-border font-bold uppercase text-[10px]">
-                        <tr>
-                          <th className="p-3">Student Name</th>
-                          <th className="p-3">Roll / Code</th>
-                          <th className="p-3">Confidence</th>
-                          <th className="p-3">Decision</th>
-                          <th className="p-3">Attendance Status</th>
-                          <th className="p-3">Remarks</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border text-text">
-                        {imageResult.recognized_students.map((st, idx) => (
-                          <tr key={idx} className="hover:bg-surface-muted/70 transition">
-                            <td className="p-3 font-bold text-text">{st.student_name}</td>
-                            <td className="p-3 font-mono text-[11px] text-text-muted">
-                              {st.roll_number || st.student_code || '—'}
-                            </td>
-                            <td className="p-3 font-mono font-bold text-emerald-600">{st.confidence_pct}%</td>
-                            <td className="p-3">
-                              <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-100">
-                                {st.status || st.decision}
-                              </span>
-                            </td>
-                            <td className="p-3">
-                              <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
-                                {st.attendance_status}
-                              </span>
-                            </td>
-                            <td className="p-3 text-[11px] text-slate-400">{st.remarks || 'Media Image'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-6 text-center text-slate-400 text-xs border border-border rounded-2xl bg-surface-muted">
-                  No registered student identities matched above the verified threshold in this photo.
-                </div>
-              )}
-
-              {/* Unresolved Faces Review Section */}
-              {Array.isArray(imageResult.unresolved_faces) && imageResult.unresolved_faces.length > 0 && (
-                <div className="space-y-2 pt-3 border-t border-border">
-                  <h4 className="text-xs font-bold text-text flex items-center gap-2">
-                    <HelpCircle className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Unresolved / Non-Enrolled Faces ({imageResult.unresolved_faces.length})</span>
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    These faces did not meet the verified cutoff or are not registered in the student gallery. No attendance was recorded.
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    {imageResult.unresolved_faces.map((unres, idx) => (
-                      <div
-                        key={idx}
-                        className="p-3 rounded-2xl border border-border bg-surface-muted/70 text-xs space-y-1"
-                      >
-                        <div className="flex items-center justify-between font-bold text-text">
-                          <span>{unres.face_id}</span>
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              unres.status === 'LOW_QUALITY'
-                                ? 'bg-rose-100 text-rose-800'
-                                : unres.status === 'VERIFYING'
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-slate-200 text-text'
-                            }`}
-                          >
-                            {unres.status || unres.decision}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-text-muted font-mono">
-                          Sharpness: {unres.quality_score} · Conf: {unres.confidence_pct}%
-                        </div>
-                        <div className="text-[10px] text-slate-400 truncate">{unres.rejection_reason}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+      {selectedSessionId && (
+        <div hidden={activeTab !== 'IMAGE'}>
+          <PhotoAttendancePanel
+            key={selectedSessionId}
+            sessionId={selectedSessionId}
+            active={selectedSession?.status === 'ACTIVE'}
+            visible={activeTab === 'IMAGE'}
+          />
         </div>
       )}
 

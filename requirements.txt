@@ -27,3 +27,7 @@ pillow>=10.0.0
 # Legacy application retained by the full regression suite
 itsdangerous>=2.2.0
 jinja2>=3.1.6
+
+# Attendance report exports
+openpyxl>=3.1.5
+reportlab>=4.2.5

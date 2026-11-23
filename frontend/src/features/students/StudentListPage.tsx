@@ -40,9 +40,11 @@ import {
 } from '../../services/studentApi';
 import { apiClient } from '../../services/api';
 import { formatApiErrorMessage } from '../../utils/apiError';
+import { StudentImport } from './StudentImport';
 import { StatusBadge, Progress, Avatar, Button, Badge } from '../../components/ui';
 
 interface StudentListPageProps {
+  canManage?: boolean;
   onNavigate?: (tab: string, studentId?: string) => void;
 }
 
@@ -114,7 +116,7 @@ interface CapturedAngleSample {
   capturedAt: string;
 }
 
-export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) => {
+export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate, canManage = false }) => {
   const { confirmAction, notify, feedback } = useDialogFeedback();
   // Data State
   const [students, setStudents] = useState<Student[]>([]);
@@ -144,6 +146,9 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
   // Profile Slide-Over Panel State
   const [selectedProfileStudent, setSelectedProfileStudent] = useState<Student | null>(null);
   const [profileAttendance, setProfileAttendance] = useState<StudentAttendanceHistoryResponse | null>(null);
+  const [showFullHistory, setShowFullHistory] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const profileRequest = useRef(0);
   const [loadingProfileAttendance, setLoadingProfileAttendance] = useState<boolean>(false);
 
   // Modals
@@ -357,21 +362,27 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
 
   // Profile Slide-Over Drawer
   const openProfileDrawer = async (student: Student) => {
+    const request = ++profileRequest.current;
     setSelectedProfileStudent(student);
+    setProfileAttendance(null);
+    setShowFullHistory(false);
+    setHistoryError('');
     setActiveMenuStudentId(null);
     setLoadingProfileAttendance(true);
     try {
       const hist = await fetchStudentAttendanceHistory(student.id);
-      setProfileAttendance(hist);
+      if (profileRequest.current === request) setProfileAttendance(hist);
     } catch (err) {
-      console.warn('Failed to load student profile attendance:', err);
-      setProfileAttendance(null);
+      if (profileRequest.current === request) {
+        setHistoryError(formatApiErrorMessage(err, 'Could not load attendance history.'));
+      }
     } finally {
-      setLoadingProfileAttendance(false);
+      if (profileRequest.current === request) setLoadingProfileAttendance(false);
     }
   };
 
   const closeProfileDrawer = () => {
+    profileRequest.current += 1;
     setSelectedProfileStudent(null);
     setProfileAttendance(null);
   };
@@ -778,7 +789,8 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        {canManage && <div className="flex flex-wrap items-center gap-2">
+          <StudentImport onImported={loadData} />
           <Button
             variant="primary"
             size="sm"
@@ -787,7 +799,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
           >
             Register student
           </Button>
-        </div>
+        </div>}
       </div>
 
       {/* ========================================================================= */}
@@ -957,13 +969,13 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
               <Download className="w-3.5 h-3.5" />
               <span>Export CSV</span>
             </button>
-            <button
+            {canManage && <button
               onClick={handleDeleteSelected}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700 font-semibold transition shadow-xs"
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>Delete Selected</span>
-            </button>
+            </button>}
             <button
               onClick={() => setSelectedStudentIds([])}
               className="p-1 text-indigo-500 hover:text-indigo-700 ml-1"
@@ -999,7 +1011,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
             <div className="divide-y divide-border md:hidden">{displayedStudents.map(student => <article key={student.id} className="space-y-4 p-4">
               <div className="flex items-start gap-3"><input type="checkbox" aria-label={`Select ${student.first_name} ${student.last_name}`} checked={selectedStudentIds.includes(student.id)} onChange={() => handleToggleSelectStudent(student.id)} className="mt-2"/><Avatar name={`${student.first_name} ${student.last_name}`} size="lg"/><div className="min-w-0 flex-1"><button className="text-left font-semibold text-text" onClick={() => openProfileDrawer(student)}>{student.first_name} {student.last_name}</button><p className="break-all text-xs text-text-muted">{student.email}</p><p className="mt-1 text-xs text-text-muted"><span className="font-mono">{student.roll_number || student.student_code}</span> · {student.class_name}</p></div></div>
               <div className="flex flex-wrap items-center gap-2"><StatusBadge status={student.enrollment_status || 'NOT_ENROLLED'} category="enrollment" size="sm"/><span className="text-xs text-text-muted">{student.sample_count} poses saved</span></div>
-              <div className="grid grid-cols-2 gap-2"><Button size="sm" onClick={() => openFaceEnrollmentModal(student)} icon={<Camera size={15}/>}>{student.enrollment_status === 'ENROLLED' ? 'Re-enroll' : 'Enroll face'}</Button><Button variant="secondary" size="sm" onClick={() => openQrEnrollModal(student)} icon={<Smartphone size={15}/>}>Phone enroll</Button><Button variant="secondary" size="sm" onClick={() => openProfileDrawer(student)}>Attendance</Button><Button variant="secondary" size="sm" onClick={() => openEditModal(student)}>Edit student</Button></div><button className="min-h-11 text-sm font-medium text-danger" onClick={() => openDeleteModal(student)}>Delete student</button>
+              <div className="grid grid-cols-2 gap-2"><Button size="sm" onClick={() => openFaceEnrollmentModal(student)} icon={<Camera size={15}/>}>{student.enrollment_status === 'ENROLLED' ? 'Re-enroll' : 'Enroll face'}</Button><Button variant="secondary" size="sm" onClick={() => openQrEnrollModal(student)} icon={<Smartphone size={15}/>}>Phone enroll</Button><Button variant="secondary" size="sm" onClick={() => openProfileDrawer(student)}>Attendance</Button>{canManage && <Button variant="secondary" size="sm" onClick={() => openEditModal(student)}>Edit student</Button>}</div>{canManage && <button className="min-h-11 text-sm font-medium text-danger" onClick={() => openDeleteModal(student)}>Delete student</button>}
             </article>)}</div>
             <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-left text-xs border-collapse">
@@ -1206,34 +1218,30 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                                   type="button"
                                   onClick={() => {
                                     setActiveMenuStudentId(null);
-                                    if (onNavigate) {
-                                      onNavigate('attendance', student.id);
-                                    } else {
-                                      openProfileDrawer(student);
-                                    }
+                                    void openProfileDrawer(student);
                                   }}
                                   className="w-full text-left px-3 py-1.5 hover:bg-surface-muted flex items-center gap-2 text-text font-medium"
                                 >
                                   <Calendar className="w-3.5 h-3.5 text-text-muted" />
                                   <span>Attendance History</span>
                                 </button>
-                                <button
+                                {canManage && <button
                                   type="button"
                                   onClick={() => openEditModal(student)}
                                   className="w-full text-left px-3 py-1.5 hover:bg-surface-muted flex items-center gap-2 text-text font-medium"
                                 >
                                   <Edit2 className="w-3.5 h-3.5 text-text-muted" />
                                   <span>Edit Student</span>
-                                </button>
+                                </button>}
                                 <div className="border-t border-border my-1" />
-                                <button
+                                {canManage && <button
                                   type="button"
                                   onClick={() => openDeleteModal(student)}
                                   className="w-full text-left px-3 py-1.5 hover:bg-rose-50 flex items-center gap-2 text-rose-600 font-medium"
                                 >
                                   <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                                   <span>Delete Student</span>
-                                </button>
+                                </button>}
                               </div>
                             )}
                           </div>
@@ -1411,19 +1419,21 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                       <Calendar className="w-3.5 h-3.5 text-text-muted" />
                       <span>Recent Attendance</span>
                     </h4>
-                    {onNavigate && (
+                    {(profileAttendance?.records.length ?? 0) > 8 && (
                       <button
                         type="button"
-                        onClick={() => onNavigate('attendance', selectedProfileStudent.id)}
+                        onClick={() => setShowFullHistory((value) => !value)}
                         className="text-[11px] text-indigo-600 hover:text-indigo-700 font-medium hover:underline inline-flex items-center"
                       >
-                        Full Records &rarr;
+                        {showFullHistory ? 'Show fewer' : 'Show full history'}
                       </button>
                     )}
                   </div>
 
                   {loadingProfileAttendance ? (
                     <div className="py-6 text-center text-text-muted text-xs">Loading records...</div>
+                  ) : historyError ? (
+                    <p role="alert" className="py-3 text-sm text-danger">{historyError}</p>
                   ) : !profileAttendance || profileAttendance.records.length === 0 ? (
                     <div className="py-6 text-center text-text-muted text-xs border border-dashed border-border rounded-lg">
                       No attendance sessions recorded yet.
@@ -1439,7 +1449,7 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                          {profileAttendance.records.slice(0, 8).map((rec) => {
+                          {(showFullHistory ? profileAttendance.records : profileAttendance.records.slice(0, 8)).map((rec) => {
                             return (
                               <tr key={rec.id} className="hover:bg-surface-muted">
                                 <td className="px-3 py-2 text-text-muted font-mono text-[11px]">
@@ -1474,14 +1484,14 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate }) 
                   </span>
                 </button>
 
-                <button
+                {canManage && <button
                   type="button"
                   onClick={() => openEditModal(selectedProfileStudent)}
                   className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg border border-border bg-surface hover:bg-surface-muted text-text text-xs font-semibold shadow-xs transition"
                 >
                   <Edit2 className="w-3.5 h-3.5 text-text-muted" />
                   <span>Edit Student</span>
-                </button>
+                </button>}
               </div>
             </div>
           </div>
