@@ -12,12 +12,8 @@ This review covers the SAMS FastAPI and React application on the college-readine
 | Build and CI | Prepared | The frontend Docker build uses the committed npm lockfile. A clean npm install passed. The GitHub workflow builds the frontend and runs database and campus integration checks. The hosted workflow and Docker build still need execution. |
 | Contributor documentation | Updated | The README clone command points to the current branch. The route inventory comes from FastAPI OpenAPI. The deployment and rollout checklist is in [GO_LIVE.md](GO_LIVE.md). |
 
-## Cleanup candidates for approval
+## Approved cleanup
 
-| Candidate | Evidence |
-|---|---|
-| [scratch.py](../scratch.py), [scratch_defaulters.py](../scratch_defaulters.py) | Empty stub and draft query. Neither is referenced by application code or startup scripts. |
-| [MobileEnrollmentPage.tsx](../frontend/src/features/mobile/MobileEnrollmentPage.tsx) | Export has no application imports. The active mobile enrollment URL routes to the shared face enrollment page and is still used by QR links. |
-| [Stitch design draft](../Stitch/DESIGN.md), [Stitch HTML mockup](../Stitch/code.html) | Standalone design references with no application imports. Retain if they are useful design history. |
+Removed two scratch scripts, the unreferenced mobile enrollment component, and two standalone Stitch design drafts. The mobile enrollment URL routes to the shared face enrollment page and remains available for QR links.
 
 The legacy Python attendance application and its lockfile have their own packaging entrypoint and regression tests. The pnpm lockfile is used by alternative startup scripts. Keep these files unless those workflows are explicitly retired.

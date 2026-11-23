@@ -2,7 +2,7 @@
 
 AttedDEL is an attendance management workspace for students, faculty, operators, and administrators. It brings together class schedules, student records, attendance sessions, reports, and camera diagnostics in a responsive React interface backed by FastAPI.
 
-The repository is named **SAMS**. The college-readiness work is on **`codex/college-readiness-audit`**. The separate legacy `attendance_app` remains for compatibility and regression coverage.
+The repository is named **SAMS**. The current application is on **`main`**. The separate legacy `attendance_app` remains for compatibility and regression coverage.
 
 ## Workspace overview
 
@@ -314,7 +314,7 @@ Operational limits also matter: SQLite has write-concurrency constraints, phone 
 Install Python 3.11–3.13 (3.11 tested), or Python plus uv; install Node.js 20+ and npm. Clone the current application branch:
 
 ```bash
-git clone --branch codex/college-readiness-audit https://github.com/Joyson01/SAMS.git
+git clone https://github.com/Joyson01/SAMS.git
 cd SAMS
 ```
 
@@ -449,4 +449,4 @@ These references explain the underlying methods. Their research results are not 
 - [Attendance service](backend/app/services/attendance_service.py) — session closure, record updates and manual corrections.
 - [UI direction and validation](docs/UNSLOP_DIRECTION.md) — design decisions and the scope of browser checks.
 
-The college-readiness branch contains the current portal, chat, photo review, and reporting workflows. Dated reports document earlier releases and their own verification results.
+The main branch contains the current portal, chat, photo review, and reporting workflows. Dated reports document earlier releases and their own verification results.
