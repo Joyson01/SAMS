@@ -384,7 +384,17 @@ It uses Chromium's fake-camera flags and a real fixture image; it never opens ha
 
 See [.env.example](.env.example). SQLite uses `data/sams_dev.db`; PostgreSQL accepts a SQLAlchemy asyncpg URL. Configure a unique SECRET_KEY and BOOTSTRAP_TOKEN before non-development setup. Enrollment poses are configured by ENROLLMENT_REQUIRED_POSES. Default: FRONT, LEFT_15, RIGHT_15, TILT_UP, TILT_DOWN, ROLL_RIGHT, BACKUP_FRONT. The pose estimator is approximate.
 
-Compose requires `POSTGRES_PASSWORD` and a unique `SECRET_KEY`. Set `BACKEND_CORS_ORIGINS` to a JSON list if the frontend runs on a separate origin. Compose disables the SQLite fallback. Use the local startup scripts for development while the Alembic upgrade chain is repaired.
+Compose requires `POSTGRES_PASSWORD` and a unique `SECRET_KEY`. Set `BACKEND_CORS_ORIGINS` to a JSON list if the frontend runs on a separate origin. Compose disables the SQLite fallback. Use the local startup scripts for development.
+
+For a **new, empty database**, export its async SQLAlchemy `DATABASE_URL` and run these commands from the repository root before starting the app:
+
+```bash
+python -m scripts.bootstrap_database
+python -m alembic -c backend/alembic.ini current
+python -m alembic -c backend/alembic.ini check
+```
+
+The bootstrap creates the current schema and records its Alembic revision in one transaction. It refuses databases with existing tables or views. The historical upgrade path from earlier revisions still needs repair and verification. PostgreSQL bootstrap has not been verified against a running PostgreSQL server.
 
 In production, login, live frame analysis, photo inference, and video submission have separate per-IP limits shared across the API aliases. A throttled request returns HTTP 429 with a `Retry-After` header. Compose keeps the backend on its internal network and Nginx replaces incoming forwarded-client headers. For other reverse proxies, trust only the proxy that sets the client IP. Clients behind a shared IP share each quota. The limits apply to HTTP and are stored in the backend worker’s memory.
 
