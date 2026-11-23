@@ -15,7 +15,6 @@ import {
   Calendar,
   CheckCircle2,
   Eye,
-  ChevronRight,
 } from 'lucide-react';
 import {
   fetchSubjects,
@@ -69,10 +68,8 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
     tutorial_credits: 0,
     practical_credits: 0,
     credits: 3,
-    semester: 5,
-    academic_year: '2026-2027',
     status: 'ACTIVE',
-    assigned_classes: ['TE-B'],
+    assigned_classes: [],
   });
 
   // Classes state
@@ -84,11 +81,8 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
   const [classForm, setClassForm] = useState<ClassSectionCreatePayload>({
     name: '',
     department: 'Computer Engineering',
-    effective_from: '15/06/2026',
-    year: 3,
-    semester: 5,
-    section: 'B',
-    academic_year: '2026-2027',
+    effective_from: '',
+    section: '',
     status: 'ACTIVE',
     assigned_subject_ids: [],
   });
@@ -97,33 +91,32 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
   const [timetableEntries, setTimetableEntries] = useState<TimetableEntry[]>([]);
   const [loadingTimetable, setLoadingTimetable] = useState<boolean>(false);
 
-  const [loadError, setLoadError] = useState('');
+  const [loadErrors, setLoadErrors] = useState({ subjects: '', classes: '', timetable: '' });
+  const [scheduleClass, setScheduleClass] = useState('');
+  const loadError = loadErrors[activeTab];
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadSubjects = useCallback(async () => {
     setLoadingSubjects(true);
+    setLoadErrors(previous => ({ ...previous, subjects: '' }));
     try {
-      const data = await fetchSubjects(
-        undefined,
-        undefined,
-        statusFilter || undefined,
-        subjectSearch || undefined
-      );
+      const data = await fetchSubjects();
       setSubjects(data);
     } catch (err) {
-      setLoadError(formatApiErrorMessage(err, 'Unable to load this view. Please try again.'));
+      setLoadErrors(previous => ({ ...previous, subjects: formatApiErrorMessage(err, 'Unable to load subjects. Please try again.') }));
     } finally {
       setLoadingSubjects(false);
     }
-  }, [statusFilter, subjectSearch]);
+  }, []);
 
   const loadClasses = useCallback(async () => {
     setLoadingClasses(true);
+    setLoadErrors(previous => ({ ...previous, classes: '' }));
     try {
       const data = await fetchClasses();
       setClasses(data);
     } catch (err) {
-      setLoadError(formatApiErrorMessage(err, 'Unable to load classes. Please try again.'));
+      setLoadErrors(previous => ({ ...previous, classes: formatApiErrorMessage(err, 'Unable to load classes. Please try again.') }));
     } finally {
       setLoadingClasses(false);
     }
@@ -131,11 +124,12 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
 
   const loadTimetable = useCallback(async () => {
     setLoadingTimetable(true);
+    setLoadErrors(previous => ({ ...previous, timetable: '' }));
     try {
       const data = await fetchAllTimetableEntries();
       setTimetableEntries(data);
     } catch (err) {
-      console.error('Failed to load timetable:', err);
+      setLoadErrors(previous => ({ ...previous, timetable: formatApiErrorMessage(err, 'Unable to load timetable. Please try again.') }));
     } finally {
       setLoadingTimetable(false);
     }
@@ -168,7 +162,8 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
 
       const payload = {
         ...subjectForm,
-        credits: totalCreds > 0 ? totalCreds : subjectForm.credits,
+        credits: totalCreds === 0 && editingSubject && !editingSubject.theory_credits && !editingSubject.tutorial_credits && !editingSubject.practical_credits
+          ? editingSubject.credits : totalCreds,
       };
 
       if (editingSubject) {
@@ -219,6 +214,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       setIsClassModalOpen(false);
       setEditingClass(null);
       loadClasses();
+      loadSubjects();
     } catch (err: unknown) {
       setErrorMessage(
         formatApiErrorMessage(err, 'Failed to save class. Make sure the class name is unique.')
@@ -236,8 +232,9 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       try {
         await deleteClass(clsObj.id);
         loadClasses();
+        loadSubjects();
       } catch (err) {
-        notify('Failed to delete class.');
+        notify(formatApiErrorMessage(err, 'Failed to delete class.'));
       }
     }
   };
@@ -257,10 +254,8 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       tutorial_credits: 0,
       practical_credits: 0,
       credits: 3,
-      semester: 5,
-      academic_year: '2026-2027',
       status: 'ACTIVE',
-      assigned_classes: ['TE-B'],
+      assigned_classes: [],
     });
     setErrorMessage(null);
     setIsSubjectModalOpen(true);
@@ -272,7 +267,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       code: subj.code,
       name: subj.name,
       short_name: subj.short_name || '',
-      vertical: subj.vertical || 'PCC',
+      vertical: subj.vertical || '',
       department: subj.department,
       theory_hours: subj.theory_hours || 0,
       tutorial_hours: subj.tutorial_hours || 0,
@@ -282,7 +277,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       practical_credits: subj.practical_credits || 0,
       credits: subj.credits,
       semester: subj.semester,
-      academic_year: subj.academic_year || '2026-2027',
+      academic_year: subj.academic_year,
       status: subj.status,
       assigned_classes: subj.assigned_classes || [],
     });
@@ -295,36 +290,46 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
     setClassForm({
       name: '',
       department: 'Computer Engineering',
-      effective_from: '15/06/2026',
-      year: 3,
-      semester: 5,
-      section: 'B',
-      academic_year: '2026-2027',
+      effective_from: '',
+      section: '',
       status: 'ACTIVE',
-      assigned_subject_ids: subjects.map((s) => s.id),
+      assigned_subject_ids: [],
     });
     setErrorMessage(null);
     setIsClassModalOpen(true);
   };
 
   const [query, setQuery] = useState('');
-  const [page, setPage] = useState(0);
+  const [requestedPage, setRequestedPage] = useState(0);
   const filteredClasses = classes.filter(c => `${c.name} ${c.department}`.toLowerCase().includes(query.toLowerCase()));
   const filteredSubjects = subjects.filter((s) => {
-    if (!`${s.code} ${s.name}`.toLowerCase().includes(query.toLowerCase())) return false;
+    if (!`${s.code} ${s.name}`.toLowerCase().includes(subjectSearch.toLowerCase())) return false;
+    if (statusFilter && s.status !== statusFilter) return false;
     if (verticalFilter && s.vertical !== verticalFilter) return false;
     return true;
   });
 
   const totalCurriculumCredits = subjects.reduce((sum, s) => sum + (s.credits || 0), 0);
 
-  const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const rowCount = activeTab === 'subjects' ? filteredSubjects.length : filteredClasses.length;
+  const page = Math.min(requestedPage, Math.max(0, Math.ceil(rowCount / 10) - 1));
+  const linkedCourses = subjects.filter(subject => viewingClass && subject.assigned_classes?.includes(viewingClass.name));
+  const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const schedule = timetableEntries.filter(entry => !scheduleClass || entry.class_id === scheduleClass)
+    .sort((a, b) => dayNames.indexOf(a.day_of_week.toLowerCase()) - dayNames.indexOf(b.day_of_week.toLowerCase()) || a.start_time.localeCompare(b.start_time));
 
   return (
     <div className="space-y-6">
       {feedback}
-      {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-danger/10 p-4 text-sm text-danger"><p>{loadError}</p><button className="min-h-11 font-semibold underline" onClick={() => {setLoadError('');void loadSubjects();}}>Retry</button></div>}
-      <div className="flex flex-wrap gap-3 items-center"><label>Search academics<input className="ml-2 rounded border p-2" value={query} onChange={e => {setQuery(e.target.value);setPage(0);}} /></label><button disabled={!page} onClick={() => setPage(page-1)}>Previous</button><span>Page {page+1}</span><button disabled={(page+1)*10>=Math.max(filteredSubjects.length,filteredClasses.length)} onClick={() => setPage(page+1)}>Next</button></div>
+      {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-danger/10 p-4 text-sm text-danger"><p>{loadError}</p><button className="min-h-11 font-semibold underline" onClick={{ subjects: loadSubjects, classes: loadClasses, timetable: loadTimetable }[activeTab]}>Retry</button></div>}
+      {activeTab !== 'timetable' && <div className="flex flex-wrap items-center gap-3">
+        {activeTab === 'classes' && <label>Search classes <input className="rounded border p-2" value={query} onChange={e => { setQuery(e.target.value); setRequestedPage(0); }} /></label>}
+        {rowCount > 10 && <>
+          <button disabled={page === 0} onClick={() => setRequestedPage(page - 1)}>Previous</button>
+          <span>Page {page + 1} of {Math.ceil(rowCount / 10)}</span>
+          <button disabled={(page + 1) * 10 >= rowCount} onClick={() => setRequestedPage(page + 1)}>Next</button>
+        </>}
+      </div>}
       {/* Top Header & Tab Navigation */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -335,7 +340,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
         </div>
 
         {/* Tab Toggle */}
-        <div className="flex items-center bg-surface-muted p-1 rounded-xl border border-border shadow-inner">
+        <div className="flex flex-wrap items-center bg-surface-muted p-1 rounded-xl border border-border shadow-inner">
           <button
             onClick={() => setActiveTab('subjects')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition ${
@@ -375,7 +380,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface p-4">
         <div>
           <h2 className="text-sm font-semibold text-text">Curriculum</h2>
-          <p className="mt-1 text-sm text-text-muted">{subjects.length} courses · {totalCurriculumCredits} credits</p>
+          <p className="mt-1 text-sm text-text-muted">{loadingSubjects ? 'Loading courses…' : loadErrors.subjects ? 'Course totals unavailable' : `${subjects.length} courses · ${totalCurriculumCredits} credits`}</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -459,7 +464,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                 <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
                 <span>Loading courses...</span>
               </div>
-            ) : filteredSubjects.length === 0 ? (
+            ) : loadError ? null : filteredSubjects.length === 0 ? (
               <div className="p-12 text-center text-text-muted text-xs space-y-2">
                 <BookOpen className="w-8 h-8 text-slate-300 mx-auto" />
                 <p className="font-semibold text-text">No Courses Found</p>
@@ -507,7 +512,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                                 : 'bg-rose-50 text-rose-700 border border-rose-200'
                             }`}
                           >
-                            {s.vertical || 'CORE'}
+                            {s.vertical || '—'}
                           </span>
                         </td>
                         <td className="py-3.5 px-4 text-text-muted font-mono text-[11px]">
@@ -528,7 +533,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                               {s.assigned_classes.join(', ')}
                             </span>
                           ) : (
-                            <span className="text-text-muted font-normal">TE-B</span>
+                            <span className="text-text-muted font-normal">Unassigned</span>
                           )}
                         </td>
                         <td className="py-3.5 px-4">
@@ -589,11 +594,11 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                 <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
                 <span>Loading classes...</span>
               </div>
-            ) : classes.length === 0 ? (
+            ) : loadError ? null : filteredClasses.length === 0 ? (
               <div className="col-span-full bg-surface p-12 text-center text-text-muted text-xs rounded-2xl border border-border space-y-2">
                 <GraduationCap className="w-8 h-8 text-slate-300 mx-auto" />
                 <p className="font-semibold text-text">No Classes Found</p>
-                <p className="text-[11px] text-text-muted">Click "Add Class Section" to create an academic class.</p>
+                <p className="text-[11px] text-text-muted">{query ? 'Try another class name or department.' : 'Create a class section to get started.'}</p>
               </div>
             ) : (
               filteredClasses.slice(page*10,page*10+10).map((clsObj) => (
@@ -615,7 +620,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                     <div>
                       <h3 className="font-bold text-base text-text">{clsObj.department}</h3>
                       <p className="text-xs text-text-muted font-medium">
-                        Effective From: <span className="text-text font-bold">{clsObj.effective_from || '15/06/2026'}</span>
+                        Effective From: <span className="text-text font-bold">{clsObj.effective_from || 'Not set'}</span>
                       </p>
                     </div>
 
@@ -623,13 +628,13 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                       <div className="bg-surface-muted p-2.5 rounded-xl text-center">
                         <div className="text-[10px] text-text-muted uppercase font-bold">Curriculum</div>
                         <div className="font-bold text-text text-sm mt-0.5">
-                          {clsObj.total_curriculum_credits || 22} Credits
+                          {clsObj.total_curriculum_credits ?? '—'} Credits
                         </div>
                       </div>
                       <div className="bg-surface-muted p-2.5 rounded-xl text-center">
                         <div className="text-[10px] text-text-muted uppercase font-bold">Subjects</div>
                         <div className="font-bold text-text text-sm mt-0.5">
-                          {clsObj.subject_count || 7} Courses
+                          {clsObj.subject_count ?? '—'} Courses
                         </div>
                       </div>
                     </div>
@@ -646,6 +651,12 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                       >
                         View Details
                       </button>
+                      <button title="Edit Class" aria-label={`Edit ${clsObj.name}`} className="p-1.5" onClick={() => {
+                        setEditingClass(clsObj);
+                        setClassForm({ name: clsObj.name, department: clsObj.department, section: clsObj.section, effective_from: clsObj.effective_from ?? '', status: clsObj.status });
+                        setErrorMessage(null);
+                        setIsClassModalOpen(true);
+                      }}><Edit2 className="w-3.5 h-3.5" /></button>
                       <button
                         onClick={() => handleDeleteClass(clsObj)}
                         className="p-1.5 rounded-lg text-text-muted hover:text-rose-600 hover:bg-rose-50 transition"
@@ -662,156 +673,36 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
         </div>
       )}
 
-      {/* TAB 3: WEEKLY TIMETABLE GRID */}
       {activeTab === 'timetable' && (
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface p-4 rounded-2xl border border-border shadow-sm text-xs">
-            <div>
-              <div className="flex items-center gap-2 text-xs font-bold text-indigo-700 uppercase">
-                <Calendar className="w-4 h-4 text-indigo-600" />
-                <span>Department of Computer Engineering · Class: TE-B</span>
-              </div>
-              <p className="text-[11px] text-text-muted mt-0.5 font-medium">
-                Effective From: <span className="font-bold text-text">15/06/2026</span> · Standard Weekly Timetable
-              </p>
-            </div>
-
-            {onNavigate && (
-              <button
-                onClick={() => onNavigate('timetable')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold border border-indigo-200 transition text-xs"
-              >
-                <span>Open Full Timetable View</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Real Table Grid */}
-          <div className="bg-surface rounded-2xl border border-border shadow-sm overflow-hidden">
-            {loadingTimetable ? (
-              <div className="p-12 text-center text-text-muted text-xs flex items-center justify-center gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
-                <span>Loading timetable schedule...</span>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-left min-w-[850px]">
-                  <thead>
-                    <tr className="bg-surface-muted border-b border-border text-text text-xs font-bold">
-                      <th className="py-3 px-3 w-36 text-text-muted font-mono text-[10px] uppercase tracking-wider border-r border-border text-center">
-                        TIME
-                      </th>
-                    {daysOfWeek.map((day) => (
-                      <th key={day} className="py-3 px-3 border-r border-border last:border-r-0 font-bold">
-                        {day.toUpperCase()}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border text-text text-xs">
-                  {[
-                    { start: '09:00', end: '10:00' },
-                    { start: '10:00', end: '11:00' },
-                    { start: '11:00', end: '12:00' },
-                    { start: '12:00', end: '13:00' },
-                    { start: '13:00', end: '14:00', isBreak: true },
-                    { start: '14:00', end: '15:00' },
-                    { start: '15:00', end: '16:00' },
-                    { start: '16:00', end: '17:00' },
-                  ].map((period) => (
-                    <tr key={period.start} className="hover:bg-surface-muted/40 transition">
-                      <td className="py-2.5 px-2 w-36 border-r border-border bg-surface-muted/50 text-center font-mono text-[11px] text-text-muted font-bold align-middle">
-                        {period.start} – {period.end}
-                      </td>
-                      {daysOfWeek.map((day) => {
-                        const entries = timetableEntries.filter(
-                          (e) =>
-                            e.day_of_week.toLowerCase() === day.toLowerCase() &&
-                            e.start_time.slice(0, 5) === period.start
-                        );
-
-                        if (period.isBreak || (entries.length === 1 && entries[0].entry_type === 'BREAK')) {
-                          return (
-                            <td key={day} className="p-2 border-r border-border last:border-r-0 align-top">
-                              <div className="h-full min-h-[72px] bg-amber-50/60 border border-amber-200 rounded-xl flex items-center justify-center p-2 text-center text-amber-800 font-bold text-[11px]">
-                                LUNCH BREAK
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        if (entries.length === 0) {
-                          return (
-                            <td key={day} className="p-2 border-r border-border last:border-r-0 align-top">
-                              <div className="h-full min-h-[72px] bg-surface-muted/30 border border-dashed border-border rounded-xl flex items-center justify-center text-slate-300 text-xs">
-                                —
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        if (entries.length > 1) {
-                          return (
-                            <td key={day} className="p-2 border-r border-border last:border-r-0 align-top">
-                              <div className="h-full min-h-[72px] flex flex-col gap-1">
-                                {entries.map((ent) => (
-                                  <div
-                                    key={ent.id}
-                                    className={`p-1.5 rounded-lg border text-[10px] flex items-center justify-between ${
-                                      ent.batch === 'B1' ? 'bg-indigo-50/70 border-indigo-200 text-indigo-900' : 'bg-indigo-50/70 border-indigo-200 text-indigo-900'
-                                    }`}
-                                  >
-                                    <span className="font-bold truncate">{ent.label}</span>
-                                    <span className="px-1 py-0.2 rounded font-mono font-bold bg-surface/80 shrink-0">
-                                      {ent.room || ent.batch}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        const ent = entries[0];
-                        const isActivity = ent.entry_type === 'ACTIVITY';
-
-                        return (
-                          <td key={day} className="p-2 border-r border-border last:border-r-0 align-top">
-                            <div
-                              className={`h-full min-h-[72px] p-2 rounded-xl border flex flex-col justify-between text-xs ${
-                                isActivity
-                                  ? 'bg-surface-muted/70 border-border text-text'
-                                  : 'bg-surface border-border text-text hover:border-indigo-300'
-                              }`}
-                            >
-                              <div className="font-bold text-[11px] leading-tight">{ent.label}</div>
-                              <div className="flex items-center justify-between text-[10px] text-text-muted pt-1 border-t border-border mt-1">
-                                <span>{ent.room || (isActivity ? 'Activity' : 'Class')}</span>
-                                {ent.batch && <span className="font-bold text-indigo-600">Batch {ent.batch}</span>}
-                              </div>
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            )}
-          </div>
-        </div>
+        <section className="space-y-4 rounded-xl border border-border bg-surface p-4">
+          <label className="flex items-center gap-3">Class
+            <select value={scheduleClass} onChange={event => setScheduleClass(event.target.value)} className="rounded border p-2">
+              <option value="">All classes</option>
+              {classes.map(section => <option key={section.id} value={section.id}>{section.name}</option>)}
+            </select>
+          </label>
+          {onNavigate && <button className="text-sm font-semibold underline" onClick={() => onNavigate('timetable')}>Manage timetable slots</button>}
+          {loadingTimetable ? <p>Loading timetable…</p> : loadError ? null : schedule.length === 0 ? <p>No timetable entries for this selection.</p> :
+            <div className="overflow-x-auto"><table className="w-full text-left text-sm">
+              <thead><tr>{['Day', 'Time', 'Class', 'Course or activity', 'Batch', 'Room'].map(title => <th key={title} className="p-2">{title}</th>)}</tr></thead>
+              <tbody>{schedule.map(entry => <tr key={entry.id} className="border-t border-border">
+                <td className="p-2">{entry.day_of_week}</td><td className="p-2 whitespace-nowrap">{entry.start_time} – {entry.end_time}</td>
+                <td className="p-2">{entry.class_name || classes.find(section => section.id === entry.class_id)?.name || '—'}</td>
+                <td className="p-2">{entry.label || entry.subject_name || entry.entry_type}</td>
+                <td className="p-2">{entry.batch || '—'}</td><td className="p-2">{entry.room || '—'}</td>
+              </tr>)}</tbody>
+            </table></div>}
+        </section>
       )}
 
       {/* MODAL: VIEW SUBJECT DETAIL */}
       {viewingSubject && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-surface rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-border">
+          <div className="bg-surface rounded-2xl max-w-lg max-h-[90dvh] overflow-y-auto w-full p-6 space-y-5 shadow-2xl border border-border">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">
-                  {viewingSubject.vertical || 'PCC'}
+                  {viewingSubject.vertical || '—'}
                 </div>
                 <div>
                   <h3 className="font-bold text-base text-text">{viewingSubject.name}</h3>
@@ -835,7 +726,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                 </div>
                 <div>
                   <div className="text-[10px] text-text-muted uppercase font-bold">Vertical Track</div>
-                  <div className="font-bold text-text text-xs mt-0.5">{viewingSubject.vertical || 'PCC (Program Core Course)'}</div>
+                  <div className="font-bold text-text text-xs mt-0.5">{viewingSubject.vertical || 'Unspecified'}</div>
                 </div>
               </div>
 
@@ -914,7 +805,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                 <div>
                   <h3 className="font-bold text-base text-text">{viewingClass.department}</h3>
                   <p className="text-xs text-text-muted">
-                    Class: <span className="font-bold text-indigo-700">{viewingClass.name}</span> · Effective: <span className="font-bold text-text">{viewingClass.effective_from || '15/06/2026'}</span>
+                    Class: <span className="font-bold text-indigo-700">{viewingClass.name}</span> · Effective: <span className="font-bold text-text">{viewingClass.effective_from || 'Not set'}</span>
                   </p>
                 </div>
               </div>
@@ -931,11 +822,11 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div className="bg-surface-muted p-3 rounded-xl border border-border">
                   <div className="text-[10px] text-text-muted uppercase font-bold">Total Credits</div>
-                  <div className="text-base font-bold text-indigo-600 mt-0.5">{totalCurriculumCredits} Credits</div>
+                  <div className="text-base font-bold text-indigo-600 mt-0.5">{viewingClass.total_curriculum_credits ?? '—'} Credits</div>
                 </div>
                 <div className="bg-surface-muted p-3 rounded-xl border border-border">
                   <div className="text-[10px] text-text-muted uppercase font-bold">Curriculum Units</div>
-                  <div className="text-base font-bold text-text mt-0.5">{subjects.length} Subjects</div>
+                  <div className="text-base font-bold text-text mt-0.5">{viewingClass.subject_count ?? '—'} Subjects</div>
                 </div>
                 <div className="bg-surface-muted p-3 rounded-xl border border-border">
                   <div className="text-[10px] text-text-muted uppercase font-bold">Enrolled Students</div>
@@ -947,10 +838,10 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
               <div className="space-y-2">
                 <div className="font-bold text-text flex items-center justify-between text-xs">
                   <span>Assigned Curriculum Courses</span>
-                  <span className="text-text-muted font-normal">7 of 7 Courses linked</span>
+                  <span className="text-text-muted font-normal">{viewingClass.subject_count ?? '—'} courses linked</span>
                 </div>
                 <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
-                  {subjects.map((s) => (
+                  {loadingSubjects ? <p>Loading linked courses…</p> : loadErrors.subjects ? <p>Unable to load linked courses.</p> : linkedCourses.length === 0 ? <p>No linked courses.</p> : linkedCourses.map((s) => (
                     <div
                       key={s.id}
                       className="p-2.5 rounded-xl border border-border bg-surface-muted/60 flex items-center justify-between text-xs"
@@ -974,6 +865,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
             <div className="pt-3 border-t border-border flex items-center justify-between">
               <button
                 onClick={() => {
+                  setScheduleClass(viewingClass.id);
                   setViewingClass(null);
                   setActiveTab('timetable');
                 }}
@@ -996,7 +888,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
       {/* MODAL: ADD / EDIT SUBJECT */}
       {isSubjectModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-surface rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-border max-h-[90vh] overflow-y-auto">
+          <div className="bg-surface rounded-2xl max-w-lg max-h-[90dvh] overflow-y-auto w-full p-6 space-y-4 shadow-2xl border border-border">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <h3 className="font-bold text-base text-text">
                 {editingSubject ? 'Edit Academic Course' : 'Register New Course'}
@@ -1024,18 +916,20 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                     type="text"
                     required
                     placeholder="e.g. 24CSPC501C"
+                    readOnly={Boolean(editingSubject)}
                     value={subjectForm.code}
                     onChange={(e) => setSubjectForm({ ...subjectForm, code: e.target.value })}
                     className="w-full px-3 py-2 bg-surface-muted border border-border rounded-xl focus:outline-none focus:border-indigo-500 font-mono uppercase font-bold"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-text mb-1">Vertical Track *</label>
+                  <label className="block font-bold text-text mb-1">Vertical Track</label>
                   <select
                     value={subjectForm.vertical}
                     onChange={(e) => setSubjectForm({ ...subjectForm, vertical: e.target.value })}
                     className="w-full px-3 py-2 bg-surface-muted border border-border rounded-xl focus:outline-none focus:border-indigo-500 font-semibold"
                   >
+                    <option value="">Unspecified</option>
                     <option value="PCC">PCC (Program Core Course)</option>
                     <option value="PEC">PEC (Program Elective Course)</option>
                     <option value="MDM">MDM (Multidisciplinary Minor)</option>
@@ -1113,6 +1007,18 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                   />
                 </div>
               </div>
+
+              <fieldset className="space-y-1">
+                <legend className="font-bold">Assigned classes</legend>
+                {classes.map(section => <label key={section.id} className="mr-3 inline-flex items-center gap-1">
+                  <input type="checkbox" checked={subjectForm.assigned_classes?.includes(section.name) ?? false}
+                    onChange={event => {
+                      const selected = subjectForm.assigned_classes ?? [];
+                      setSubjectForm({ ...subjectForm, assigned_classes: event.target.checked ? [...selected, section.name] : selected.filter(name => name !== section.name) });
+                    }} />{section.name}
+                </label>)}
+                {!classes.length && <p>{loadErrors.classes ? 'Unable to load classes.' : 'No classes available.'}</p>}
+              </fieldset>
 
               {/* Credit Allocations */}
               <div className="space-y-1">
@@ -1220,7 +1126,7 @@ export const SubjectManagementPage: React.FC<SubjectManagementPageProps> = ({ on
                   <label className="block font-bold text-text mb-1">Effective From</label>
                   <input
                     type="text"
-                    value={classForm.effective_from || '15/06/2026'}
+                    value={classForm.effective_from || ''}
                     onChange={(e) => setClassForm({ ...classForm, effective_from: e.target.value })}
                     className="w-full px-3 py-2 bg-surface-muted border border-border rounded-xl focus:outline-none focus:border-indigo-500"
                   />

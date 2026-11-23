@@ -5,12 +5,13 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.security import require_roles
 from backend.app.core.teacher_access import assigned_classes
 from backend.app.database.session import get_db
-from backend.app.models.classroom import ClassroomPost
+from backend.app.models.classroom import AssignmentSubmission, ClassroomPost
 from backend.app.models.entities import ClassSection, Student, User, UserStudentLink
 
 router = APIRouter(prefix="/classroom", tags=["Classroom"])
@@ -63,13 +64,20 @@ async def board(user: User = Depends(members), db: AsyncSession = Depends(get_db
                              .outerjoin(User, User.id == ClassroomPost.author_id)
                              .where(ClassroomPost.class_id.in_(allowed))
                              .order_by(ClassroomPost.created_at.desc(), ClassroomPost.id.desc()))
+    own_submissions = {}
+    if user.role == "STUDENT":
+        rows = await db.scalars(select(AssignmentSubmission)
+                                .join(UserStudentLink, UserStudentLink.student_id == AssignmentSubmission.student_id)
+                                .join(ClassroomPost, ClassroomPost.id == AssignmentSubmission.post_id)
+                                .where(UserStudentLink.user_id == user.id, ClassroomPost.class_id.in_(allowed)))
+        own_submissions = {row.post_id: submission_view(row) for row in rows}
     return {
         "classes": [dict(row._mapping) for row in classes],
         "can_publish": user.role != "STUDENT",
         "posts": [{
             "id": post.id, "class_id": post.class_id, "title": post.title, "body": post.body,
             "kind": post.kind, "due_date": post.due_date, "classroom_url": post.classroom_url,
-            "author": author, "created_at": post.created_at.replace(tzinfo=timezone.utc)
+            "my_submission": own_submissions.get(post.id), "author": author, "created_at": post.created_at.replace(tzinfo=timezone.utc)
             if post.created_at.tzinfo is None else post.created_at,
         } for post, author in posts],
     }
@@ -83,3 +91,54 @@ async def publish(payload: PostInput, user: User = Depends(staff), db: AsyncSess
     db.add(post)
     await db.flush()
     return {"id": post.id}
+
+
+class SubmissionInput(BaseModel):
+    answer: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=6000)]
+
+
+def submission_view(submission):
+    submitted = submission.submitted_at
+    return {"answer": submission.answer, "submitted_at": submitted if submitted.tzinfo else submitted.replace(tzinfo=timezone.utc)}
+
+
+async def require_assignment(post_id, user, db):
+    post = await db.scalar(select(ClassroomPost).where(
+        ClassroomPost.id == post_id, ClassroomPost.class_id.in_(visible_classes(user)),
+        ClassroomPost.kind == "assignment"))
+    if post is None:
+        raise HTTPException(404, "Assignment unavailable.")
+
+
+@router.put("/{post_id}/submission")
+async def turn_in(post_id: str, payload: SubmissionInput, user: User = Depends(require_roles("STUDENT")),
+                  db: AsyncSession = Depends(get_db)):
+    await require_assignment(post_id, user, db)
+    student_id = await db.scalar(select(UserStudentLink.student_id).where(UserStudentLink.user_id == user.id))
+    key = (post_id, student_id)
+    existing = await db.get(AssignmentSubmission, key)
+    if existing is None:
+        submission = AssignmentSubmission(post_id=post_id, student_id=student_id, answer=payload.answer)
+        try:
+            async with db.begin_nested():
+                db.add(submission)
+                await db.flush()
+            return submission_view(submission)
+        except IntegrityError:
+            existing = await db.get(AssignmentSubmission, key)
+            if existing is None:
+                raise
+    if existing.answer != payload.answer:
+        raise HTTPException(409, "You have already turned in this assignment.")
+    return submission_view(existing)
+
+
+@router.get("/{post_id}/submissions")
+async def review_submissions(post_id: str, user: User = Depends(staff), db: AsyncSession = Depends(get_db)):
+    await require_assignment(post_id, user, db)
+    rows = await db.execute(select(AssignmentSubmission, Student)
+                            .join(Student, Student.id == AssignmentSubmission.student_id)
+                            .where(AssignmentSubmission.post_id == post_id)
+                            .order_by(Student.roll_number, Student.id))
+    return [{**submission_view(submission), "student_id": student.id, "roll_number": student.roll_number,
+             "student_name": f"{student.first_name} {student.last_name}"} for submission, student in rows]

@@ -19,3 +19,12 @@ class ClassroomPost(Base):
     due_date: Mapped[date | None] = mapped_column(Date)
     classroom_url: Mapped[str | None] = mapped_column(String(2048))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AssignmentSubmission(Base):
+    __tablename__ = "assignment_submissions"
+
+    post_id: Mapped[str] = mapped_column(GUID, ForeignKey("classroom_posts.id", ondelete="CASCADE"), primary_key=True)
+    student_id: Mapped[str] = mapped_column(GUID, ForeignKey("students.id", ondelete="CASCADE"), primary_key=True)
+    answer: Mapped[str] = mapped_column(Text)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

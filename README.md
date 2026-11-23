@@ -2,12 +2,13 @@
 
 AttedDEL is an attendance management workspace for students, faculty, operators, and administrators. It brings together class schedules, student records, attendance sessions, reports, and camera diagnostics in a responsive React interface backed by FastAPI.
 
-The repository is named **SAMS**. Use the **`joyson` branch** for the current application and UI updates. The separate legacy `attendance_app` remains for compatibility and regression coverage.
+The repository is named **SAMS**. The college-readiness work is on **`codex/college-readiness-audit`**. The separate legacy `attendance_app` remains for compatibility and regression coverage.
 
 ## Workspace overview
 
 - **Dashboard:** attendance summaries, daily classes, recent activity and system health. Administrators can create an HOD account from **Users** by entering the department name as it appears on an existing class. HODs see the class, active student, and active session counts for their assigned department.
-- **Student portal:** personal details, subject and date filters, an attendance target calculator, correction requests, face enrollment, and a face-match check.
+- **Student portal:** personal attendance, correction requests, classmates, weekly timetable, semester marksheets, face enrollment and private camera or photo face checks.
+- **Classroom:** staff publish announcements, materials and assignments. Students can turn in a text answer and see their timestamped receipt. Assigned teachers can review answers.
 - **Attendance sessions:** scheduling, session records, roster review and manual attendance. Assign classes to Faculty accounts under **Users → Manage → Assigned classes**. Faculty can work with sessions linked to one of their assigned classes. An administrator can handle older sessions without a linked class.
 - **Students and academics:** student directory, classes, subjects, batches and timetable management. Administrators manage the academic setup and can preview and import CSV or Excel rosters from **Students**. Faculty read the timetable, class details, batches, and subject mappings for their assigned classes.
 - **Reports:** attendance analytics with date, subject, and class filters, plus CSV, Excel, and printable PDF exports. Faculty reports and exports cover assigned classes. Faculty sign-in opens Attendance Sessions.

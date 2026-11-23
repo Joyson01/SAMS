@@ -14,7 +14,7 @@ from backend.app.database.base import Base
 import backend.app.models  # noqa: F401
 
 
-BASELINE_REVISION = "20261124_semester_results"
+BASELINE_REVISION = "20261125_submissions"
 ALEMBIC_CONFIG = Path(__file__).resolve().parents[1] / "backend" / "alembic.ini"
 
 

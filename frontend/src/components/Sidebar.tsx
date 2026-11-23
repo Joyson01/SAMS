@@ -10,7 +10,7 @@ export const Sidebar: React.FC<SidebarProps> = ({role = 'STUDENT', userName = ''
    {id:'classroom', label:'Classroom', icon:BookOpen},
    {id:'semester-results', label:'Semester marksheets', icon:BarChart2},
  ];
- const groups = role === 'STUDENT' ? [{label: 'Overview', items: [{id:'my-attendance', label:'My Attendance', icon:CheckSquare},{id:'classmates',label:'Classmates',icon:Users},...academicItems]}] : role === 'HOD' ? [{label:'Overview',items:[{id:'department',label:'Department',icon:LayoutDashboard},...academicItems]}] : [
+ const groups = role === 'STUDENT' ? [{label: 'Overview', items: [{id:'my-attendance', label:'My Attendance', icon:CheckSquare},{id:'my-timetable',label:'My Timetable',icon:Calendar},{id:'classmates',label:'Classmates',icon:Users},...academicItems]}] : role === 'HOD' ? [{label:'Overview',items:[{id:'department',label:'Department',icon:LayoutDashboard},...academicItems]}] : [
  ...(role === 'FACULTY' ? [] : [{label:'Overview',items:[{id:'dashboard',label:'Dashboard',icon:LayoutDashboard}]}]),
  {label:'Attendance',items:[{id:'live',label:'Live Attendance',icon:CheckSquare},{id:'attendance',label:'Attendance Sessions',icon:Calendar},{id:'media',label:'Photo Attendance',icon:ImageIcon}]},
  {label:'People',items:[{id:'students',label:'Students',icon:Users}]},

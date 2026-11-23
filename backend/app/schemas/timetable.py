@@ -14,7 +14,7 @@ class TimetableEntryCreate(BaseModel):
     label: str = Field(..., description="Timetable cell label, e.g. TCS-DM, LUNCH BREAK, Mentoring")
     batch: Optional[str] = Field(None, description="Batch identifier, e.g. B1, B2, ALL")
     room: Optional[str] = Field(None, description="Room / Lab code, e.g. CR 26, L5, L4")
-    effective_from: Optional[str] = Field("15/06/2026", description="Effective date")
+    effective_from: Optional[str] = Field(None, description="Effective date")
     status: str = Field("ACTIVE", description="ACTIVE or INACTIVE")
 
 
@@ -50,7 +50,7 @@ class TimetableEntryResponse(BaseModel):
     label: str
     batch: Optional[str] = None
     room: Optional[str] = None
-    effective_from: Optional[str] = "15/06/2026"
+    effective_from: Optional[str] = None
     status: str
     has_existing_session: bool = False
     existing_session_id: Optional[str] = None

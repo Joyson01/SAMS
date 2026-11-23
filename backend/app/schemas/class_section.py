@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class ClassSectionCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=64, description="Class name, e.g. TE-B")
     department: str = Field("Computer Engineering", min_length=2, max_length=64, description="Department, e.g. Computer Engineering")
-    effective_from: Optional[str] = Field("15/06/2026", max_length=32, description="Effective from date, e.g. 15/06/2026")
+    effective_from: Optional[str] = Field(None, max_length=32, description="Effective from date, e.g. 15/06/2026")
     year: Optional[int] = Field(None, ge=1, le=6)
     semester: Optional[int] = Field(None, ge=1, le=12)
     section: str = Field("B", max_length=16)
@@ -38,7 +38,7 @@ class ClassSectionResponse(BaseModel):
     id: str
     name: str
     department: str
-    effective_from: Optional[str] = "15/06/2026"
+    effective_from: Optional[str] = None
     year: Optional[int] = None
     semester: Optional[int] = None
     section: str

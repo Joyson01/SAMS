@@ -2,7 +2,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from backend.app.api.v1.classroom import PostInput, board, publish
+from backend.app.api.v1.classroom import PostInput, SubmissionInput, board, publish, review_submissions, turn_in
 from backend.app.models.entities import ClassSection, Student, TeacherClassAssignment, User, UserStudentLink
 
 
@@ -23,9 +23,36 @@ async def test_classroom_stream_is_scoped(test_db_session):
                 TeacherClassAssignment(teacher_id=faculty.id, class_id=first.id)])
     await db.flush()
     payload = PostInput(class_id=first.id, kind="assignment", title="Read chapter one", body="Pages 1–5.")
-    await publish(payload, faculty, db)
+    post = await publish(payload, faculty, db)
     other = payload.model_copy(update={"class_id": second.id, "title": "Other class"})
-    await publish(other, admin, db)
+    outside = await publish(other, admin, db)
+    answer = SubmissionInput(answer="  My work  ")
+    with pytest.raises(ValidationError):
+        SubmissionInput(answer=" ")
+    receipt = await turn_in(post["id"], answer, student_user, db)
+    assert receipt["answer"] == "My work"
+    assert await turn_in(post["id"], answer, student_user, db) == receipt
+    with pytest.raises(HTTPException) as conflict:
+        await turn_in(post["id"], SubmissionInput(answer="changed"), student_user, db)
+    assert conflict.value.status_code == 409
+    assert (await board(student_user, db))["posts"][0]["my_submission"] == receipt
+    peer = User(id="peer", username="peer", email="peer@school.test", full_name="Peer",
+                role="STUDENT", password_hash="unused", department=first.department)
+    peer_student = Student(id="peer-sid", student_code="P2", roll_number="2", first_name="C", last_name="D",
+                           email="peer-student@school.test", department=first.department, class_name=first.name, section="B")
+    db.add_all([peer, peer_student])
+    await db.flush()
+    db.add(UserStudentLink(user_id=peer.id, student_id=peer_student.id))
+    await db.flush()
+    assert (await board(peer, db))["posts"][0]["my_submission"] is None
+    submissions = await review_submissions(post["id"], faculty, db)
+    assert len(submissions) == 1 and submissions[0]["student_id"] == student.id
+    with pytest.raises(HTTPException) as unavailable:
+        await review_submissions(outside["id"], faculty, db)
+    assert unavailable.value.status_code == 404
+    with pytest.raises(HTTPException) as unavailable:
+        await turn_in(outside["id"], answer, student_user, db)
+    assert unavailable.value.status_code == 404
     for scoped_user in (hod, faculty):
         with pytest.raises(HTTPException) as rejected:
             await publish(other, scoped_user, db)

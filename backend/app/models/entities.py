@@ -184,7 +184,7 @@ class ClassSection(Base):
     id: Mapped[str] = mapped_column(GUID, primary_key=True, default=generate_uuid)
     name: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)  # e.g. TE-B
     department: Mapped[str] = mapped_column(String(64), index=True, nullable=False)         # e.g. Computer Engineering
-    effective_from: Mapped[Optional[str]] = mapped_column(String(32), default="15/06/2026", nullable=True)
+    effective_from: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     year: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     semester: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     section: Mapped[str] = mapped_column(String(16), default="B", nullable=False)
@@ -246,7 +246,7 @@ class TimetableEntry(Base):
     label: Mapped[str] = mapped_column(String(128), nullable=False)      # e.g. "TCS-DM", "LUNCH BREAK", "Mentoring", "MDM - PG CR 26"
     batch: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # e.g. "B1", "B2", "ALL"
     room: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)   # e.g. "CR 26", "L5", "L4", "L6", "L1", "SL"
-    effective_from: Mapped[Optional[str]] = mapped_column(String(32), default="15/06/2026", nullable=True)
+    effective_from: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="ACTIVE", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)

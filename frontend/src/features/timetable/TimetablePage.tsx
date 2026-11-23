@@ -1,5 +1,5 @@
 import { useDialogFeedback } from '../../components/common/useDialogFeedback';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Calendar,
   AlertCircle,
@@ -9,10 +9,8 @@ import {
   RefreshCw,
   Edit2,
   X,
-  CheckCircle2,
   Sparkles,
   Layers,
-  Coffee,
 } from 'lucide-react';
 import {
   fetchClassTimetable,
@@ -30,27 +28,27 @@ interface TimetablePageProps {
   onNavigate?: (tab: string, extra?: string) => void;
 }
 
-const TIME_PERIODS = [
-  { start: '09:00', end: '10:00', label: '09:00 AM – 10:00 AM' },
-  { start: '10:00', end: '11:00', label: '10:00 AM – 11:00 AM' },
-  { start: '11:00', end: '12:00', label: '11:00 AM – 12:00 PM' },
-  { start: '12:00', end: '13:00', label: '12:00 PM – 01:00 PM' },
-  { start: '13:00', end: '14:00', label: '01:00 PM – 02:00 PM', isBreak: true },
-  { start: '14:00', end: '15:00', label: '02:00 PM – 03:00 PM' },
-  { start: '15:00', end: '16:00', label: '03:00 PM – 04:00 PM' },
-  { start: '16:00', end: '17:00', label: '04:00 PM – 05:00 PM' },
-];
-
-const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdit = false }) => {
   const { notify, feedback } = useDialogFeedback();
   const [loadError, setLoadError] = useState('');
   // State
+  const [classes, setClasses] = useState<ClassSection[]>([]);
+  const [refresh, setRefresh] = useState(0);
+  const [catalogError, setCatalogError] = useState('');
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const loadData = () => setRefresh(value => value + 1);
   const [selectedClass, setSelectedClass] = useState<ClassSection | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [timetableEntries, setTimetableEntries] = useState<TimetableEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    const reload = () => setRefresh(value => value + 1);
+    window.addEventListener('timetable-updated', reload);
+    return () => window.removeEventListener('timetable-updated', reload);
+  }, []);
 
   // Week selection state (stores Monday of selected week)
   const [weekStartDate, setWeekStartDate] = useState<Date>(() => {
@@ -84,33 +82,34 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdi
   const [editType, setEditType] = useState<string>('SUBJECT');
   const [savingEdit, setSavingEdit] = useState<boolean>(false);
 
-  // Load Reference Data
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [clsList, subjList] = await Promise.all([
-        fetchClasses(undefined, undefined, 'ACTIVE'),
-        fetchSubjects(undefined, undefined, 'ACTIVE'),
-      ]);
-      setSubjects(subjList);
-
-      const targetClass = clsList.find((c) => c.name === 'TE-B') || clsList[0] || null;
-      setSelectedClass(targetClass);
-
-      if (targetClass) {
-        const entries = await fetchClassTimetable(targetClass.id);
-        setTimetableEntries(entries);
-      }
-    } catch (err) {
-      setLoadError(formatApiErrorMessage(err, 'Unable to load this view. Please try again.'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  useEffect(() => {
+    let active = true;
+    setCatalogLoading(true);
+    setCatalogError('');
+    Promise.all([fetchClasses(undefined, undefined, 'ACTIVE'), canEdit ? fetchSubjects(undefined, undefined, 'ACTIVE') : Promise.resolve([])])
+      .then(([sections, courses]) => {
+        if (!active) return;
+        setClasses(sections);
+        setSubjects(courses);
+        setSelectedClass(current => sections.find(section => section.id === current?.id) ?? sections[0] ?? null);
+      }).catch(err => {
+        if (active) setCatalogError(formatApiErrorMessage(err, 'Unable to load classes.'));
+      }).finally(() => { if (active) setCatalogLoading(false); });
+    return () => { active = false; };
+  }, [canEdit, refresh]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    let active = true;
+    setTimetableEntries([]);
+    setLoadError('');
+    if (!selectedClass) { setLoading(false); return; }
+    setLoading(true);
+    fetchClassTimetable(selectedClass.id)
+      .then(entries => { if (active) setTimetableEntries(entries); })
+      .catch(err => { if (active) setLoadError(formatApiErrorMessage(err, 'Unable to load timetable.')); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [selectedClass, refresh]);
 
   // Helpers for Week Calculation
   const getWeekDates = () => {
@@ -118,7 +117,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdi
     DAYS_OF_WEEK.forEach((dayName, idx) => {
       const d = new Date(weekStartDate);
       d.setDate(weekStartDate.getDate() + idx);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const formatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       dates[dayName] = { date: d, dateStr, formatted };
     });
@@ -126,6 +125,18 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdi
   };
 
   const weekDates = getWeekDates();
+  const effectiveDate = (value?: string) => {
+    const legacy = value?.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    return legacy ? `${legacy[3]}-${legacy[2].padStart(2, '0')}-${legacy[1].padStart(2, '0')}` : value ?? '';
+  };
+  const scheduled = timetableEntries.filter(entry => {
+    const day = DAYS_OF_WEEK.find(name => name.toLowerCase() === entry.day_of_week.toLowerCase());
+    return day && entry.status === 'ACTIVE' && weekDates[day].dateStr >= effectiveDate(entry.effective_from)
+      && weekDates[day].dateStr >= effectiveDate(selectedClass?.effective_from);
+  });
+  const days = DAYS_OF_WEEK.filter(day => scheduled.some(entry => entry.day_of_week.toLowerCase() === day.toLowerCase()));
+  const periods = Array.from(new Set(scheduled.map(entry => `${entry.start_time}/${entry.end_time}`))).sort()
+    .map(pair => { const [start, end] = pair.split('/'); return { start, end }; });
 
   const handlePrevWeek = () => {
     const prev = new Date(weekStartDate);
@@ -196,11 +207,11 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdi
 
     setSessionForm({
       class_id: selectedClass?.id,
-      class_name: selectedClass?.name || 'TE-B',
+      class_name: selectedClass?.name || '',
       timetable_entry_id: entry.id,
       subject_id: entry.subject_id || '',
       subject: entry.subject_name || entry.label,
-      room: entry.room || 'CR 26',
+      room: entry.room || '',
       scheduled_date: slotDate,
       start_time: entry.start_time,
       end_time: entry.end_time,
@@ -263,10 +274,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdi
         entry_type: editType as TimetableEntry['entry_type'],
       });
       setEditingEntry(null);
-      if (selectedClass) {
-        const entries = await fetchClassTimetable(selectedClass.id);
-        setTimetableEntries(entries);
-      }
+      loadData();
     } catch (err) {
       notify('Failed to update timetable slot.');
     } finally {
@@ -274,196 +282,43 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdi
     }
   };
 
-  // Render Table Cell for Day & Period
-  const renderCellContent = (dayName: string, periodStart: string) => {
-    const entries = timetableEntries.filter(
-      (e) =>
-        e.day_of_week.toLowerCase() === dayName.toLowerCase() &&
-        e.start_time.slice(0, 5) === periodStart
-    );
-
-    if (entries.length === 0) {
-      // Check if it's the standard Lunch Break
-      if (periodStart === '13:00') {
-        return (
-          <div className="h-full min-h-[96px] bg-amber-50/60 border border-amber-200/70 rounded-xl flex items-center justify-center p-2 text-center">
-            <div className="flex items-center gap-1.5 text-amber-800 font-bold text-xs tracking-wider">
-              <Coffee className="w-4 h-4 text-amber-600" />
-              <span>LUNCH BREAK</span>
-            </div>
-          </div>
-        );
-      }
-      return (
-        <div className="h-full min-h-[96px] bg-surface-muted/40 border border-dashed border-border rounded-xl flex items-center justify-center p-2 text-slate-300 text-xs">
-          —
-        </div>
-      );
-    }
-
-    // If Lunch Break entry
-    if (entries.length === 1 && entries[0].entry_type === 'BREAK') {
-      return (
-        <div className="h-full min-h-[96px] bg-amber-50/60 border border-amber-200/70 rounded-xl flex items-center justify-center p-2 text-center">
-          <div className="flex items-center gap-1.5 text-amber-800 font-bold text-xs tracking-wider">
-            <Coffee className="w-4 h-4 text-amber-600" />
-            <span>LUNCH BREAK</span>
-          </div>
-        </div>
-      );
-    }
-
-    // If multiple batch entries in the same period (e.g. B1 and B2)
-    if (entries.length > 1) {
-      return (
-        <div className="h-full min-h-[96px] flex flex-col gap-1.5">
-          {entries.map((entry) => {
-            const isB1 = entry.batch === 'B1';
-            return (
-              <div
-                key={entry.id}
-                className={`p-2 rounded-xl border flex-1 flex flex-col justify-between text-xs transition group ${
-                  isB1
-                    ? 'bg-indigo-50/50 hover:bg-indigo-100/60 border-indigo-200 text-indigo-950'
-                    : 'bg-indigo-50/50 hover:bg-indigo-100/60 border-indigo-200 text-indigo-950'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-1">
-                  <div className="font-bold text-[11px] leading-tight truncate" title={entry.label}>
-                    {entry.label}
-                  </div>
-                  <span
-                    className={`px-1 py-0.2 rounded text-[9px] font-bold shrink-0 ${
-                      isB1 ? 'bg-indigo-200 text-indigo-800' : 'bg-indigo-200 text-indigo-800'
-                    }`}
-                  >
-                    {entry.batch || 'Batch'}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between text-[10px] text-text-muted pt-1 border-t border-border/50 mt-1">
-                  <span className="font-mono text-text-muted">{entry.room || 'Lab'}</span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleOpenCreateSession(entry, dayName)}
-                      className="px-1.5 py-0.5 rounded bg-surface hover:bg-indigo-600 hover:text-white text-indigo-700 font-bold text-[10px] border border-indigo-200 transition"
-                      title="Create attendance session for this batch"
-                    >
-                      + Session
-                    </button>
-                    {canEdit && <button
-                      onClick={() => handleOpenEditSlot(entry)}
-                      className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text transition"
-                      title="Edit slot"
-                    >
-                      <Edit2 className="w-3 h-3" />
-                    </button>}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      );
-    }
-
-    // Single Entry
-    const entry = entries[0];
-    const isActivity = entry.entry_type === 'ACTIVITY';
-
-    if (isActivity) {
-      return (
-        <div className="h-full min-h-[96px] bg-surface-muted/70 hover:bg-surface-muted/60 border border-border rounded-xl p-2.5 flex flex-col justify-between text-xs transition group">
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-text text-xs">{entry.label}</span>
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-surface-muted text-text uppercase">
-                ACTIVITY
-              </span>
-            </div>
-            <div className="text-[10px] text-text-muted italic">
-              Institutional / Mentoring
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between pt-1 border-t border-border/60 text-[10px] text-text-muted">
-            <span>No Attendance</span>
-            {canEdit && <button
-              onClick={() => handleOpenEditSlot(entry)}
-              className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text transition"
-              title="Edit Activity"
-            >
-              <Edit2 className="w-3 h-3" />
-            </button>}
-          </div>
-        </div>
-      );
-    }
-
-    // Teaching / Subject Entry
-    return (
-      <div className="h-full min-h-[96px] bg-surface hover:bg-indigo-50/40 border border-border hover:border-indigo-300 rounded-xl p-2.5 flex flex-col justify-between shadow-xs transition group">
-        <div className="space-y-1">
-          <div className="flex items-start justify-between gap-1">
-            <span className="font-bold text-text text-xs group-hover:text-indigo-700 leading-snug">
-              {entry.label}
-            </span>
-            {entry.room && (
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-surface-muted text-text-muted shrink-0">
-                {entry.room}
-              </span>
-            )}
-          </div>
-
-          {entry.subject_code ? (
-            <div className="text-[10px] text-emerald-700 font-medium flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-              <span className="truncate">[{entry.subject_code}] {entry.subject_name}</span>
-            </div>
-          ) : (
-            <div className="text-[10px] text-text-muted italic">
-              Timetable Entry
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between pt-2 border-t border-border text-xs mt-1">
-          <button
-            onClick={() => handleOpenCreateSession(entry, dayName)}
-            className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition"
-          >
-            <Plus className="w-3 h-3" />
-            <span>Create Session</span>
-          </button>
-          {canEdit && <button
-            onClick={() => handleOpenEditSlot(entry)}
-            className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text transition"
-            title="Edit Slot / Map Course"
-          >
-            <Edit2 className="w-3 h-3" />
-          </button>}
+  const renderCellContent = (dayName: string, start: string, end: string) => {
+    const entries = scheduled.filter(entry => entry.day_of_week.toLowerCase() === dayName.toLowerCase()
+      && entry.start_time === start && entry.end_time === end);
+    return entries.length ? entries.map(entry => (
+      <div key={entry.id} className="mb-2 space-y-2 rounded-xl border border-border bg-surface p-3 text-xs">
+        <strong>{entry.label}</strong>
+        <div className="text-text-muted">{[entry.entry_type, entry.batch, entry.room].filter(Boolean).join(' · ')}</div>
+        {entry.subject_name && <div>{entry.subject_code} {entry.subject_name}</div>}
+        <div className="flex flex-wrap gap-2">
+          {entry.entry_type === 'SUBJECT' && <button className="inline-flex items-center gap-1 text-indigo-700"
+            onClick={() => handleOpenCreateSession(entry, dayName)}><Plus size={14} />Create Session</button>}
+          {canEdit && <button aria-label={`Edit ${entry.label}`} onClick={() => handleOpenEditSlot(entry)}><Edit2 size={14}/></button>}
         </div>
       </div>
-    );
+    )) : <span aria-label="No slot">—</span>;
   };
 
   return (
     <div className="space-y-6">
       {feedback}
-      {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-danger/10 p-4 text-sm text-danger"><p>{loadError}</p><button className="min-h-11 font-semibold underline" onClick={() => {setLoadError('');void loadData();}}>Retry</button></div>}
+      {(catalogError || loadError) && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-danger/10 p-4 text-sm text-danger"><p>{catalogError || loadError}</p><button className="min-h-11 font-semibold underline" onClick={() => {setLoadError('');void loadData();}}>Retry</button></div>}
       {/* Timetable Header Card */}
       <div className="bg-surface rounded-3xl border border-border p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-xs font-bold text-indigo-700 uppercase tracking-wider">
             <Layers className="w-4 h-4 text-indigo-600" />
-            <span>Department of Computer Engineering</span>
-            <span>·</span>
-            <span>Class: TE-B</span>
+            <span>{selectedClass?.department}</span>
           </div>
-          <h1 className="text-2xl font-black text-text tracking-tight">Official Weekly Timetable</h1>
-          <p className="text-xs text-text-muted font-medium">
-            Effective From: <span className="text-text font-bold">15/06/2026</span> · 8 Standard Teaching Periods Daily (Monday – Friday)
-          </p>
+          <h1 className="text-2xl font-black text-text">Weekly Timetable</h1>
+          <label>Class <select value={selectedClass?.id ?? ''} onChange={event => {
+            setTimetableEntries([]);
+            setSelectedClass(classes.find(section => section.id === event.target.value) ?? null);
+          }}>
+            {!classes.length && <option value="">No class selected</option>}
+            {classes.map(section => <option key={section.id} value={section.id}>{section.name}</option>)}
+          </select></label>
+          {selectedClass?.effective_from && <p>Effective from {selectedClass.effective_from}</p>}
         </div>
 
         {/* Week Navigator & Actions */}
@@ -512,12 +367,12 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdi
             </span>
           </div>
           <div className="text-text-muted text-[11px]">
-            Showing Monday – Friday schedule (Click any teaching slot to create attendance session)
+            {selectedClass?.name}
           </div>
         </div>
 
         {/* Real Table Grid */}
-        <div className="overflow-x-auto">
+        {loading || catalogLoading ? <p className="p-6">Loading timetable…</p> : catalogError || loadError ? null : !periods.length ? <p className="p-6">{selectedClass ? 'No slots scheduled for this week.' : 'No active classes available.'}</p> : <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left min-w-[900px]">
             {/* Table Header: Days of the Week */}
             <thead>
@@ -525,7 +380,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdi
                 <th className="py-3 px-4 w-40 text-text-muted font-mono text-[11px] uppercase tracking-wider border-r border-border text-center">
                   TIME PERIOD
                 </th>
-                {DAYS_OF_WEEK.map((day) => {
+                {days.map((day) => {
                   const isCurrentDay = isToday(day);
                   return (
                     <th
@@ -552,9 +407,9 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdi
 
             {/* Table Body: Standard Periods */}
             <tbody className="divide-y divide-border text-text text-xs">
-              {TIME_PERIODS.map((period) => {
+              {periods.map((period) => {
                 return (
-                  <tr key={period.start} className="hover:bg-surface-muted/30 transition">
+                  <tr key={`${period.start}/${period.end}`} className="hover:bg-surface-muted/30 transition">
                     {/* Time Column */}
                     <td className="py-3 px-3 w-40 border-r border-border bg-surface-muted/60 text-center font-mono text-[11px] text-text-muted font-bold align-middle">
                       <div className="flex flex-col items-center justify-center space-y-0.5">
@@ -565,7 +420,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdi
                     </td>
 
                     {/* Day Cells */}
-                    {DAYS_OF_WEEK.map((day) => {
+                    {days.map((day) => {
                       const isCurrentDay = isToday(day);
                       const isNow = isCurrentTimeSlot(period.start, period.end, day);
 
@@ -581,7 +436,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdi
                               ● NOW
                             </span>
                           )}
-                          {renderCellContent(day, period.start)}
+                          {renderCellContent(day, period.start, period.end)}
                         </td>
                       );
                     })}
@@ -590,34 +445,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdi
               })}
             </tbody>
           </table>
-        </div>
-
-        {/* Legend Footer */}
-        <div className="p-4 bg-surface-muted border-t border-border flex flex-wrap items-center justify-between gap-4 text-xs">
-          <div className="flex flex-wrap items-center gap-4">
-            <span className="font-bold text-text">Legend:</span>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-surface border border-border shadow-2xs" />
-              <span className="text-text-muted">Subject (Teaching Slot)</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-indigo-100 border border-indigo-300" />
-              <span className="text-text-muted">Batch B1 / B2 Lab</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-surface-muted border border-border" />
-              <span className="text-text-muted">Activity (Mentoring / Library / HM)</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-amber-100 border border-amber-300" />
-              <span className="text-text-muted">Lunch Break</span>
-            </div>
-          </div>
-
-          <div className="text-[11px] text-text-muted">
-            Source: Official College Timetable (TE-B · 15/06/2026)
-          </div>
-        </div>
+        </div>}
       </div>
 
       {/* ========================================================================= */}
@@ -665,7 +493,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdi
               <div className="bg-indigo-50/60 p-3 rounded-2xl border border-indigo-100 space-y-1">
                 <div className="font-bold text-text text-sm">{sessionModalSlot.label}</div>
                 <div className="text-[11px] text-indigo-800 font-medium flex items-center gap-3">
-                  <span>Class: {selectedClass?.name || 'TE-B'}</span>
+                  <span>Class: {selectedClass?.name || ''}</span>
                   <span>·</span>
                   <span>
                     Time: {sessionModalSlot.start_time} – {sessionModalSlot.end_time}

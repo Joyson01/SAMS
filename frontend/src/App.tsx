@@ -27,6 +27,7 @@ const TimetablePage = React.lazy(() => import('./features/timetable/TimetablePag
 const SettingsPage = React.lazy(() => import('./features/settings/SettingsPage').then(module => ({ default: module.SettingsPage })));
 const AuditLogsPage = React.lazy(() => import('./features/security/AuditLogsPage').then(module => ({ default: module.AuditLogsPage })));
 
+const StudentTimetable = React.lazy(() => import('./features/timetable/StudentTimetable'));
 const Classmates = React.lazy(() => import('./components/Classmates').then(module => ({ default: module.Classmates })));
 const ClassroomBoard = React.lazy(() => import('./components/ClassroomBoard'));
 const SemesterResults = React.lazy(() => import('./components/SemesterResults').then(module => ({ default: module.SemesterResults })));
@@ -85,7 +86,7 @@ const Workspace: React.FC = () => {
 
   const academicTab = ['classroom', 'semester-results'].includes(activeTab) && ['STUDENT', 'FACULTY', 'HOD', 'ADMIN'].includes(role);
   const currentTab = academicTab ? activeTab
-    : role === 'STUDENT' ? (activeTab === 'classmates' ? 'classmates' : 'my-attendance')
+    : role === 'STUDENT' ? (['classmates', 'my-timetable'].includes(activeTab) ? activeTab : 'my-attendance')
     : role === 'HOD' ? 'department'
     : role === 'FACULTY' && activeTab === 'dashboard' ? 'attendance' : activeTab;
 
@@ -128,6 +129,7 @@ const Workspace: React.FC = () => {
       >
         <ErrorBoundary key={activeTab} fallbackTitle={`Error in ${activeTab.toUpperCase()}`}>
           {currentTab === 'my-attendance' && role === 'STUDENT' && <MyAttendancePage />}
+          {currentTab === 'my-timetable' && role === 'STUDENT' && <StudentTimetable />}
           {currentTab === 'classmates' && role === 'STUDENT' && <Classmates />}
           {academicTab && currentTab === 'classroom' && <ClassroomBoard />}
           {academicTab && currentTab === 'semester-results' && <SemesterResults studentView={role === 'STUDENT'} />}

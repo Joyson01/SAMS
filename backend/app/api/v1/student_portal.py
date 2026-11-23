@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field, StringConstraints
-from sqlalchemy import select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
@@ -13,7 +13,7 @@ from sqlalchemy.orm import defer
 from backend.app.core.security import require_roles
 from backend.app.database.session import get_db
 from backend.app.models.entities import (
-    AttendanceRecord, AttendanceSession, FaceProfile, Student, StudentPortalRequest,
+    AttendanceRecord, AttendanceSession, Batch, ClassSection, FaceProfile, Student, StudentPortalRequest, TimetableEntry,
     User, UserStudentLink,
 )
 from backend.app.schemas.attendance import AttendanceOverridePayload
@@ -69,6 +69,32 @@ async def save_request(db: AsyncSession, request: StudentPortalRequest) -> dict:
         await db.rollback()
         raise HTTPException(409, "A request for this item is already pending.") from exc
     return request_data(request)
+
+
+@router.get("/timetable")
+async def student_timetable(db: AsyncSession = Depends(get_db), user: User = Depends(student_only)):
+    student = await db.get(Student, await linked_student(db, user))
+    if student is None or student.status != "ACTIVE":
+        raise HTTPException(403, "An active student record is required to view your timetable.")
+    class_id = await db.scalar(select(ClassSection.id).where(
+        ClassSection.name == student.class_name, ClassSection.department == student.department,
+        ClassSection.section == student.section, ClassSection.status == "ACTIVE",
+    ))
+    if class_id is None:
+        raise HTTPException(409, "Ask your administrator to check your class assignment.")
+    batch = await db.scalar(select(Batch).where(Batch.id == student.batch_id, Batch.class_id == class_id))
+    legacy_batch = func.upper(func.trim(func.coalesce(TimetableEntry.batch, "")))
+    visible = and_(TimetableEntry.batch_id.is_(None), legacy_batch.in_(("", "ALL")))
+    if batch:
+        visible = or_(visible, TimetableEntry.batch_id == batch.id,
+                      and_(TimetableEntry.batch_id.is_(None), legacy_batch == batch.name.strip().upper()))
+    rows = await db.execute(select(
+        TimetableEntry.id, TimetableEntry.day_of_week, TimetableEntry.start_time,
+        TimetableEntry.end_time, TimetableEntry.label, TimetableEntry.room,
+    ).where(TimetableEntry.class_id == class_id, TimetableEntry.status == "ACTIVE", visible)
+     .order_by(TimetableEntry.start_time, TimetableEntry.end_time, TimetableEntry.label, TimetableEntry.id))
+    return {"class_name": student.class_name, "batch": batch.name if batch else None,
+            "entries": rows.mappings().all()}
 
 
 @router.get("/requests")

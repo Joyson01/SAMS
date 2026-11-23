@@ -1,4 +1,5 @@
-from datetime import date, time
+import re
+from datetime import date, datetime, time
 from typing import List, Optional
 from sqlalchemy import and_, func, select, delete
 from fastapi import HTTPException
@@ -7,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.teacher_access import assigned_classes
 from backend.app.core.exceptions import SAMSException
 from backend.app.core.logging import logger
-from backend.app.models.entities import AttendanceSession, ClassSection, ClassSubject, Student, Subject, TimetableEntry
+from backend.app.models.entities import AttendanceSession, Batch, ClassSection, ClassSubject, Student, Subject, TimetableEntry
 from backend.app.schemas.class_section import (
     ClassSectionCreate,
     ClassSectionResponse,
@@ -65,7 +66,7 @@ class ClassService:
         class_sec = ClassSection(
             name=class_in.name,
             department=class_in.department,
-            effective_from=class_in.effective_from or "15/06/2026",
+            effective_from=class_in.effective_from or None,
             year=class_in.year,
             semester=class_in.semester,
             section=class_in.section,
@@ -73,26 +74,24 @@ class ClassService:
             status=class_in.status.upper(),
         )
         db.add(class_sec)
+        await db.flush()
+        db.add_all([
+            ClassSubject(class_id=class_sec.id, subject_id=subject_id)
+            for subject_id in class_in.assigned_subject_ids or []
+        ])
         await db.commit()
-        await db.refresh(class_sec)
-
-        # Assign subjects if provided
-        if class_in.assigned_subject_ids:
-            for s_id in class_in.assigned_subject_ids:
-                link = ClassSubject(class_id=class_sec.id, subject_id=s_id)
-                db.add(link)
-            await db.commit()
 
         logger.info(f"Created class '{class_sec.name}' ({class_sec.id})")
-        return await cls._serialize_class(db, class_sec)
+        return await cls.get_class_by_id(db, class_sec.id)
 
     @classmethod
     async def get_class_by_id(cls, db: AsyncSession, class_id: str) -> ClassSectionResponse:
         """Retrieves a single class section by ID."""
-        cls_obj = await db.get(ClassSection, class_id)
-        if not cls_obj:
+        result = await db.execute(cls._class_summary_query().where(ClassSection.id == class_id))
+        row = result.one_or_none()
+        if row is None:
             raise ClassNotFoundError(class_id)
-        return await cls._serialize_class(db, cls_obj)
+        return cls._class_response(row)
 
     @classmethod
     async def list_classes(
@@ -104,7 +103,7 @@ class ClassService:
         teacher_id: str | None = None,
     ) -> List[ClassSectionResponse]:
         """Lists registered class sections."""
-        query = select(ClassSection)
+        query = cls._class_summary_query()
         filters = []
         if teacher_id is not None:
             filters.append(ClassSection.id.in_(assigned_classes(teacher_id)))
@@ -120,13 +119,7 @@ class ClassService:
 
         query = query.order_by(ClassSection.name.asc())
         result = await db.execute(query)
-        classes = result.scalars().all()
-
-        responses = []
-        for c in classes:
-            resp = await cls._serialize_class(db, c)
-            responses.append(resp)
-        return responses
+        return [cls._class_response(row) for row in result]
 
     @classmethod
     async def update_class(cls, db: AsyncSession, class_id: str, update_in: ClassSectionUpdate) -> ClassSectionResponse:
@@ -154,7 +147,7 @@ class ClassService:
         await db.commit()
         await db.refresh(cls_obj)
         logger.info(f"Updated class '{cls_obj.name}' (ID: {cls_obj.id})")
-        return await cls._serialize_class(db, cls_obj)
+        return await cls.get_class_by_id(db, class_id)
 
     @classmethod
     async def delete_class(cls, db: AsyncSession, class_id: str) -> bool:
@@ -168,6 +161,16 @@ class ClassService:
         logger.info(f"Deleted class '{cls_obj.name}' (ID: {class_id})")
         return True
 
+    @staticmethod
+    def _effective_date(value: str | None) -> date | None:
+        if value:
+            for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+                try:
+                    return datetime.strptime(value.strip(), fmt).date()
+                except ValueError:
+                    continue
+        return None
+
     @classmethod
     async def list_timetable_entries(
         cls,
@@ -178,19 +181,8 @@ class ClassService:
         teacher_id: str | None = None,
     ) -> List[TimetableEntryResponse]:
         """Lists timetable schedule entries for a class, day, or specific calendar date."""
-        target_day = day_of_week
-
-        # Date awareness & Effective Date Check
-        if scheduled_date:
-            # Check effective date threshold (15/06/2026 -> 2026-06-15)
-            if scheduled_date < date(2026, 6, 15):
-                logger.info(f"Requested date {scheduled_date} is prior to effective curriculum date 2026-06-15. Returning empty schedule.")
-                return []
-
-            if not target_day:
-                target_day = scheduled_date.strftime("%A")
-
-        query = select(TimetableEntry)
+        target_day = day_of_week or (scheduled_date.strftime("%A") if scheduled_date else None)
+        query = select(TimetableEntry, ClassSection).join(ClassSection, TimetableEntry.class_id == ClassSection.id)
         filters = []
         if teacher_id is not None:
             filters.append(TimetableEntry.class_id.in_(assigned_classes(teacher_id)))
@@ -204,15 +196,14 @@ class ClassService:
 
         query = query.order_by(TimetableEntry.day_of_week.asc(), TimetableEntry.start_time.asc())
         result = await db.execute(query)
-        entries = result.scalars().all()
-
         responses = []
-        for e in entries:
-            class_name = None
-            if e.class_id:
-                c = await db.get(ClassSection, e.class_id)
-                if c:
-                    class_name = c.name
+        for e, section in result.all():
+            if scheduled_date and any(
+                start and start > scheduled_date
+                for start in (cls._effective_date(section.effective_from), cls._effective_date(e.effective_from))
+            ):
+                continue
+            class_name = section.name
 
             subj_code = None
             subj_name = None
@@ -268,6 +259,33 @@ class ClassService:
             )
         return responses
 
+    @staticmethod
+    async def _validate_slot(db: AsyncSession, entry: TimetableEntry) -> None:
+        if not await db.get(ClassSection, entry.class_id):
+            raise ClassNotFoundError(entry.class_id)
+        if entry.subject_id and not await db.get(Subject, entry.subject_id):
+            raise HTTPException(422, "Choose an existing subject.")
+        if entry.batch_id:
+            batch = await db.get(Batch, entry.batch_id)
+            if not batch or batch.class_id != entry.class_id:
+                raise HTTPException(422, "Choose a lab batch in this class.")
+        times = []
+        for value in (entry.start_time, entry.end_time):
+            if not value or not re.fullmatch(r"(?:[01]?\d|2[0-3]):[0-5]\d", value):
+                raise HTTPException(422, "Enter a start and end time in 24-hour HH:MM format.")
+            times.append(value.zfill(5))
+        if times[1] <= times[0]:
+            raise HTTPException(422, "End time must be after start time.")
+        entry.start_time, entry.end_time = times
+        weekday = (entry.day_of_week or "").strip().title()
+        if weekday not in ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"):
+            raise HTTPException(422, "Choose a valid day of the week.")
+        entry.day_of_week = weekday
+        if not (entry.label or "").strip():
+            raise HTTPException(422, "Enter a timetable slot label.")
+        if entry.status not in {"ACTIVE", "INACTIVE"} or entry.entry_type not in {"SUBJECT", "ACTIVITY", "BREAK"}:
+            raise HTTPException(422, "Choose a valid slot type and status.")
+
     @classmethod
     async def create_timetable_entry(cls, db: AsyncSession, entry_in: TimetableEntryCreate) -> TimetableEntryResponse:
         """Creates a new timetable schedule slot."""
@@ -282,9 +300,10 @@ class ClassService:
             label=entry_in.label,
             batch=entry_in.batch,
             room=entry_in.room,
-            effective_from=entry_in.effective_from or "15/06/2026",
+            effective_from=entry_in.effective_from or None,
             status=entry_in.status.upper(),
         )
+        await cls._validate_slot(db, entry)
         db.add(entry)
         await db.commit()
         await db.refresh(entry)
@@ -302,11 +321,18 @@ class ClassService:
         if not entry:
             raise SAMSException(status_code=404, error_code="TIMETABLE_ENTRY_NOT_FOUND", message=f"Timetable slot '{entry_id}' not found.")
 
-        update_dict = update_in.model_dump(exclude_unset=True)
-        for field, value in update_dict.items():
-            if field in ["entry_type", "status"] and value:
-                value = value.upper()
-            setattr(entry, field, value)
+        changes = update_in.model_dump(exclude_unset=True)
+        proposed = TimetableEntry(class_id=entry.class_id, **{
+            field: changes.get(field, getattr(entry, field))
+            for field in TimetableEntryUpdate.model_fields
+        })
+        for field in ("status", "entry_type"):
+            value = getattr(proposed, field)
+            if value:
+                setattr(proposed, field, value.upper())
+        await cls._validate_slot(db, proposed)
+        for field in changes.keys() | {"start_time", "end_time", "day_of_week"}:
+            setattr(entry, field, getattr(proposed, field))
 
         await db.commit()
         await db.refresh(entry)
@@ -327,36 +353,35 @@ class ClassService:
         return True
 
     @staticmethod
-    async def _serialize_class(db: AsyncSession, class_obj: ClassSection) -> ClassSectionResponse:
-        students_q = select(func.count(Student.id)).where(Student.class_name == class_obj.name)
-        student_count = (await db.execute(students_q)).scalar_one()
-
-        # Fetch assigned subjects count & total credits
-        subjects_q = (
-            select(Subject)
-            .join(ClassSubject, ClassSubject.subject_id == Subject.id)
-            .where(ClassSubject.class_id == class_obj.id)
+    def _roster_filter(class_obj):
+        return and_(
+            Student.class_name == class_obj.name,
+            Student.department == class_obj.department,
+            Student.section == class_obj.section,
+            Student.status == "ACTIVE",
         )
-        assigned_subjects = (await db.execute(subjects_q)).scalars().all()
-        subject_count = len(assigned_subjects)
-        total_credits = sum(s.credits for s in assigned_subjects)
 
-        return ClassSectionResponse(
-            id=class_obj.id,
-            name=class_obj.name,
-            department=class_obj.department,
-            effective_from=class_obj.effective_from or "15/06/2026",
-            year=class_obj.year,
-            semester=class_obj.semester,
-            section=class_obj.section,
-            academic_year=class_obj.academic_year,
-            status=class_obj.status,
-            student_count=student_count,
-            subject_count=subject_count,
-            total_curriculum_credits=total_credits,
-            created_at=class_obj.created_at,
-            updated_at=class_obj.updated_at,
-        )
+    @classmethod
+    def _class_summary_query(cls):
+        student_count = select(func.count(Student.id)).where(
+            cls._roster_filter(ClassSection)
+        ).correlate(ClassSection).scalar_subquery()
+        curriculum = select(
+            ClassSubject.class_id,
+            func.count(Subject.id).label("subjects"),
+            func.sum(Subject.credits).label("credits"),
+        ).join(Subject, Subject.id == ClassSubject.subject_id).group_by(ClassSubject.class_id).subquery()
+        return select(
+            ClassSection, student_count, func.coalesce(curriculum.c.subjects, 0),
+            func.coalesce(curriculum.c.credits, 0),
+        ).outerjoin(curriculum, curriculum.c.class_id == ClassSection.id)
+
+    @staticmethod
+    def _class_response(row):
+        section, students, subjects, credits = row
+        return ClassSectionResponse.model_validate(section).model_copy(update={
+            "student_count": students, "subject_count": subjects, "total_curriculum_credits": credits,
+        })
 
     @classmethod
     async def get_eligible_students(cls, db: AsyncSession, class_id: str) -> List[Student]:
@@ -365,7 +390,7 @@ class ClassService:
         if not class_obj:
             return []
         
-        query = select(Student).where(Student.class_name == class_obj.name)
+        query = select(Student).where(cls._roster_filter(class_obj))
         result = await db.execute(query)
         return list(result.scalars().all())
 

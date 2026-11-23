@@ -53,7 +53,7 @@ Replace the example identity and hostname. Check the returned JSON for overall `
 
 ### Existing databases and the historical migration chain
 
-The current empty-database bootstrap builds the model schema, stamps the reviewed baseline and rejects a database that already contains tables or views. Run it before starting the application on an empty database. Use revision `20261124_semester_results` as the expected baseline for this release.
+The current empty-database bootstrap builds the model schema, stamps the reviewed baseline and rejects a database that already contains tables or views. Run it before starting the application on an empty database. Use revision `20261125_submissions` as the expected baseline for this release.
 
 The historical revision chain is blocked as a clean install path. It has references to missing `subjects`, `timetable_entries` and `batches` relations, and revision `39ffa3306d5f` uses a constraint ALTER unsupported by SQLite. A running server and an Alembic revision alone do not establish schema parity. For an existing installation, inventory the revision and actual schema on a restored copy and compare constraints, columns, indexes and data with the clean baseline. Approve and rehearse the required migrations or a controlled import before upgrading. Keep production untouched while that path is unresolved. A SQLite-to-PostgreSQL conversion requires a separate data import and reconciliation rehearsal.
 
@@ -109,7 +109,8 @@ If the network drops or a response is lost, reopen the session after reconnectin
 
 ### Student workspace
 
+- **My Timetable** shows the recurring weekly schedule for the linked class and assigned lab batch. Students without a batch see whole-class entries. Administrators can assign a batch when editing the student in **Students**.
 - **Classmates** lists other active students in the same department, class and section, using official roster names when available. Students can search by name.
-- **Classroom** shows announcements, materials and assignments with optional due dates. Faculty can publish to their assigned classes. HODs can publish within their department. To connect an imported roster, an administrator opens **Courses & Rooms → Classes & Sections → Add Class Section** and matches the roster's class name, department and section. Posts may link to an existing Google Classroom item. The stream is maintained in SAMS.
+- **Classroom** shows announcements, materials and assignments with optional due dates. Faculty can publish to their assigned classes. HODs can publish within their department. To connect an imported roster, an administrator opens **Courses & Rooms → Classes & Sections → Add Class Section** and matches the roster's class name, department and section. Posts may link to an existing Google Classroom item. Students can enter one final text answer per assignment and see their submission time. Staff open **Review submissions** on the assignment to read answers. The stream is maintained in SAMS.
 - **Semester marksheets** groups published subject marks by academic year and semester. Staff select a student, then a subject from the relevant academic year and semester, enter the earned and maximum marks, and publish. Changes are recorded in the audit log. Students see only their own results.
 - In **My Attendance**, a completed face registration collapses to a status row. Choose **Check face match** to start a live camera check or upload a JPEG or PNG under 2 MB. A check compares the supplied face with the student's own saved poses and leaves attendance unchanged.

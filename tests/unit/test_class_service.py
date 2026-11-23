@@ -1,7 +1,10 @@
+from datetime import date
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.schemas.class_section import ClassSectionCreate, ClassSectionUpdate
+from backend.app.schemas.timetable import TimetableEntryCreate
 from backend.app.services.class_service import (
     ClassAlreadyExistsError,
     ClassNotFoundError,
@@ -23,6 +26,7 @@ async def test_class_crud_lifecycle(test_db_session: AsyncSession):
     cls_sec = await ClassService.create_class(test_db_session, cls_in)
     assert cls_sec.name == "CSE-4A"
     assert cls_sec.status == "ACTIVE"
+    assert cls_sec.effective_from is None
     cls_id = cls_sec.id
 
     # 2. Get Class by ID
@@ -76,3 +80,21 @@ async def test_duplicate_class_rejection(test_db_session: AsyncSession):
             ),
         )
 
+
+@pytest.mark.asyncio
+async def test_timetable_uses_class_and_slot_effective_dates(test_db_session):
+    for name, class_start, slot_start in [
+        ("EARLY", "2025-01-01", "10/02/2025"),
+        ("LATER-CLASS", "17/02/2025", None),
+        ("LATER-SLOT", None, "2025-02-17"),
+        ("NO-DATE", None, None),
+    ]:
+        section = await ClassService.create_class(test_db_session, ClassSectionCreate(name=name, effective_from=class_start))
+        await ClassService.create_timetable_entry(test_db_session, TimetableEntryCreate(
+            class_id=section.id, day_of_week="Monday", start_time="09:00", end_time="10:00",
+            label=name, effective_from=slot_start,
+        ))
+    early = await ClassService.list_timetable_entries(test_db_session, scheduled_date=date(2025, 2, 10))
+    assert {row.label for row in early} == {"EARLY", "NO-DATE"}
+    later = await ClassService.list_timetable_entries(test_db_session, scheduled_date=date(2025, 2, 17))
+    assert len(later) == 4
