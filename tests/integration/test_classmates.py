@@ -58,6 +58,19 @@ async def test_classmates_directory_and_private_chat(staff_client, test_db_sessi
     outsider_read = await staff_client.get(conversation, headers=outside_headers)
     assert outsider_read.status_code == 404
     assert (await staff_client.post(f"{portal}/{outsider.id}/messages", headers=headers, json={"body": "Hi"})).status_code == 404
+    assert (await staff_client.get(f"{portal}/inbox", headers=friend_headers)).json()[0]["peer_id"] == own.id
+    upload = await staff_client.post(f"{portal}/{friend.id}/attachments", headers=headers,
+                                     files={"file": ("notes.txt", b"Class notes", "text/plain")})
+    assert upload.status_code == 201, upload.text
+    file_id = upload.json()["id"]
+    assert upload.json()["filename"] == "notes.txt"
+    assert (await staff_client.get(f"{portal}/inbox", headers=friend_headers)).json()[0]["filename"] == "notes.txt"
+    inbound = await staff_client.get(f"{portal}/{own.id}/attachments/{file_id}", headers=friend_headers)
+    assert inbound.content == b"Class notes"
+    assert inbound.headers["content-disposition"].startswith("attachment;")
+    assert inbound.headers["x-content-type-options"] == "nosniff"
+    assert (await staff_client.get(f"{portal}/{own.id}/attachments/{file_id}", headers=outside_headers)).status_code == 404
+    assert (await staff_client.get(f"{portal}/{own.id}/messages", headers=friend_headers)).json()[-1]["filename"] == "notes.txt"
     own.status = "INACTIVE"
     await db.commit()
     assert (await staff_client.get(portal, headers=headers)).status_code == 403

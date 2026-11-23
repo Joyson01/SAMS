@@ -13,6 +13,7 @@ interface DashboardLayoutProps {
   onRefreshHealth: () => void;
   isRefreshing: boolean;
   activeTab: string;
+  openChat?: (peer: string) => void;
   setActiveTab: (tab: string) => void;
 }
 
@@ -23,6 +24,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   onLogout,
   activeTab,
   setActiveTab,
+  openChat,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
@@ -52,6 +54,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
           userName={userName}
           role={role}
           activeTab={activeTab}
+          openChat={openChat}
           onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
         />
         <main

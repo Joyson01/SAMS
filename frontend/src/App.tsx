@@ -37,6 +37,7 @@ const Workspace: React.FC = () => {
   const authBypass = import.meta.env.VITE_AUTH_BYPASS === 'true';
 
   const [activeTab, setActiveTab] = useState<string>(pathname === '/anonymous-detection' ? 'anonymous-detection' : pathname === '/recognition-test' ? 'recognition-test' : pathname === '/mobile-enrollment' ? 'enrollment' : 'dashboard');
+  const [chatSelection, setChatSelection] = useState<{ peerId: string }>();
   const [enrollingStudentId, setEnrollingStudentId] = useState<string | undefined>(new URLSearchParams(location.search).get("student_id") || undefined);
   const [healthData, setHealthData] = useState<ServiceHealthResponse | null>(null);
   const [healthStatus, setHealthStatus] = useState<'healthy' | 'degraded' | 'unhealthy' | 'loading'>('loading');
@@ -125,12 +126,13 @@ const Workspace: React.FC = () => {
         onRefreshHealth={loadHealth}
         isRefreshing={isRefreshing}
         activeTab={currentTab}
+        openChat={peerId => { setChatSelection({ peerId }); setActiveTab("classmates"); }}
         setActiveTab={setActiveTab}
       >
         <ErrorBoundary key={activeTab} fallbackTitle={`Error in ${activeTab.toUpperCase()}`}>
           {currentTab === 'my-attendance' && role === 'STUDENT' && <MyAttendancePage onNavigate={setActiveTab} />}
           {currentTab === 'my-timetable' && role === 'STUDENT' && <StudentTimetable />}
-          {currentTab === 'classmates' && role === 'STUDENT' && <Classmates />}
+          {currentTab === 'classmates' && role === 'STUDENT' && <Classmates selection={chatSelection} onSelectionHandled={() => setChatSelection(undefined)} />}
           {academicTab && currentTab === 'classroom' && <ClassroomBoard />}
           {academicTab && currentTab === 'semester-results' && <SemesterResults studentView={role === 'STUDENT'} />}
           {currentTab === 'department' && role === 'HOD' && <DepartmentPage />}

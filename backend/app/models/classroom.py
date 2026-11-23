@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.database.base import Base
@@ -38,3 +38,11 @@ class ClassmateMessage(Base):
     recipient_id: Mapped[str] = mapped_column(GUID, ForeignKey("students.id", ondelete="CASCADE"), index=True)
     body: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ClassmateAttachment(Base):
+    __tablename__ = "classmate_attachments"
+
+    message_id: Mapped[str] = mapped_column(GUID, ForeignKey("classmate_messages.id", ondelete="CASCADE"), primary_key=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    content: Mapped[bytes] = mapped_column(LargeBinary)

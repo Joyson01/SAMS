@@ -53,7 +53,7 @@ Replace the example identity and hostname. Check the returned JSON for overall `
 
 ### Existing databases and the historical migration chain
 
-The current empty-database bootstrap builds the model schema, stamps the reviewed baseline and rejects a database that already contains tables or views. Run it before starting the application on an empty database. Use revision `20261125_classmate_chat` as the expected baseline for this release.
+The current empty-database bootstrap builds the model schema, stamps the reviewed baseline and rejects a database that already contains tables or views. Run it before starting the application on an empty database. Use revision `20261126_chat_files` as the expected baseline for this release.
 
 The historical revision chain is blocked as a clean install path. It has references to missing `subjects`, `timetable_entries` and `batches` relations, and revision `39ffa3306d5f` uses a constraint ALTER unsupported by SQLite. A running server and an Alembic revision alone do not establish schema parity. For an existing installation, inventory the revision and actual schema on a restored copy and compare constraints, columns, indexes and data with the clean baseline. Approve and rehearse the required migrations or a controlled import before upgrading. Keep production untouched while that path is unresolved. A SQLite-to-PostgreSQL conversion requires a separate data import and reconciliation rehearsal.
 

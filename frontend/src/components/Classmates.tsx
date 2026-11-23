@@ -5,7 +5,7 @@ import { Button } from './ui';
 
 type Peer = { id: string; roll_number: string; first_name: string; last_name: string; can_chat: boolean };
 type Directory = { department: string; class_name: string; section: string; students: Peer[] };
-type Message = { id: string; body: string; mine: boolean; created_at: string };
+type Message = { id: string; body: string; mine: boolean; created_at: string; filename?: string };
 const name = (peer: Peer) => peer.first_name + ' ' + peer.last_name;
 
 function Chat({ peer, close }: { peer: Peer; close: () => void }) {
@@ -14,7 +14,8 @@ function Chat({ peer, close }: { peer: Peer; close: () => void }) {
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const [revision, refresh] = useState(0);
-  const path = '/student-portal/classmates/' + peer.id + '/messages';
+  const conversation = '/student-portal/classmates/' + peer.id;
+  const path = conversation + '/messages';
 
   useEffect(() => {
     const controller = new AbortController();
@@ -48,6 +49,39 @@ function Chat({ peer, close }: { peer: Peer; close: () => void }) {
     }
   }
 
+  async function attach(file: File) {
+    if (file.size === 0 || file.size > 10 * 1024 * 1024) {
+      setError('Choose a nonempty file up to 10 MB.');
+      return;
+    }
+    setSending(true);
+    setError('');
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      await apiClient.post(conversation + '/attachments', form);
+      refresh(value => value + 1);
+    } catch (reason) {
+      setError(formatApiErrorMessage(reason, 'Could not send the file.'));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function download(message: Message) {
+    try {
+      const { data } = await apiClient.get<Blob>(conversation + '/attachments/' + message.id, { responseType: 'blob' });
+      const url = URL.createObjectURL(data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = message.filename || 'attachment';
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (reason) {
+      setError(formatApiErrorMessage(reason, 'Could not download the file.'));
+    }
+  }
+
   return <section className="space-y-3 rounded-xl border border-border bg-surface p-4" aria-label="Private conversation">
     <div className="flex items-center justify-between gap-3">
       <h2 className="font-semibold">Chat with {name(peer)}</h2>
@@ -58,18 +92,29 @@ function Chat({ peer, close }: { peer: Peer; close: () => void }) {
       {!messages ? !error && <p>Loading messages…</p> : !messages.length && <p>No messages yet.</p>}
       {messages?.map(message => <article key={message.id} className="rounded-lg bg-surface-muted p-2">
         <p className="text-xs text-text-muted">{message.mine ? 'You' : name(peer)} · {new Date(message.created_at).toLocaleString()}</p>
-        <p className="whitespace-pre-wrap break-words">{message.body}</p>
+        {message.filename ? <Button variant="secondary" className="max-w-full break-all" onClick={() => void download(message)}>
+          Download {message.filename}
+        </Button> : <p className="whitespace-pre-wrap break-words">{message.body}</p>}
       </article>)}
     </div>
     <form onSubmit={send} className="space-y-2">
       <label className="block">Message<textarea className="mt-1 block w-full rounded border border-border bg-surface p-2"
         required maxLength={2000} value={draft} disabled={sending} onChange={event => setDraft(event.target.value)} /></label>
+      <label className="block text-sm">Send a file (up to 10 MB)
+        <input className="block w-full" type="file" disabled={sending} onChange={event => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = '';
+          if (file) void attach(file);
+        }} />
+      </label>
       <Button type="submit" disabled={sending || !draft.trim()}>Send message</Button>
     </form>
   </section>;
 }
 
-export function Classmates() {
+export function Classmates({ selection, onSelectionHandled }: {
+  selection?: { peerId: string }; onSelectionHandled?: () => void;
+}) {
   const [directory, setDirectory] = useState<Directory | null>(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -86,6 +131,12 @@ export function Classmates() {
       });
     return () => controller.abort();
   }, [attempt]);
+
+  useEffect(() => {
+    if (!selection || !directory) return;
+    setPeer(directory.students.find(student => student.id === selection.peerId && student.can_chat));
+    onSelectionHandled?.();
+  }, [selection, directory, onSelectionHandled]);
 
   const students = directory?.students.filter(student =>
     (student.roll_number + ' ' + name(student)).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) || [];
