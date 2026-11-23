@@ -57,7 +57,7 @@ export const ReportsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-text tracking-tight">Reports & Analytics</h1>
           <p className="text-sm text-text-muted mt-0.5">
-            Institutional attendance records, batch breakdowns, and data exports.
+            Attendance records, class breakdowns, and data exports.
           </p>
         </div>
 

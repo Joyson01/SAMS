@@ -7,7 +7,7 @@ export const Sidebar: React.FC<SidebarProps> = ({role = 'STUDENT', userName = ''
  const [collapsed, setCollapsed] = useState(false); const [signOut, setSignOut] = useState(false);
  const mobileRef = useDialog(mobileOpen, () => onCloseMobile?.());
  const groups = role === 'STUDENT' ? [{label: 'Overview', items: [{id:'my-attendance', label:'My Attendance', icon:CheckSquare}]}] : role === 'HOD' ? [{label:'Overview',items:[{id:'department',label:'Department',icon:LayoutDashboard}]}] : [
- {label:'Overview',items:[{id:'dashboard',label:'Dashboard',icon:LayoutDashboard}]},
+ ...(role === 'FACULTY' ? [] : [{label:'Overview',items:[{id:'dashboard',label:'Dashboard',icon:LayoutDashboard}]}]),
  {label:'Attendance',items:[{id:'live',label:'Live Attendance',icon:CheckSquare},{id:'attendance',label:'Attendance Sessions',icon:Calendar},{id:'media',label:'Photo Attendance',icon:ImageIcon}]},
  {label:'People',items:[{id:'students',label:'Students',icon:Users}]},
  {label:'Academics',items:[{id:'timetable',label:'Timetable',icon:Calendar},{id:'subjects',label:'Courses & Rooms',icon:BookOpen}]},

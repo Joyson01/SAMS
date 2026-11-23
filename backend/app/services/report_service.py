@@ -7,13 +7,21 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.app.models.entities import AttendanceRecord, AttendanceSession, Student
+from backend.app.core.teacher_access import assigned_classes
+from backend.app.models.entities import AttendanceRecord, AttendanceSession, ClassSection, Student
 from backend.app.schemas.reports import (
     ClassAttendanceSummary,
     DailyAttendanceTrend,
     DefaulterStudentSummary,
     InstitutionAnalyticsResponse,
 )
+
+
+def spreadsheet_cell(value: str) -> str:
+    """Keep user-entered strings literal when a spreadsheet opens the CSV."""
+    if value.startswith(("\t", "\r", "\n")) or value.lstrip().startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
 
 
 class ReportService:
@@ -27,6 +35,7 @@ class ReportService:
         end_date: Optional[date] = None,
         department: Optional[str] = None,
         class_name: Optional[str] = None,
+        teacher_id: str | None = None,
     ) -> InstitutionAnalyticsResponse:
         """Computes comprehensive analytics across sessions, classes, and individual student histories."""
         if not end_date:
@@ -36,6 +45,10 @@ class ReportService:
 
         # 1. Query Total Enrolled Active Students
         student_query = select(Student).where(Student.status == "ACTIVE")
+        if teacher_id is not None:
+            student_query = student_query.where(Student.class_name.in_(
+                select(ClassSection.name).where(ClassSection.id.in_(assigned_classes(teacher_id)))
+            ))
         if department:
             student_query = student_query.where(Student.department == department)
         if class_name:
@@ -52,6 +65,12 @@ class ReportService:
                 AttendanceSession.scheduled_date <= end_date,
             )
         )
+        if teacher_id is not None:
+            session_query = session_query.where(AttendanceSession.class_id.in_(assigned_classes(teacher_id)))
+        if department:
+            session_query = session_query.where(AttendanceSession.class_id.in_(
+                select(ClassSection.id).where(ClassSection.department == department)
+            ))
         if class_name:
             session_query = session_query.where(AttendanceSession.class_name == class_name)
 
@@ -72,6 +91,8 @@ class ReportService:
             )
             .options(selectinload(AttendanceRecord.session), selectinload(AttendanceRecord.student))
         )
+        if teacher_id is not None:
+            records_query = records_query.where(AttendanceSession.class_id.in_(assigned_classes(teacher_id)))
         if department:
             records_query = records_query.where(Student.department == department)
         if class_name:
@@ -245,6 +266,7 @@ class ReportService:
         class_name: Optional[str] = None,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        teacher_id: str | None = None,
     ) -> str:
         """Generates an RFC-4180 compliant CSV string containing detailed attendance logs."""
         query = (
@@ -254,6 +276,8 @@ class ReportService:
             .options(selectinload(AttendanceRecord.session), selectinload(AttendanceRecord.student))
         )
         filters = []
+        if teacher_id is not None:
+            filters.append(AttendanceSession.class_id.in_(assigned_classes(teacher_id)))
         if session_id:
             filters.append(AttendanceRecord.session_id == session_id)
         if class_name:
@@ -296,25 +320,24 @@ class ReportService:
         for r in records:
             st = r.student
             sess = r.session
-            writer.writerow(
-                [
-                    r.id,
-                    sess.session_code if sess else "N/A",
-                    sess.subject if sess else "N/A",
-                    sess.class_name if sess else "N/A",
-                    sess.room if sess else "N/A",
-                    sess.scheduled_date.isoformat() if sess else "N/A",
-                    st.student_code if st else "N/A",
-                    st.roll_number if st else "N/A",
-                    f"{st.first_name} {st.last_name}" if st else "N/A",
-                    st.department if st else "N/A",
-                    r.status,
-                    f"{r.confidence * 100:.1f}" if r.confidence > 0 else "0.0",
-                    r.first_seen.strftime("%H:%M:%S") if r.first_seen else "N/A",
-                    r.last_seen.strftime("%H:%M:%S") if r.last_seen else "N/A",
-                    r.remarks or "",
-                ]
-            )
+            row = [
+                r.id,
+                sess.session_code if sess else "N/A",
+                sess.subject if sess else "N/A",
+                sess.class_name if sess else "N/A",
+                sess.room if sess else "N/A",
+                sess.scheduled_date.isoformat() if sess else "N/A",
+                st.student_code if st else "N/A",
+                st.roll_number if st else "N/A",
+                f"{st.first_name} {st.last_name}" if st else "N/A",
+                st.department if st else "N/A",
+                r.status,
+                f"{r.confidence * 100:.1f}" if r.confidence > 0 else "0.0",
+                r.first_seen.strftime("%H:%M:%S") if r.first_seen else "N/A",
+                r.last_seen.strftime("%H:%M:%S") if r.last_seen else "N/A",
+                r.remarks or "",
+            ]
+            writer.writerow(spreadsheet_cell(value) for value in row)
 
         return output.getvalue()
 

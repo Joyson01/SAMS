@@ -113,7 +113,7 @@ const Workspace: React.FC = () => {
         healthStatus={healthStatus}
         onRefreshHealth={loadHealth}
         isRefreshing={isRefreshing}
-        activeTab={role === 'STUDENT' ? 'my-attendance' : role === 'HOD' ? 'department' : activeTab}
+        activeTab={role === 'STUDENT' ? 'my-attendance' : role === 'HOD' ? 'department' : role === 'FACULTY' && activeTab === 'dashboard' ? 'attendance' : activeTab}
         setActiveTab={setActiveTab}
       >
         <ErrorBoundary key={activeTab} fallbackTitle={`Error in ${activeTab.toUpperCase()}`}>
@@ -123,7 +123,7 @@ const Workspace: React.FC = () => {
           {activeTab === 'recognition-test' && ['ADMIN','FACULTY'].includes(role) && <RecognitionTestPage />}
           {activeTab === 'anonymous-detection' && ['ADMIN','FACULTY'].includes(role) && <AnonymousDetectionPage />}
           {activeTab === 'users' && role === 'ADMIN' && <UsersPage />}
-          {activeTab === 'dashboard' && <DashboardOverview onNavigate={handleNavigate} />}
+          {activeTab === 'dashboard' && role !== 'FACULTY' && <DashboardOverview onNavigate={handleNavigate} />}
           {activeTab === 'students' && <StudentListPage onNavigate={handleNavigate} />}
           {activeTab === 'subjects' && <><SubjectManagementPage onNavigate={handleNavigate} /><AcademicTools /></>}
           {activeTab === 'timetable' && <><TimetablePage onNavigate={handleNavigate} /><TimetableEditor /></>}
@@ -136,7 +136,7 @@ const Workspace: React.FC = () => {
           )}
           {activeTab === 'live' && <LaptopAttendancePage />}
           {activeTab === 'media' && <MediaAttendancePage onNavigate={handleNavigate} />}
-          {activeTab === 'attendance' && <AttendancePage />}
+          {(activeTab === 'attendance' || (activeTab === 'dashboard' && role === 'FACULTY')) && <AttendancePage />}
           {activeTab === 'audit' && <AuditLogsPage />}
           {activeTab === 'reports' && <ReportsPage />}
           {activeTab === 'settings' && role === 'ADMIN' && <SettingsPage />}

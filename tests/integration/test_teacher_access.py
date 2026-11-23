@@ -17,6 +17,19 @@ async def test_teacher_can_work_only_in_assigned_sessions(staff_client):
         assert created.status_code == 201, created.text
         sessions[class_name] = created.json()["id"]
 
+        student = await client.post("/api/v1/students", json={
+            "student_code": f"{class_name}-1", "roll_number": f"{class_name}-1",
+            "first_name": class_name, "last_name": "Student",
+            "email": f"{class_name.lower()}-student@example.com",
+            "department": "CS", "class_name": class_name,
+        })
+        assert student.status_code == 201, student.text
+        marked = await client.post("/api/v1/attendance/manual", params={
+            "session_id": sessions[class_name], "student_id": student.json()["id"],
+            "remarks": "=1+1",
+        })
+        assert marked.status_code == 200, marked.text
+
     account = await client.post("/api/v1/auth/users", json={
         "username": "scope_teacher", "email": "scope@example.com", "full_name": "Scope Teacher",
         "role": "FACULTY", "password": "TeacherPass123",
@@ -57,3 +70,19 @@ async def test_teacher_can_work_only_in_assigned_sessions(staff_client):
         "start_time": "11:00", "end_time": "12:00",
     })
     assert denied_create.status_code == 403
+
+    report = await client.get("/api/v1/reports/analytics")
+    assert report.status_code == 200, report.text
+    report_data = report.json()
+    assert report_data["total_students_enrolled"] == 1
+    assert report_data["total_sessions_conducted"] == 1
+    assert [row["class_name"] for row in report_data["class_breakdowns"]] == ["CS-A"]
+
+    csv_report = await client.get("/api/v1/reports/export/csv")
+    assert csv_report.status_code == 200, csv_report.text
+    assert "CS-A-1" in csv_report.text and "CS-B-1" not in csv_report.text
+    assert "'=1+1" in csv_report.text
+    assert (await client.get("/api/v1/reports/export/csv", params={
+        "session_id": sessions["CS-B"],
+    })).status_code == 403
+    assert (await client.get("/api/v1/dashboard/summary")).status_code == 403

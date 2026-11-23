@@ -10,7 +10,7 @@ The repository is named **SAMS**. Use the **`joyson` branch** for the current ap
 - **Student portal:** personal details, subject and date filters, an attendance target calculator, correction requests, face enrollment, and a face-match check.
 - **Attendance sessions:** scheduling, session records, roster review and manual attendance. Assign classes to Faculty accounts under **Users → Manage → Assigned classes**. Faculty can work with sessions linked to one of their assigned classes. An administrator can handle older sessions without a linked class.
 - **Students and academics:** student directory, classes, subjects, batches and timetable management.
-- **Reports:** attendance analytics and CSV exports.
+- **Reports:** attendance analytics and CSV exports. Faculty reports and exports cover assigned classes. Faculty sign-in opens Attendance Sessions.
 - **Anonymous detection:** upload a photo to locate visible faces without matching identities or recording attendance.
 - **Interface:** light and dark themes, compact desktop navigation, responsive tables, keyboard focus states and mobile navigation.
 
