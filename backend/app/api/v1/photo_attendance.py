@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.security import get_current_user
-from backend.app.core.teacher_access import require_session_access
+from backend.app.core.teacher_access import require_class_access, require_session_access
 from backend.app.database.session import get_db
 from backend.app.models.entities import User
 from backend.app.services.attendance_service import AttendanceService
@@ -96,6 +96,9 @@ async def batches(
     from backend.app.models.entities import Batch, ClassSection
 
     staff(user)
+    if user.role == "FACULTY":
+        class_id = await db.scalar(select(ClassSection.id).where(ClassSection.name == class_name))
+        await require_class_access(db, user, class_id)
     rows = (
         await db.scalars(
             select(Batch)

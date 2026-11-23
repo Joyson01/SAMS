@@ -26,6 +26,7 @@ import { SessionCreatePayload } from '../../types/attendance';
 import { formatApiErrorMessage } from '../../utils/apiError';
 
 interface TimetablePageProps {
+  canEdit?: boolean;
   onNavigate?: (tab: string, extra?: string) => void;
 }
 
@@ -42,7 +43,7 @@ const TIME_PERIODS = [
 
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
-export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
+export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate, canEdit = false }) => {
   const { notify, feedback } = useDialogFeedback();
   const [loadError, setLoadError] = useState('');
   // State
@@ -350,13 +351,13 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
                     >
                       + Session
                     </button>
-                    <button
+                    {canEdit && <button
                       onClick={() => handleOpenEditSlot(entry)}
                       className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text transition"
                       title="Edit slot"
                     >
                       <Edit2 className="w-3 h-3" />
-                    </button>
+                    </button>}
                   </div>
                 </div>
               </div>
@@ -387,13 +388,13 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
 
           <div className="flex items-center justify-between pt-1 border-t border-border/60 text-[10px] text-text-muted">
             <span>No Attendance</span>
-            <button
+            {canEdit && <button
               onClick={() => handleOpenEditSlot(entry)}
               className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text transition"
               title="Edit Activity"
             >
               <Edit2 className="w-3 h-3" />
-            </button>
+            </button>}
           </div>
         </div>
       );
@@ -434,13 +435,13 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
             <Plus className="w-3 h-3" />
             <span>Create Session</span>
           </button>
-          <button
+          {canEdit && <button
             onClick={() => handleOpenEditSlot(entry)}
             className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text transition"
             title="Edit Slot / Map Course"
           >
             <Edit2 className="w-3 h-3" />
-          </button>
+          </button>}
         </div>
       </div>
     );
@@ -759,7 +760,7 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
       {/* ========================================================================= */}
       {/* MODAL: EDIT / MAP TIMETABLE ENTRY */}
       {/* ========================================================================= */}
-      {editingEntry && (
+      {canEdit && editingEntry && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-surface rounded-3xl max-w-md w-full p-6 shadow-2xl border border-border space-y-4">
             <div className="flex items-center justify-between border-b border-border pb-3">

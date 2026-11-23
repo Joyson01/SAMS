@@ -5,6 +5,7 @@ from backend.app.core.security import require_roles, get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.exceptions import SAMSException
+from backend.app.core.teacher_access import require_class_access
 from backend.app.database.session import get_db
 from backend.app.models.entities import User
 from backend.app.schemas.class_section import (
@@ -24,6 +25,7 @@ router = APIRouter(prefix="/classes", tags=["Classes & Sections"], dependencies=
 
 @router.post(
     "",
+    dependencies=[Depends(require_roles("ADMIN"))],
     response_model=ClassSectionResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create Class Section",
@@ -68,17 +70,22 @@ async def list_all_timetable_entries(
     day_of_week: Optional[str] = Query(None),
     scheduled_date: Optional[date] = Query(None, description="Calendar date for day-of-week and conflict detection"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> List[TimetableEntryResponse]:
+    if class_id is not None:
+        await require_class_access(db, user, class_id)
     return await ClassService.list_timetable_entries(
         db=db,
         class_id=class_id,
         day_of_week=day_of_week,
         scheduled_date=scheduled_date,
+        teacher_id=user.id if user.role == "FACULTY" else None,
     )
 
 
 @router.put(
     "/timetable/entries/{entry_id}",
+    dependencies=[Depends(require_roles("ADMIN"))],
     response_model=TimetableEntryResponse,
     summary="Update Timetable Slot / Map Subject",
 )
@@ -92,6 +99,7 @@ async def update_timetable_entry(
 
 @router.delete(
     "/timetable/entries/{entry_id}",
+    dependencies=[Depends(require_roles("ADMIN"))],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete Timetable Slot",
 )
@@ -112,8 +120,11 @@ async def delete_timetable_entry(
 async def get_current_timetable_entry(
     room: Optional[str] = Query(None, description="Optional room context to filter"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> Optional[TimetableEntryResponse]:
-    entry = await ClassService.resolve_current_timetable_entry(db, room=room)
+    entry = await ClassService.resolve_current_timetable_entry(
+        db, room=room, teacher_id=user.id if user.role == "FACULTY" else None,
+    )
     if not entry:
         raise SAMSException(status_code=404, error_code="NO_ACTIVE_CLASS", message="No active class found for the current time.")
     return entry
@@ -127,7 +138,9 @@ async def get_current_timetable_entry(
 async def get_class(
     class_id: str,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ClassSectionResponse:
+    await require_class_access(db, user, class_id)
     return await ClassService.get_class_by_id(db, class_id)
 
 
@@ -141,17 +154,21 @@ async def get_class_timetable(
     day_of_week: Optional[str] = Query(None),
     scheduled_date: Optional[date] = Query(None, description="Calendar date for day-of-week and conflict detection"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> List[TimetableEntryResponse]:
+    await require_class_access(db, user, class_id)
     return await ClassService.list_timetable_entries(
         db=db,
         class_id=class_id,
         day_of_week=day_of_week,
         scheduled_date=scheduled_date,
+        teacher_id=user.id if user.role == "FACULTY" else None,
     )
 
 
 @router.post(
     "/{class_id}/timetable",
+    dependencies=[Depends(require_roles("ADMIN"))],
     response_model=TimetableEntryResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Add Timetable Slot",
@@ -167,6 +184,7 @@ async def add_timetable_entry(
 
 @router.put(
     "/{class_id}",
+    dependencies=[Depends(require_roles("ADMIN"))],
     response_model=ClassSectionResponse,
     summary="Update Class",
 )
@@ -180,6 +198,7 @@ async def update_class(
 
 @router.delete(
     "/{class_id}",
+    dependencies=[Depends(require_roles("ADMIN"))],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete Class",
 )
@@ -202,11 +221,16 @@ class BatchInput(BaseModel):
     description: str | None = Field(None, max_length=128)
 
 @router.get('/{class_id}/batches')
-async def list_batches(class_id: str, db: AsyncSession = Depends(get_db)):
+async def list_batches(
+    class_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await require_class_access(db, user, class_id)
     await ClassService.get_class_by_id(db,class_id)
     return (await db.scalars(select(Batch).where(Batch.class_id == class_id).order_by(Batch.name))).all()
 
-@router.post('/{class_id}/batches', status_code=201)
+@router.post('/{class_id}/batches', status_code=201, dependencies=[Depends(require_roles('ADMIN'))])
 async def create_batch(class_id: str, payload: BatchInput, db: AsyncSession = Depends(get_db)):
     await ClassService.get_class_by_id(db,class_id)
     row=Batch(class_id=class_id,name=payload.name.strip(),description=payload.description)
@@ -219,7 +243,7 @@ async def create_batch(class_id: str, payload: BatchInput, db: AsyncSession = De
     await db.refresh(row)
     return row
 
-@router.put('/{class_id}/batches/{batch_id}')
+@router.put('/{class_id}/batches/{batch_id}', dependencies=[Depends(require_roles('ADMIN'))])
 async def update_batch(class_id: str, batch_id: str, payload: BatchInput, db: AsyncSession = Depends(get_db)):
     row=await db.get(Batch,batch_id)
     if not row or row.class_id != class_id:
@@ -234,7 +258,7 @@ async def update_batch(class_id: str, batch_id: str, payload: BatchInput, db: As
     await db.refresh(row)
     return row
 
-@router.delete('/{class_id}/batches/{batch_id}', status_code=204)
+@router.delete('/{class_id}/batches/{batch_id}', status_code=204, dependencies=[Depends(require_roles('ADMIN'))])
 async def delete_batch(class_id: str, batch_id: str, db: AsyncSession = Depends(get_db)):
     row=await db.get(Batch,batch_id)
     if not row or row.class_id != class_id:
@@ -245,5 +269,10 @@ async def delete_batch(class_id: str, batch_id: str, db: AsyncSession = Depends(
     await db.commit()
 
 @router.get('/{class_id}/subjects')
-async def class_subjects(class_id: str, db: AsyncSession = Depends(get_db)):
+async def class_subjects(
+    class_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await require_class_access(db, user, class_id)
     return (await db.scalars(select(Subject).join(ClassSubject).where(ClassSubject.class_id==class_id))).all()

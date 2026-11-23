@@ -125,8 +125,8 @@ const Workspace: React.FC = () => {
           {activeTab === 'users' && role === 'ADMIN' && <UsersPage />}
           {activeTab === 'dashboard' && role !== 'FACULTY' && <DashboardOverview onNavigate={handleNavigate} />}
           {activeTab === 'students' && <StudentListPage onNavigate={handleNavigate} />}
-          {activeTab === 'subjects' && <><SubjectManagementPage onNavigate={handleNavigate} /><AcademicTools /></>}
-          {activeTab === 'timetable' && <><TimetablePage onNavigate={handleNavigate} /><TimetableEditor /></>}
+          {activeTab === 'subjects' && role === 'ADMIN' && <><SubjectManagementPage onNavigate={handleNavigate} /><AcademicTools /></>}
+          {activeTab === 'timetable' && <><TimetablePage onNavigate={handleNavigate} canEdit={role === 'ADMIN'} />{role === 'ADMIN' && <TimetableEditor />}</>}
           {activeTab === 'enrollment' && (
             <FaceEnrollmentPage
               initialStudentId={enrollingStudentId}

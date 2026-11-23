@@ -1,6 +1,6 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, status
-from backend.app.core.security import require_roles, get_current_user
+from backend.app.core.security import require_roles
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
@@ -12,6 +12,7 @@ router = APIRouter(prefix="/subjects", tags=["Academic Subjects"], dependencies=
 
 @router.post(
     "",
+    dependencies=[Depends(require_roles("ADMIN"))],
     response_model=SubjectResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create Subject",
@@ -60,6 +61,7 @@ async def get_subject(
 
 @router.put(
     "/{subject_id}",
+    dependencies=[Depends(require_roles("ADMIN"))],
     response_model=SubjectResponse,
     summary="Update Subject",
 )
@@ -73,6 +75,7 @@ async def update_subject(
 
 @router.delete(
     "/{subject_id}",
+    dependencies=[Depends(require_roles("ADMIN"))],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete / Deactivate Subject",
     description="Deletes a subject, or deactivates it if historical attendance sessions reference it.",

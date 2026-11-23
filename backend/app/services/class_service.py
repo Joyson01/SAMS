@@ -175,6 +175,7 @@ class ClassService:
         class_id: Optional[str] = None,
         day_of_week: Optional[str] = None,
         scheduled_date: Optional[date] = None,
+        teacher_id: str | None = None,
     ) -> List[TimetableEntryResponse]:
         """Lists timetable schedule entries for a class, day, or specific calendar date."""
         target_day = day_of_week
@@ -191,6 +192,8 @@ class ClassService:
 
         query = select(TimetableEntry)
         filters = []
+        if teacher_id is not None:
+            filters.append(TimetableEntry.class_id.in_(assigned_classes(teacher_id)))
         if class_id:
             filters.append(TimetableEntry.class_id == class_id)
         if target_day:
@@ -372,7 +375,8 @@ class ClassService:
         db: AsyncSession,
         current_time: Optional[time] = None,
         day_of_week: Optional[str] = None,
-        room: Optional[str] = None
+        room: Optional[str] = None,
+        teacher_id: str | None = None,
     ) -> Optional[TimetableEntryResponse]:
         """Resolves the currently active timetable entry based on time, day, and optional room context."""
         import datetime
@@ -393,6 +397,8 @@ class ClassService:
         
         if room:
             query = query.where(TimetableEntry.room == room)
+        if teacher_id is not None:
+            query = query.where(TimetableEntry.class_id.in_(assigned_classes(teacher_id)))
             
         result = await db.execute(query)
         entries = result.scalars().all()

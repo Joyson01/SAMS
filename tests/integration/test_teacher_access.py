@@ -6,10 +6,17 @@ async def test_teacher_can_work_only_in_assigned_sessions(staff_client):
     client = staff_client
     sessions = {}
     classes = {}
+    slots = {}
     for class_name in ("CS-A", "CS-B"):
         section = await client.post("/api/v1/classes", json={"name": class_name, "department": "CS"})
         assert section.status_code == 201, section.text
         classes[class_name] = section.json()["id"]
+        slot = await client.post(f"/api/v1/classes/{classes[class_name]}/timetable", json={
+            "class_id": classes[class_name], "day_of_week": "Monday",
+            "start_time": "09:00", "end_time": "10:00", "label": "Computing",
+        })
+        assert slot.status_code == 201, slot.text
+        slots[class_name] = slot.json()["id"]
         created = await client.post("/api/v1/attendance/sessions", json={
             "class_id": classes[class_name], "class_name": class_name,
             "subject": "Computing", "room": "101", "start_time": "09:00", "end_time": "10:00",
@@ -86,3 +93,18 @@ async def test_teacher_can_work_only_in_assigned_sessions(staff_client):
         "session_id": sessions["CS-B"],
     })).status_code == 403
     assert (await client.get("/api/v1/dashboard/summary")).status_code == 403
+
+    timetable = await client.get("/api/v1/classes/timetable/entries")
+    assert timetable.status_code == 200, timetable.text
+    assert [item["class_id"] for item in timetable.json()] == [classes["CS-A"]]
+    for path in ("", "/timetable", "/subjects", "/batches"):
+        assert (await client.get(f"/api/v1/classes/{classes['CS-B']}{path}")).status_code == 403
+    assert (await client.get(f"/api/v1/classes/{classes['CS-A']}/timetable")).status_code == 200
+    assert (await client.put(f"/api/v1/classes/timetable/entries/{slots['CS-A']}", json={
+        "label": "Teacher edit",
+    })).status_code == 403
+    assert (await client.delete(f"/api/v1/classes/{classes['CS-A']}")).status_code == 403
+    assert (await client.post("/api/v1/subjects", json={
+        "code": "TEST", "name": "Test", "department": "CS",
+    })).status_code == 403
+    assert (await client.get("/api/v1/sync/pull")).status_code == 403
