@@ -71,19 +71,14 @@ function StudentDetails({ profile }: { profile: StudentProfile }) {
     ['Class', profile.class_name],
     ['Department', profile.department],
   ];
-  return (
-    <section className="rounded-xl border border-border bg-surface p-6">
-      <h2 className="mb-4 font-semibold">My details</h2>
-      <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
-        {fields.map(([label, value]) => (
-          <div key={label}>
-            <dt className="text-sm text-text-muted">{label}</dt>
-            <dd className="mt-1 break-words font-medium">{value ?? 'Not available'}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
-  );
+  return <dl className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 xl:grid-cols-4">
+    {fields.map(([label, value]) => (
+      <div key={label} className="min-w-0 border-t border-border pt-2.5">
+        <dt className="text-xs font-medium text-text-muted">{label}</dt>
+        <dd className="mt-1 break-words text-sm font-semibold">{value ?? 'Not available'}</dd>
+      </div>
+    ))}
+  </dl>;
 }
 
 type AttendanceItem = PeriodRecord & { remarks: string | null };
@@ -243,15 +238,15 @@ export function MyAttendancePage({ onNavigate }: { onNavigate: (tab: string) => 
   const linked = Boolean(data?.linked);
   useEffect(() => { if (linked) void loadRequests(); }, [linked, loadRequests]);
 
-  return <div className="space-y-6">
-    <header className="rounded-2xl border border-border bg-surface p-5 sm:p-7">
-      <h1 className="text-3xl font-semibold tracking-tight">My attendance</h1>
-      {data?.profile && <p className="mt-2 text-sm text-text-muted">{data.profile.name} · {data.profile.class_name}</p>}
-      <nav aria-label="Student shortcuts" className="mt-5 grid gap-2 sm:grid-cols-3">
+  return <div className="mx-auto max-w-6xl space-y-4 sm:space-y-5">
+    <header className="rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:p-6">
+      <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">My attendance</h1>
+      {data?.profile && <p className="mt-2 text-sm text-text-muted">{data.profile.display_name || data.profile.name} · {data.profile.class_name}</p>}
+      <nav aria-label="Student shortcuts" className="mt-4 grid grid-cols-3 gap-2">
         {studentLinks.map(({ tab, label, icon: Icon }) => <button key={tab} onClick={() => onNavigate(tab)}
-          className="flex min-h-12 items-center gap-3 rounded-xl border border-border bg-surface-muted px-3 text-left text-sm font-semibold hover:border-primary hover:text-primary">
+          className="flex min-h-16 min-w-0 flex-col items-center justify-center gap-1 rounded-xl border border-border bg-surface px-1 py-2 text-center text-xs font-semibold hover:border-primary hover:text-primary sm:min-h-12 sm:flex-row sm:justify-start sm:gap-3 sm:px-3 sm:text-left sm:text-sm">
           <Icon size={19} aria-hidden="true" className="shrink-0 text-primary" />
-          <span className="flex-1">{label}</span><ArrowUpRight size={15} aria-hidden="true" />
+          <span className="sm:flex-1">{label}</span><ArrowUpRight size={15} aria-hidden="true" className="hidden shrink-0 sm:block" />
         </button>)}
       </nav>
     </header>
@@ -259,9 +254,9 @@ export function MyAttendancePage({ onNavigate }: { onNavigate: (tab: string) => 
       : !data ? <Skeleton className="h-64" />
       : !data.linked ? <EmptyState title="Connect your student record" description="Ask your administrator to link your account using your roll number and student code." />
       : <>
-        {data.profile && <details open className="rounded-xl border border-border bg-surface p-4">
-          <summary className="cursor-pointer font-semibold">Student details</summary>
-          <div className="mt-3"><StudentDetails profile={data.profile} /></div>
+        {data.profile && <details open className="rounded-2xl border border-border bg-surface px-4 pb-4 sm:px-6 sm:pb-6">
+          <summary className="min-h-11 cursor-pointer py-3 font-semibold">Student details</summary>
+          <div><StudentDetails profile={data.profile} /></div>
         </details>}
         {requests && <FaceRequests studentName={data.profile?.display_name} state={requests} onSaved={() => void loadRequests()} />}
         <PeriodCalendar records={data.items} />
