@@ -160,6 +160,7 @@ async def my_attendance(db: AsyncSession = Depends(get_db), user: User = Depends
     if mobile and mobile.isascii() and mobile.isdecimal() and len(mobile) == 10:
         masked_mobile = f"{mobile[:2]}****{mobile[-4:]}"
     profile = {
+        "display_name": f"{student.first_name} {student.last_name}".strip(),
         "name": details.roster_name if details and details.roster_name else f"{student.first_name} {student.last_name}",
         "student_id": user.username,
         "student_pid": student.student_code,

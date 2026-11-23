@@ -364,8 +364,7 @@ function FaceMatchPanel({ studentName }: { studentName?: string }) {
     }
   }
 
-  const nameParts = studentName?.trim().split(/\s+/).filter(Boolean) || [];
-  const faceLabel = nameParts.length > 1 ? `${nameParts[0]} ${nameParts[nameParts.length - 1]}` : nameParts[0] || 'Your face';
+  const faceLabel = studentName?.trim() || 'Your face';
   const bounds = preview?.match.face;
   const [left, top, right, bottom] = bounds?.bbox || [0, 0, 0, 0];
 

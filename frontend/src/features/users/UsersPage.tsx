@@ -38,6 +38,7 @@ export function UsersPage() {
 }
 
 type StudentProfile = {
+  display_name?: string;
   name: string;
   student_id: string;
   student_pid: string;
@@ -231,7 +232,7 @@ export function MyAttendancePage({ onNavigate }: { onNavigate: (tab: string) => 
           <summary className="cursor-pointer font-semibold">Student details</summary>
           <div className="mt-3"><StudentDetails profile={data.profile} /></div>
         </details>}
-        {requests && <FaceRequests studentName={data.profile?.name} state={requests} onSaved={() => void loadRequests()} />}
+        {requests && <FaceRequests studentName={data.profile?.display_name} state={requests} onSaved={() => void loadRequests()} />}
         <PeriodCalendar records={data.items} />
         <AttendanceDashboard items={data.items} requests={requests} onSaved={() => void loadRequests()} />
         {requestError && <EmptyState title="Student requests unavailable" description={requestError}

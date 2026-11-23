@@ -42,6 +42,7 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
 
     attendance = await client.get(f"{auth}/my-attendance", headers=student_headers)
     assert attendance.status_code == 200
+    assert attendance.json()["profile"]["display_name"] == "Portal own"
     [period] = attendance.json()["items"]
     assert period["id"] == own_record.id
     assert (period["start_time"], period["end_time"]) == ("09:00:00", "10:00:00")
