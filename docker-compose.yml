@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-atteddel_db}
     ports:
       - "5432:5432"
@@ -26,14 +26,15 @@ services:
     container_name: atteddel_backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgrespassword}@postgres:5432/${POSTGRES_DB:-atteddel_db}"
-      DATABASE_SYNC_URL: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgrespassword}@postgres:5432/${POSTGRES_DB:-atteddel_db}"
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-atteddel_db}"
+      DATABASE_SYNC_URL: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-atteddel_db}"
       ENVIRONMENT: "production"
       DEBUG: "false"
+      DATABASE_FALLBACK_SQLITE: "false"
       LOG_LEVEL: "INFO"
       LOG_FORMAT: "json"
-      SECRET_KEY: "${SECRET_KEY:-sams_production_secret_key_must_be_32_characters_long_min}"
-      BACKEND_CORS_ORIGINS: "${BACKEND_CORS_ORIGINS:-*}"
+      SECRET_KEY: "${SECRET_KEY:?Set a unique SECRET_KEY}"
+      BACKEND_CORS_ORIGINS: "${BACKEND_CORS_ORIGINS:-[]}"
     ports:
       - "8000:8000"
     depends_on:

@@ -151,15 +151,11 @@ export const recognizeImageAttendance = async (
 
 export const recognizeFrameAttendance = async (options: {
   sessionId: string;
-  cameraId?: string;
-  frameUrl?: string;
   imageFileOrBlob?: File | Blob;
   threshold?: number;
 }): Promise<PhotoRecognitionResponse> => {
   const formData = new FormData();
   formData.append('session_id', options.sessionId);
-  if (options.cameraId) formData.append('camera_id', options.cameraId);
-  if (options.frameUrl) formData.append('frame_url', options.frameUrl);
   if (options.threshold !== undefined) formData.append('threshold', options.threshold.toString());
 
   if (options.imageFileOrBlob) {

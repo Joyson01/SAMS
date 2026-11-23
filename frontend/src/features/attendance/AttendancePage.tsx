@@ -24,7 +24,6 @@ import {
   overrideRecord,
 } from '../../services/attendanceApi';
 import { fetchSubjects, fetchClasses, fetchClassTimetable } from '../../services/subjectApi';
-import { fetchCameras } from '../../services/cameraApi';
 import { formatApiErrorMessage } from '../../utils/apiError';
 import { fetchCurrentTimetableEntry } from '../../services/timetableApi';
 import {
@@ -33,7 +32,6 @@ import {
   SessionCreatePayload,
 } from '../../types/attendance';
 import { Subject, ClassSection, TimetableEntry } from '../../types/subject';
-import { CameraDevice } from '../../types/camera';
 import {
   Button,
   IconButton,
@@ -89,7 +87,6 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
   // Dropdown reference data
   const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([]);
   const [availableClasses, setAvailableClasses] = useState<ClassSection[]>([]);
-  const [availableCameras, setAvailableCameras] = useState<CameraDevice[]>([]);
 
   // Create Session Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
@@ -117,7 +114,6 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
     end_time: '10:00',
     late_threshold_minutes: 10,
     attendance_mode: 'AI_FACE_RECOGNITION',
-    camera_id: '',
   });
 
   // Manual Override Modal
@@ -165,14 +161,12 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
 
   const loadReferenceData = async () => {
     try {
-      const [subjList, clsList, camList] = await Promise.all([
+      const [subjList, clsList] = await Promise.all([
         fetchSubjects(undefined, undefined, 'ACTIVE'),
         fetchClasses(undefined, undefined, 'ACTIVE'),
-        fetchCameras(),
       ]);
       setAvailableSubjects(subjList);
       setAvailableClasses(clsList);
-      setAvailableCameras(camList);
 
       if (clsList.length > 0 && !selectedClassId) {
         setSelectedClassId(clsList[0].id);
@@ -274,7 +268,6 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
           end_time: activeEntry.end_time,
           late_threshold_minutes: 10,
           attendance_mode: 'AI_FACE_RECOGNITION',
-          camera_id: availableCameras[0]?.id || '',
         });
         setIsCreateModalOpen(true);
       }
@@ -562,10 +555,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1.5">
                       {isLive ? (
-                        <a className="rounded-lg bg-indigo-700 px-3 py-2 text-xs font-semibold text-white"
-                          href={`/phone-attendance?session=${encodeURIComponent(sess.id)}`}>
-                          Open attendance
-                        </a>
+                        <Button size="sm" onClick={() => setSelectedSessionId(sess.id)}>Take attendance</Button>
                       ) : isScheduled ? (
                         <Button
                           onClick={() => handleStart(sess.id)}
@@ -935,7 +925,6 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                               end_time: slot.end_time,
                               late_threshold_minutes: 10,
                               attendance_mode: 'AI_FACE_RECOGNITION',
-                              camera_id: availableCameras[0]?.id || '',
                             });
                           }}
                           className={`p-2.5 rounded-lg border text-xs cursor-pointer transition flex items-center justify-between ${
@@ -992,22 +981,6 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                     onChange={(e) => setCreateForm((prev) => ({ ...prev, room: e.target.value }))}
                     className="w-full bg-surface-muted border border-border rounded-lg p-2 text-xs text-text"
                   />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-text mb-1">Camera</label>
-                  <select
-                    value={createForm.camera_id || ''}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, camera_id: e.target.value }))
-                    }
-                    className="w-full bg-surface-muted border border-border rounded-lg p-2 text-xs text-text"
-                  >
-                    {availableCameras.map((cam) => (
-                      <option key={cam.id} value={cam.id}>
-                        {cam.name} ({cam.location})
-                      </option>
-                    ))}
-                  </select>
                 </div>
               </div>
             </div>

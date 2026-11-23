@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { DashboardLayout } from './layouts/DashboardLayout';
 import { fetchHealthStatus } from './services/api';
-import { fetchCameras } from './services/cameraApi';
 import { ServiceHealthResponse } from './types';
 
 import { ErrorBoundary } from './components/common/ErrorBoundary';
@@ -19,47 +18,22 @@ const MyAttendancePage = React.lazy(() => import('./features/users/UsersPage').t
 const DashboardOverview = React.lazy(() => import('./pages/DashboardOverview').then(module => ({ default: module.DashboardOverview })));
 const StudentListPage = React.lazy(() => import('./features/students/StudentListPage').then(module => ({ default: module.StudentListPage })));
 const FaceEnrollmentPage = React.lazy(() => import('./features/enrollment/FaceEnrollmentPage').then(module => ({ default: module.FaceEnrollmentPage })));
-const PairedAttendancePage = React.lazy(() => import('./features/attendance/PhoneAttendancePage').then(module => ({ default: module.PairedAttendancePage })));
-const PhoneAttendancePage = React.lazy(() => import('./features/attendance/PhoneAttendancePage').then(module => ({ default: module.PhoneAttendancePage })));
 const AttendancePage = React.lazy(() => import('./features/attendance/AttendancePage').then(module => ({ default: module.AttendancePage })));
-const LiveDashboardPage = React.lazy(() => import('./features/live/LiveDashboardPage').then(module => ({ default: module.LiveDashboardPage })));
 const MediaAttendancePage = React.lazy(() => import('./features/media/MediaAttendancePage').then(module => ({ default: module.MediaAttendancePage })));
 const ReportsPage = React.lazy(() => import('./features/reports/ReportsPage').then(module => ({ default: module.ReportsPage })));
-const CameraManagementPage = React.lazy(() => import('./features/cameras/CameraManagementPage').then(module => ({ default: module.CameraManagementPage })));
 const SubjectManagementPage = React.lazy(() => import('./features/subjects/SubjectManagementPage').then(module => ({ default: module.SubjectManagementPage })));
 const TimetablePage = React.lazy(() => import('./features/timetable/TimetablePage').then(module => ({ default: module.TimetablePage })));
 const SettingsPage = React.lazy(() => import('./features/settings/SettingsPage').then(module => ({ default: module.SettingsPage })));
-const MobileCameraPage = React.lazy(() => import('./features/mobile/MobileCameraPage').then(module => ({ default: module.MobileCameraPage })));
-const CameraTestPage = React.lazy(() => import('./features/camera-test/CameraTestPage').then(module => ({ default: module.CameraTestPage })));
 const AuditLogsPage = React.lazy(() => import('./features/security/AuditLogsPage').then(module => ({ default: module.AuditLogsPage })));
 
 const Workspace: React.FC = () => {
   const pathname = window.location.pathname;
   const authBypass = import.meta.env.VITE_AUTH_BYPASS === 'true';
 
-  if (pathname === '/attendance-capture') return <PairedAttendancePage />;
-
-  // Standalone Mobile & Diagnostic Routes
-  if (pathname.startsWith('/mobile-camera')) {
-    return (
-      <ErrorBoundary fallbackTitle="Mobile Camera Stream Error">
-        <MobileCameraPage />
-      </ErrorBoundary>
-    );
-  }
-  if (pathname.startsWith('/camera-test')) {
-    return (
-      <ErrorBoundary fallbackTitle="Camera Diagnostic Error">
-        <CameraTestPage />
-      </ErrorBoundary>
-    );
-  }
-
   const [activeTab, setActiveTab] = useState<string>(pathname === '/anonymous-detection' ? 'anonymous-detection' : pathname === '/recognition-test' ? 'recognition-test' : pathname === '/mobile-enrollment' ? 'enrollment' : 'dashboard');
   const [enrollingStudentId, setEnrollingStudentId] = useState<string | undefined>(new URLSearchParams(location.search).get("student_id") || undefined);
   const [healthData, setHealthData] = useState<ServiceHealthResponse | null>(null);
   const [healthStatus, setHealthStatus] = useState<'healthy' | 'degraded' | 'unhealthy' | 'loading'>('loading');
-  const [offlineCameraCount, setOfflineCameraCount] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [userName, setUserName] = useState('');
   const [role, setRole] = useState('STUDENT');
@@ -81,15 +55,6 @@ const Workspace: React.FC = () => {
       setIsRefreshing(false);
     }
 
-    try {
-      const cams = await fetchCameras();
-      const offline = cams.filter(
-        (c) => c.status === 'OFFLINE' || c.status === 'ERROR' || c.status === 'NO_FRAME' || !c.is_connected
-      ).length;
-      setOfflineCameraCount(offline);
-    } catch (e) {
-      // ignore camera status fetch error
-    }
   };
 
   useEffect(() => {
@@ -137,10 +102,6 @@ const Workspace: React.FC = () => {
     }
   };
 
-  if (pathname === '/phone-attendance') {
-    return <PhoneAttendancePage onLogout={handleLogout} />;
-  }
-
   return (
     <ErrorBoundary fallbackTitle="Application Error" fallbackMessage="An error occurred in the workspace layout.">
       <DashboardLayout
@@ -153,7 +114,6 @@ const Workspace: React.FC = () => {
         isRefreshing={isRefreshing}
         activeTab={role === 'STUDENT' ? 'my-attendance' : activeTab}
         setActiveTab={setActiveTab}
-        offlineCameraCount={offlineCameraCount}
       >
         <ErrorBoundary key={activeTab} fallbackTitle={`Error in ${activeTab.toUpperCase()}`}>
           {role === 'STUDENT' && <MyAttendancePage />}
@@ -172,11 +132,9 @@ const Workspace: React.FC = () => {
               onNavigate={handleNavigate}
             />
           )}
-          {activeTab === 'live' && <LaptopAttendancePage onAdvanced={() => setActiveTab('advanced-live')} />}
-          {activeTab === 'advanced-live' && <LiveDashboardPage onNavigate={handleNavigate} />}
+          {activeTab === 'live' && <LaptopAttendancePage />}
           {activeTab === 'media' && <MediaAttendancePage onNavigate={handleNavigate} />}
           {activeTab === 'attendance' && <AttendancePage />}
-          {activeTab === 'cameras' && <CameraManagementPage />}
           {activeTab === 'audit' && <AuditLogsPage />}
           {activeTab === 'reports' && <ReportsPage />}
           {activeTab === 'settings' && role === 'ADMIN' && <SettingsPage />}

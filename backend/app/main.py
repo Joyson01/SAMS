@@ -10,7 +10,7 @@ _ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
@@ -20,6 +20,7 @@ from backend.app.api.v1.router import api_router
 from backend.app.core.config import settings
 from backend.app.core.exceptions import SAMSException
 from backend.app.core.logging import logger, setup_logging
+from backend.app.core.security import require_roles
 from backend.app.database.session import check_database_connection, init_db_schema
 from backend.app.services.face_recognition_service import face_recognition_service
 
@@ -233,7 +234,7 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 if settings.API_V1_STR != "/api":
     app.include_router(api_router, prefix="/api")
 
-# Mount Static Outputs and Uploads Directories
+# Prepare private media directories
 _ROOT = Path(__file__).resolve().parent.parent.parent
 _OUTPUTS_DIR = _ROOT / "outputs"
 _UPLOADS_DIR = _ROOT / "data" / "uploads"
@@ -243,9 +244,22 @@ _OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 _UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 _PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
-app.mount("/outputs", StaticFiles(directory=str(_OUTPUTS_DIR)), name="outputs")
-app.mount("/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
-app.mount("/processed", StaticFiles(directory=str(_PROCESSED_DIR)), name="processed")
+@app.get(
+    "/outputs/{filename}",
+    dependencies=[Depends(require_roles("ADMIN", "FACULTY", "OPERATOR"))],
+    include_in_schema=False,
+)
+def get_processed_output(filename: str):
+    path = (_OUTPUTS_DIR / filename).resolve()
+    if path.parent != _OUTPUTS_DIR.resolve() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Output file not found.")
+    return FileResponse(path, headers={"Cache-Control": "private, no-store"})
+
+
+@app.get("/uploads/{path:path}", include_in_schema=False)
+@app.get("/processed/{path:path}", include_in_schema=False)
+def reject_legacy_media_path(path: str):
+    raise HTTPException(status_code=404, detail="Media file not found.")
 
 # Mount Production Frontend Dist if Available
 _FRONTEND_DIST = _ROOT / "frontend" / "dist"
@@ -297,7 +311,9 @@ if _FRONTEND_DIST.exists() and (_FRONTEND_DIST / "index.html").exists():
     async def serve_spa_frontend(full_path: str):
         if full_path.startswith(("api", "outputs", "uploads", "processed", "health", "docs", "redoc", "openapi.json")):
             raise HTTPException(status_code=404, detail="Endpoint not found")
-        target_file = _FRONTEND_DIST / full_path
+        target_file = (_FRONTEND_DIST / full_path).resolve()
+        if not target_file.is_relative_to(_FRONTEND_DIST.resolve()):
+            raise HTTPException(status_code=404, detail="Endpoint not found")
         if target_file.is_file():
             return FileResponse(str(target_file))
         return FileResponse(str(_FRONTEND_DIST / "index.html"))

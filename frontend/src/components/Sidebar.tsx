@@ -11,7 +11,7 @@ export const Sidebar: React.FC<SidebarProps> = ({role = 'STUDENT', userName = ''
  {label:'Attendance',items:[{id:'live',label:'Live Attendance',icon:CheckSquare},{id:'attendance',label:'Attendance Sessions',icon:Calendar},{id:'media',label:'Photo Attendance',icon:ImageIcon}]},
  {label:'People',items:[{id:'students',label:'Students',icon:Users}]},
  {label:'Academics',items:[{id:'timetable',label:'Timetable',icon:Calendar},{id:'subjects',label:'Courses & Rooms',icon:BookOpen}]},
- {label:'Cameras & AI',items:[{id:'cameras',label:'Cameras',icon:Camera},...(['ADMIN','FACULTY'].includes(role) ? [{id:'recognition-test',label:'Recognition Test',icon:Camera},{id:'anonymous-detection',label:'Anonymous Detection',icon:ImageIcon}] : [])]},
+ {label:'Recognition tools',items:[...(['ADMIN','FACULTY'].includes(role) ? [{id:'recognition-test',label:'Recognition Test',icon:Camera},{id:'anonymous-detection',label:'Anonymous Detection',icon:ImageIcon}] : [])]},
  {label:'Reports',items:[{id:'reports',label:'Reports',icon:BarChart2},...(role === 'ADMIN' ? [{id:'audit',label:'Audit Logs',icon:ShieldAlert}] : [])]},
  ...(role === 'ADMIN' ? [{label:'Admin',items:[{id:'users',label:'Users',icon:Users},{id:'settings',label:'Settings',icon:Settings}]}] : [])];
  const content = (compact: boolean) => <>

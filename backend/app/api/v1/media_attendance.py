@@ -63,9 +63,12 @@ async def diagnose_image(
     if not upload_file:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No image file provided.")
 
-    image_bytes = await upload_file.read()
+    image_bytes = await upload_file.read(MAX_IMAGE_SIZE_BYTES + 1)
     if len(image_bytes) == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded image is empty.")
+
+    if len(image_bytes) > MAX_IMAGE_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail="Image exceeds the allowed size.")
 
     try:
         res = await asyncio.to_thread(
@@ -128,7 +131,7 @@ async def analyze_image_attendance(
             detail="No image file uploaded. Please provide an image file.",
         )
 
-    image_bytes = await upload_file.read()
+    image_bytes = await upload_file.read(MAX_IMAGE_SIZE_BYTES + 1)
     if len(image_bytes) == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty.")
 
@@ -194,7 +197,7 @@ async def process_video_attendance(
             detail=f"Unsupported video format '{file_ext}'. Allowed formats: {sorted(allowed_exts)}",
         )
 
-    video_bytes = await upload_file.read()
+    video_bytes = await upload_file.read(MAX_VIDEO_SIZE_BYTES + 1)
     if len(video_bytes) == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded video is empty.")
 
@@ -230,8 +233,7 @@ async def process_video_attendance(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(v_err))
     except Exception as exc:
         logger.error(f"Failed to initialize video processing: {exc}", exc_info=True)
-        traceback.print_exc()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to initialize video processing: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to initialize video processing.") from exc
 
 
 @router.get(

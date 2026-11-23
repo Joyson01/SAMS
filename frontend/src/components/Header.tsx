@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Menu, User, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Menu, User } from 'lucide-react';
 import { ThemeToggle } from './ui/ThemeToggle';
 import { ServiceHealthResponse } from '../types';
 
@@ -9,8 +9,6 @@ interface HeaderProps {
   userName?: string;
   role?: string;
   activeTab: string;
-  onNavigate: (tab: string) => void;
-  offlineCameraCount?: number;
   onToggleMobileMenu?: () => void;
 }
 
@@ -25,7 +23,6 @@ const TAB_TITLES: Record<string, string> = {
   timetable: 'Timetable',
   reports: 'Reports',
   settings: 'Settings',
-  cameras: 'Cameras',
   live: 'Live Attendance',
   media: 'Photo Attendance',
   enrollment: 'Face Enrollment',
@@ -37,8 +34,6 @@ export const Header: React.FC<HeaderProps> = ({
   userName = "",
   role = "",
   activeTab,
-  onNavigate,
-  offlineCameraCount = 0,
   onToggleMobileMenu,
 }) => {
   const formattedDate = useMemo(() => {
@@ -84,38 +79,6 @@ export const Header: React.FC<HeaderProps> = ({
       {/* RIGHT: System status, Notifications, User profile */}
       <div className="flex items-center gap-1 sm:gap-3 shrink-0">
         <ThemeToggle />
-        {/* Hardware / Camera Status Indicator (Clickable to open Cameras) */}
-        {role !== 'STUDENT' && (
-        <button
-          onClick={() => onNavigate('cameras')}
-          className={`hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
-            offlineCameraCount > 0
-              ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-900'
-              : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
-          }`}
-          title={
-            offlineCameraCount > 0
-              ? `${offlineCameraCount} camera(s) offline. Click to review cameras.`
-              : 'View registered camera status.'
-          }
-        >
-          {offlineCameraCount > 0 ? (
-            <>
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-              <span>
-                {offlineCameraCount} Camera{offlineCameraCount > 1 ? 's' : ''} Offline
-              </span>
-            </>
-          ) : (
-            <>
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <span className="hidden sm:inline">Camera status</span>
-              <span className="sm:hidden">Cameras</span>
-            </>
-          )}
-        </button>
-
-        )}
         {/* User Profile */}
         <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
           <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 font-semibold text-xs shrink-0">

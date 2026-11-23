@@ -32,25 +32,6 @@ Generated from the current FastAPI OpenAPI schema. Schema presence alone is not 
 | POST | `/api/v1/auth/users` | Create User |
 | PATCH | `/api/v1/auth/users/{user_id}` | Update User |
 | PUT | `/api/v1/auth/users/{user_id}/student` | Link Student |
-| GET | `/api/v1/cameras` | List Cameras |
-| POST | `/api/v1/cameras` | Register Camera |
-| GET | `/api/v1/cameras/discover-onvif` | Discover ONVIF IP Cameras |
-| POST | `/api/v1/cameras/mobile-frame` | Process Mobile Camera Frame |
-| GET | `/api/v1/cameras/mobile-pairing` | Generate Mobile Camera Pairing Token (GET) |
-| POST | `/api/v1/cameras/mobile-pairing` | Generate Mobile Camera Pairing Token (POST) |
-| GET | `/api/v1/cameras/pairing-session/{token}` | Validate Mobile Pairing Session |
-| POST | `/api/v1/cameras/test-connection` | Test Camera Connectivity |
-| DELETE | `/api/v1/cameras/{camera_id}` | Delete Camera |
-| GET | `/api/v1/cameras/{camera_id}` | Get Camera Details |
-| PUT | `/api/v1/cameras/{camera_id}` | Update Camera |
-| POST | `/api/v1/cameras/{camera_id}/capture` | Capture Frame From Camera |
-| GET | `/api/v1/cameras/{camera_id}/frame` | Get Camera Latest Frame |
-| GET | `/api/v1/cameras/{camera_id}/mjpeg` | Get Live MJPEG Video Stream |
-| GET | `/api/v1/cameras/{camera_id}/preview` | Get Camera Latest Frame Snapshot |
-| POST | `/api/v1/cameras/{camera_id}/start` | Start Camera Worker |
-| POST | `/api/v1/cameras/{camera_id}/stop` | Stop Camera Worker |
-| GET | `/api/v1/cameras/{camera_id}/test` | Test Registered Camera Feed (GET) |
-| POST | `/api/v1/cameras/{camera_id}/test` | Test Registered Camera Feed (POST) |
 | GET | `/api/v1/classes` | List Classes |
 | POST | `/api/v1/classes` | Create Class Section |
 | GET | `/api/v1/classes/timetable/current` | Get Current Active Timetable Entry |
@@ -83,8 +64,6 @@ Generated from the current FastAPI OpenAPI schema. Schema presence alone is not 
 | GET | `/api/v1/media-attendance/session-validation/{session_id}` | Validate Session & Enrolled Student Biometrics |
 | POST | `/api/v1/media-attendance/video` | Upload Video for Attendance Processing |
 | POST | `/api/v1/media-attendance/video-attendance` | Upload Video for Attendance Processing (Alias) |
-| POST | `/api/v1/phone-attendance/{session_id}/capture` | Capture |
-| POST | `/api/v1/phone-attendance/{session_id}/pair` | Pair Phone |
 | GET | `/api/v1/ping` | Quick Liveness Probe |
 | POST | `/api/v1/recognition/analyze-frame` | Analyze Frame |
 | GET | `/api/v1/recognition/config` | Get Full AI Recognition Configuration |

@@ -21,9 +21,7 @@ import {
   updateTimetableEntry,
 } from '../../services/subjectApi';
 import { createSession } from '../../services/attendanceApi';
-import { fetchCameras } from '../../services/cameraApi';
 import { ClassSection, Subject, TimetableEntry } from '../../types/subject';
-import { CameraDevice } from '../../types/camera';
 import { SessionCreatePayload } from '../../types/attendance';
 import { formatApiErrorMessage } from '../../utils/apiError';
 
@@ -50,7 +48,6 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
   // State
   const [selectedClass, setSelectedClass] = useState<ClassSection | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [timetableEntries, setTimetableEntries] = useState<TimetableEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -72,7 +69,6 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
     end_time: '10:00',
     late_threshold_minutes: 10,
     attendance_mode: 'AI_FACE_RECOGNITION',
-    camera_id: '',
   });
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [creatingSession, setCreatingSession] = useState<boolean>(false);
@@ -91,13 +87,11 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [clsList, subjList, camList] = await Promise.all([
+      const [clsList, subjList] = await Promise.all([
         fetchClasses(undefined, undefined, 'ACTIVE'),
         fetchSubjects(undefined, undefined, 'ACTIVE'),
-        fetchCameras(),
       ]);
       setSubjects(subjList);
-      setCameras(camList);
 
       const targetClass = clsList.find((c) => c.name === 'TE-B') || clsList[0] || null;
       setSelectedClass(targetClass);
@@ -199,19 +193,6 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
     setSessionModalSlot(entry);
     const slotDate = weekDates[dayName]?.dateStr || new Date().toISOString().split('T')[0];
 
-    // Auto-match camera to room if possible
-    let bestCamId = cameras.length > 0 ? cameras[0].id : '';
-    if (entry.room) {
-      const match = cameras.find(
-        (c) =>
-          c.location.toLowerCase().includes(entry.room!.toLowerCase()) ||
-          c.name.toLowerCase().includes(entry.room!.toLowerCase())
-      );
-      if (match) {
-        bestCamId = match.id;
-      }
-    }
-
     setSessionForm({
       class_id: selectedClass?.id,
       class_name: selectedClass?.name || 'TE-B',
@@ -224,8 +205,6 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
       end_time: entry.end_time,
       late_threshold_minutes: 10,
       attendance_mode: 'AI_FACE_RECOGNITION',
-      camera_id: bestCamId,
-      camera_ids: bestCamId ? [bestCamId] : [],
     });
   };
 
@@ -239,7 +218,6 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
     try {
       const payload: SessionCreatePayload = {
         ...sessionForm,
-        camera_ids: sessionForm.camera_id ? [sessionForm.camera_id] : [],
       };
       await createSession(payload);
       setSessionModalSlot(null);
@@ -724,36 +702,6 @@ export const TimetablePage: React.FC<TimetablePageProps> = ({ onNavigate }) => {
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="font-bold text-text">Camera Source</label>
-                <select
-                  value={sessionForm.camera_id || ''}
-                  onChange={(e) =>
-                    setSessionForm({
-                      ...sessionForm,
-                      camera_id: e.target.value,
-                      camera_ids: e.target.value ? [e.target.value] : [],
-                    })
-                  }
-                  className="w-full bg-surface-muted border border-border rounded-xl px-3 py-2 text-xs font-semibold text-text focus:outline-none focus:border-indigo-500"
-                >
-                  {cameras.length === 0 ? (
-                    <option value="">No cameras configured</option>
-                  ) : (
-                    cameras.map((cam) => {
-                      const isMatch =
-                        sessionModalSlot.room &&
-                        (cam.location.toLowerCase().includes(sessionModalSlot.room.toLowerCase()) ||
-                          cam.name.toLowerCase().includes(sessionModalSlot.room.toLowerCase()));
-                      return (
-                        <option key={cam.id} value={cam.id}>
-                          {cam.name} ({cam.location}) {isMatch ? '★ (Matches Room)' : ''}
-                        </option>
-                      );
-                    })
-                  )}
-                </select>
-              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">

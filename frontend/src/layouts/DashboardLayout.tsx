@@ -14,7 +14,6 @@ interface DashboardLayoutProps {
   isRefreshing: boolean;
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  offlineCameraCount?: number;
 }
 
 export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
@@ -24,7 +23,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   onLogout,
   activeTab,
   setActiveTab,
-  offlineCameraCount = 0,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
@@ -54,10 +52,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
           userName={userName}
           role={role}
           activeTab={activeTab}
-          onNavigate={(tab) => {
-            setActiveTab(tab);
-          }}
-          offlineCameraCount={offlineCameraCount}
           onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
         />
         <main

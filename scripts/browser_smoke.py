@@ -35,7 +35,7 @@ def main():
             page.get_by_role('heading',name=re.compile('^My attendance$',re.I)).wait_for()
             page.get_by_role('button',name='Sign Out',exact=True).click()
             page.get_by_role('dialog').get_by_role('button',name='Sign out',exact=True).click()
-            page.get_by_role('heading',name='Welcome back').wait_for()
+            page.get_by_role('heading',name='Portal sign in').wait_for()
             page.goto(base+'/setup')
             fill_account(page,'browser_admin','browser-admin@example.com','Browser Administrator','BrowserPass123',token)
             page.get_by_role('heading',name=re.compile('^System health$',re.I)).wait_for()

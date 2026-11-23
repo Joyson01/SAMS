@@ -241,12 +241,6 @@ async def get_student_attendance(
 async def recognize_frame_or_image_attendance(
     session_id: Optional[str] = Form(None, description="Attendance session ID"),
     sessionId: Optional[str] = Form(None, description="Attendance session ID alias"),
-    camera_id: Optional[str] = Form(
-        None, description="Camera ID to capture frame from directly"
-    ),
-    frame_url: Optional[str] = Form(
-        None, description="URL of previously captured frame"
-    ),
     threshold: float = Form(0.40, description="Recognition threshold"),
     min_face_size: int = Form(
         35, description="Minimum face bounding box dimension in pixels"
@@ -269,9 +263,7 @@ async def recognize_frame_or_image_attendance(
 ):
     import cv2
     from backend.app.services.photo_attendance_service import decode_photo
-    from pathlib import Path
-    from backend.app.models.entities import AttendanceSession, Camera
-    from backend.app.services.camera_service import CameraService
+    from backend.app.models.entities import AttendanceSession
 
     target_session_id = session_id or sessionId
     if not target_session_id or target_session_id.strip() == "":
@@ -301,7 +293,7 @@ async def recognize_frame_or_image_attendance(
             detail=f"Attendance session '{target_session_id}' has already been {sess_obj.status} and is locked against further recognition.",
         )
 
-    # 2. Acquire Image Buffer from Upload, frame_url, or Camera
+    # 2. Decode the uploaded image
     img_cv = None
     upload_file = image or file or photo or frame
 
@@ -310,33 +302,10 @@ async def recognize_frame_or_image_attendance(
         if len(image_bytes) > 0:
             img_cv = decode_photo(image_bytes)
 
-    if img_cv is None and frame_url:
-        clean_url = frame_url.lstrip("/")
-        filename = Path(clean_url).name
-        possible_paths = [
-            Path(clean_url),
-            Path.cwd() / clean_url,
-            Path(__file__).resolve().parents[4] / clean_url,
-            Path("outputs") / filename,
-            Path.cwd() / "outputs" / filename,
-        ]
-        for p in possible_paths:
-            if p.is_file():
-                img_cv = cv2.imread(str(p))
-                if img_cv is not None:
-                    break
-
-    if img_cv is None and camera_id:
-        cam_model = await db.get(Camera, camera_id)
-        if cam_model:
-            img_cv = await asyncio.to_thread(
-                CameraService.capture_camera_frame, camera_id, camera_obj=cam_model
-            )
-
     if img_cv is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No valid photo or camera frame available. Please capture a photo or select an active camera stream.",
+            detail="Upload a valid photo or capture one on this device.",
         )
 
     from backend.app.services.photo_attendance_service import legacy_photo

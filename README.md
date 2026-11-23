@@ -333,7 +333,7 @@ Create a class/subject in Courses & Rooms, add students, then select Enroll on y
 
 ## Anonymous photo detection
 
-Sign in as an administrator or faculty member, then choose **Cameras & AI → Anonymous Detection**, or open `/anonymous-detection`.
+Sign in as an administrator or faculty member, then choose **Recognition tools → Anonymous Detection**, or open `/anonymous-detection`.
 
 1. Upload an original still JPEG, PNG or WebP photo.
 2. Review the face boxes and count. Dashed boxes mark small faces that need visual review.
@@ -354,7 +354,7 @@ The count represents detected visible faces, not everyone in the room. Small, co
 - Photo preview/review/confirmation, margin buckets, one-to-one selection, idempotency and protection of MANUAL_PRESENT/EXCUSED.
 - Linux startup from a clean source snapshot, frontend TypeScript/build, HTTP smoke and Chromium fake-camera flow.
 
-The original recognition smoke tests configured **FRONT only** on disposable servers. Later Chromium checks exercised seven-pose student capture and progression with a simulated camera and mocked pose responses. Physical webcam behavior, real-person matching, Windows/macOS startup, real phones and RTSP cameras, PostgreSQL, and CUDA still require validation. See [manual QA](docs/MANUAL_QA.md), [troubleshooting](docs/TROUBLESHOOTING.md), [audit](docs/AUDIT.md) and [final verification report](docs/FINAL_REPORT.md).
+The original recognition smoke tests configured **FRONT only** on disposable servers. Later Chromium checks exercised seven-pose student capture and progression with a simulated camera and mocked pose responses. Physical webcam behavior, real-person matching, Windows/macOS startup, direct capture on physical phones, PostgreSQL, and CUDA still require validation. See [manual QA](docs/MANUAL_QA.md), [troubleshooting](docs/TROUBLESHOOTING.md), [audit](docs/AUDIT.md) and [final verification report](docs/FINAL_REPORT.md).
 
 For the November 16, 2026 updates, the anonymous detection and photo-detector checks passed (14 tests). The frontend production build passed after UI polishing. Browser checks covered navigation, directory search, dialog controls, desktop and phone layouts, dark mode and keyboard focus. These are scoped results, not a new full-suite certification. See the [UI polish report](docs/UNSLOP_DIRECTION.md) and [anonymous detection design](docs/anonymous-detection-design.md).
 
@@ -384,6 +384,8 @@ It uses Chromium's fake-camera flags and a real fixture image; it never opens ha
 
 See [.env.example](.env.example). SQLite uses `data/sams_dev.db`; PostgreSQL accepts a SQLAlchemy asyncpg URL. Configure a unique SECRET_KEY and BOOTSTRAP_TOKEN before non-development setup. Enrollment poses are configured by ENROLLMENT_REQUIRED_POSES. Default: FRONT, LEFT_15, RIGHT_15, TILT_UP, TILT_DOWN, ROLL_RIGHT, BACKUP_FRONT. The pose estimator is approximate.
 
+Compose requires `POSTGRES_PASSWORD` and a unique `SECRET_KEY`. Set `BACKEND_CORS_ORIGINS` to a JSON list if the frontend runs on a separate origin. Compose disables the SQLite fallback. Use the local startup scripts for development while the Alembic upgrade chain is repaired.
+
 InsightFace model files live in `~/.insightface/models/buffalo_l`. `python -m scripts.check_models` prints real face counts, 512-value embedding shapes and runtime providers, or manual-install instructions. `/health` reports database and AI availability without requiring login. Use **one backend worker**; the recognition gallery and stream state are in memory.
 
 `python -m scripts.seed_demo_data` optionally adds fictional academic records, idempotently, without embeddings or attendance. It is not required for the real workflow. `./start.sh --check` starts both services, verifies HTTP readiness, then stops them. Export BACKEND_PORT/FRONTEND_PORT for alternate ports. Optional `npm run dev:https` supports HTTPS development; actual phone trust/setup remains manual.
@@ -404,7 +406,7 @@ Canonical prefix: `/api/v1`; `/api` is a compatibility alias. Auth uses bearer t
 - Photo review: `/media-attendance/image/preview`, `/media-attendance/image/confirm`.
 - Reports/health: `/reports/analytics`, `/reports/export/csv`, `/health`.
 
-See the generated [API inventory](docs/API_ROUTES.md) or live OpenAPI docs for exact methods and remaining camera/phone routes.
+See the generated [API inventory](docs/API_ROUTES.md) or live OpenAPI docs for exact methods. Direct device capture uses the browser camera. Previous RTSP and cross-device pairing URLs have been retired.
 
 ## Repository guide
 
