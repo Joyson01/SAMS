@@ -160,6 +160,7 @@ async def init_db_schema() -> None:
         from sqlalchemy import inspect
 
         additions = [
+            ("users", "department", "VARCHAR(64)"),
             (
                 "students",
                 "batch_id",

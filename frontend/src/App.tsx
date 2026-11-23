@@ -14,6 +14,7 @@ const RecognitionTestPage = React.lazy(() => import('./features/recognition/Reco
 const AnonymousDetectionPage = React.lazy(() => import('./features/detection/AnonymousDetectionPage').then(module => ({ default: module.AnonymousDetectionPage })));
 const AcademicTools = React.lazy(() => import('./features/academics/AcademicTools').then(module => ({ default: module.AcademicTools })));
 const UsersPage = React.lazy(() => import('./features/users/UsersPage').then(module => ({ default: module.UsersPage })));
+const DepartmentPage = React.lazy(() => import('./features/department/DepartmentPage').then(module => ({ default: module.DepartmentPage })));
 const MyAttendancePage = React.lazy(() => import('./features/users/UsersPage').then(module => ({ default: module.MyAttendancePage })));
 const DashboardOverview = React.lazy(() => import('./pages/DashboardOverview').then(module => ({ default: module.DashboardOverview })));
 const StudentListPage = React.lazy(() => import('./features/students/StudentListPage').then(module => ({ default: module.StudentListPage })));
@@ -112,12 +113,13 @@ const Workspace: React.FC = () => {
         healthStatus={healthStatus}
         onRefreshHealth={loadHealth}
         isRefreshing={isRefreshing}
-        activeTab={role === 'STUDENT' ? 'my-attendance' : activeTab}
+        activeTab={role === 'STUDENT' ? 'my-attendance' : role === 'HOD' ? 'department' : activeTab}
         setActiveTab={setActiveTab}
       >
         <ErrorBoundary key={activeTab} fallbackTitle={`Error in ${activeTab.toUpperCase()}`}>
           {role === 'STUDENT' && <MyAttendancePage />}
-          {role !== 'STUDENT' && <>
+          {role === 'HOD' && <DepartmentPage />}
+          {role !== 'STUDENT' && role !== 'HOD' && <>
           {activeTab === 'recognition-test' && ['ADMIN','FACULTY'].includes(role) && <RecognitionTestPage />}
           {activeTab === 'anonymous-detection' && ['ADMIN','FACULTY'].includes(role) && <AnonymousDetectionPage />}
           {activeTab === 'users' && role === 'ADMIN' && <UsersPage />}

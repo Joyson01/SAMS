@@ -6,6 +6,7 @@ from backend.app.api.v1 import (
     auth,
     classes,
     dashboard,
+    department,
     health,
     media_attendance,
     photo_attendance,
@@ -23,6 +24,7 @@ api_router.include_router(anonymous_detection.router)
 
 # Mount API sub-routers
 api_router.include_router(dashboard.router)
+api_router.include_router(department.router)
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(student_portal.router)

@@ -6,7 +6,7 @@ The repository is named **SAMS**. Use the **`joyson` branch** for the current ap
 
 ## Workspace overview
 
-- **Dashboard:** attendance summaries, daily classes, recent activity and system health.
+- **Dashboard:** attendance summaries, daily classes, recent activity and system health. Administrators can create an HOD account from **Users** by entering the department name as it appears on an existing class. HODs see the class, active student, and active session counts for their assigned department.
 - **Student portal:** personal details, subject and date filters, an attendance target calculator, correction requests, face enrollment, and a face-match check.
 - **Attendance sessions:** scheduling, session records, roster review and manual attendance.
 - **Students and academics:** student directory, classes, subjects, batches and timetable management.

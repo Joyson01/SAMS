@@ -16,7 +16,7 @@ from backend.app.core.security import (
     hash_password,
     verify_password,
 )
-from backend.app.models.entities import AuthSession, User
+from backend.app.models.entities import AuthSession, ClassSection, User
 from backend.app.schemas.auth import TokenResponse, UserRegisterRequest, UserResponse
 
 
@@ -31,7 +31,7 @@ class AuthService:
         actor: User | None = None,
     ) -> UserResponse:
         requested_role = register_in.role.upper()
-        if actor is not None and requested_role not in {"STUDENT", "ADMIN", "FACULTY", "OPERATOR"}:
+        if actor is not None and requested_role not in {"STUDENT", "ADMIN", "HOD", "FACULTY", "OPERATOR"}:
             raise HTTPException(422, "Invalid account role.")
         if actor is not None and actor.role != "ADMIN":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only administrators can create accounts.")
@@ -39,6 +39,15 @@ class AuthService:
             role = requested_role
         else:
             role = "STUDENT"
+
+        department = None
+        if role == "HOD":
+            department = (register_in.department or "").strip()
+            known_department = await db.scalar(
+                select(ClassSection.department).where(ClassSection.department == department).limit(1)
+            )
+            if not department or known_department is None:
+                raise HTTPException(422, "Select a department with an existing class for the HOD account.")
 
         query = select(User).where(
             or_(User.username == register_in.username, User.email == register_in.email)
@@ -55,6 +64,7 @@ class AuthService:
             password_hash=hash_password(register_in.password),
             full_name=register_in.full_name,
             role=role,
+            department=department,
             is_active=True,
         )
         db.add(user)

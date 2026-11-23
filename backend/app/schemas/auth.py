@@ -9,6 +9,8 @@ class UserRegisterRequest(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=128)
     role: str = Field("STUDENT", description="Requested role; elevated roles require an administrator.")
 
+    department: str | None = Field(None, max_length=64)
+
     @field_validator("password")
     @classmethod
     def validate_password(cls, value: str) -> str:
@@ -37,6 +39,7 @@ class UserResponse(BaseModel):
     email: str
     full_name: str
     role: str
+    department: str | None = None
     is_active: bool
     created_at: datetime
 
