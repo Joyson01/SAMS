@@ -14,6 +14,7 @@ from backend.app.api.v1 import (
     recognition,
     reports,
     stream,
+    student_portal,
     students,
     subjects,
     sync,
@@ -26,6 +27,7 @@ api_router.include_router(anonymous_detection.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
+api_router.include_router(student_portal.router)
 api_router.include_router(students.router)
 api_router.include_router(subjects.router)
 api_router.include_router(classes.router)

@@ -134,6 +134,15 @@ async def get_enrollment_status(student_id: str, db: AsyncSession = Depends(get_
     return await enrollment_status(db, student_id)
 
 
+@router.delete("/{student_id}/enroll", summary="Remove a student's face data")
+async def remove_student_face_data(
+    student_id: str, db: AsyncSession = Depends(get_db),
+    admin=Depends(require_roles("ADMIN")),
+):
+    from backend.app.services.enrollment_service import remove_face_data
+    return await remove_face_data(db, student_id, admin.id)
+
+
 @router.post('/{student_id}/enroll/check')
 async def check_enrollment(student_id: str, file: UploadFile = File(...), pose_type: str = Form('FRONT'), db: AsyncSession = Depends(get_db)):
     import asyncio

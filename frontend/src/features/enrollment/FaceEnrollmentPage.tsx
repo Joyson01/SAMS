@@ -1,19 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { WebcamPanel, FrameResult } from '../../components/camera/WebcamPanel';
+import { Button, Modal } from '../../components/ui';
 import { apiClient } from '../../services/api';
 import { fetchStudents } from '../../services/studentApi';
 import { Student } from '../../types/student';
 import { formatApiErrorMessage } from '../../utils/apiError';
 
 type Enrollment = {required_poses:string[];completed_poses:string[];hints:Record<string,string>;complete:boolean};
-export function FaceEnrollmentPage({initialStudentId,onNavigate}:{initialStudentId?:string;onNavigate?:(tab:string)=>void}) {
+export function FaceEnrollmentPage({initialStudentId,canRemoveFaceData,onNavigate}:{initialStudentId?:string;canRemoveFaceData?:boolean;onNavigate?:(tab:string)=>void}) {
  const [students,setStudents]=useState<Student[]>([]),[sid,setSid]=useState(initialStudentId||''),[status,setStatus]=useState<Enrollment|null>(null),[pose,setPose]=useState('FRONT'),[error,setError]=useState(''),[busy,setBusy]=useState(false),[automatic,setAutomatic]=useState(true),[search,setSearch]=useState('');
+ const [confirmRemoval, setConfirmRemoval] = useState(false);
+ const [removing, setRemoving] = useState(false);
+ const [removalError, setRemovalError] = useState('');
+ const [notice, setNotice] = useState('');
  const context=useRef({sid,pose}); context.current={sid,pose};
  const stable=useRef(0),lastPose=useRef(''),lastBlob=useRef<{blob:Blob;studentId:string;pose:string}|null>(null),saving=useRef(false);
  useEffect(()=>{let active=true;fetchStudents({limit:100,search}).then(r=>{if(active){setStudents(r.items);if(!sid&&r.items.length)setSid(r.items[0].id);}}).catch(e=>setError(formatApiErrorMessage(e,'Unable to load students.')));return()=>{active=false;};},[search]);
  useEffect(()=>{
   let active=true;
-  setStatus(null);stable.current=0;lastBlob.current=null;setError('');
+  setStatus(null);stable.current=0;lastBlob.current=null;setError('');setNotice('');
   if(sid)apiClient.get(`/students/${sid}/enroll/status`).then(r=>{
    if(!active)return;
    setStatus(r.data);setPose(r.data.required_poses.find((p:string)=>!r.data.completed_poses.includes(p))||r.data.required_poses[0]);
@@ -28,11 +33,46 @@ export function FaceEnrollmentPage({initialStudentId,onNavigate}:{initialStudent
  if(signal.aborted||context.current.sid!==sid||context.current.pose!==pose)return {};
  if(d.valid){if(lastPose.current!==pose||!stable.current){stable.current=performance.now();lastPose.current=pose;}else if(automatic&&performance.now()-stable.current>=1000&&!status.completed_poses.includes(pose)){await save(blob);}}else stable.current=0;
  return {valid:d.valid,quality:{blur:d.blur,brightness:d.brightness},message:`${status.hints[pose]} — ${d.hint}${d.blur!=null?` · Sharpness ${d.blur.toFixed(0)} · Brightness ${d.brightness.toFixed(0)}`:''}`,boxes:d.bbox?[{bbox:d.bbox,label:d.valid?'Hold still':d.hint,color:d.valid?'#16a34a':'#d97706'}]:[]};};
+ async function removeFaceData() {
+  setRemoving(true);
+  setRemovalError('');
+  try {
+   const { data } = await apiClient.delete<Enrollment>(`/students/${sid}/enroll`);
+   setStatus(data);
+   setPose(data.required_poses[0]);
+   setConfirmRemoval(false);
+   setNotice('Face data removed. The student can register again.');
+  } catch (err) {
+   setRemovalError(formatApiErrorMessage(err, 'Unable to remove face data.'));
+  } finally {
+   setRemoving(false);
+  }
+ }
+ const selectedStudent = students.find(student => student.id === sid);
  return <div className="space-y-6 text-text"><header><h1 className="text-2xl font-semibold tracking-tight">Face enrollment</h1><p className="mt-2 text-sm text-text-muted">Use good lighting and keep one face in view.</p></header>
+ {notice && <p role="status" className="rounded-lg border border-border bg-surface p-4 text-sm">{notice}</p>}
  {error&&<p role="alert" className="rounded-xl border border-danger/30 bg-danger/10 p-4 text-sm text-danger">{error}</p>}
  <div className="grid gap-4 rounded-xl border border-border bg-surface p-5 sm:grid-cols-2"><label className="space-y-2 text-sm font-medium">Find student<input placeholder="Search name or roll number" className="block min-h-11 w-full rounded-lg border border-border bg-background px-3 text-text" value={search} onChange={e=>setSearch(e.target.value)}/></label><label className="space-y-2 text-sm font-medium">Student<select disabled={busy} className="block min-h-11 w-full rounded-lg border border-border bg-background px-3 text-text" value={sid} onChange={e=>setSid(e.target.value)}><option value="">Select student</option>{students.map(s=><option key={s.id} value={s.id}>{s.first_name} {s.last_name} · {s.roll_number}</option>)}</select></label></div>
  {!students.length&&<div className="rounded-xl border border-dashed border-border p-8 text-center"><h2 className="font-semibold">No students to enroll</h2><p className="mt-2 text-sm text-text-muted">Try another search or add a student in Students first.</p></div>}
- {status&&<div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)]"><section className="min-w-0 space-y-4 rounded-xl border border-border bg-surface p-4 sm:p-5"><div><h2 className="font-semibold">{pose.replace(/_/g,' ')}</h2><p className="mt-1 text-sm text-text-muted">{status.hints[pose]}</p></div><WebcamPanel key={sid} onFrame={frame}/><div className="space-y-4 border-t border-border pt-4"><label className="flex items-center gap-3 text-sm"><input className="h-5 w-5 accent-primary" type="checkbox" checked={automatic} onChange={e=>setAutomatic(e.target.checked)}/> Auto-capture after 1 second of valid pose</label><button className="min-h-11 w-full rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50" disabled={busy} onClick={()=>{if(lastBlob.current?.studentId===sid&&lastBlob.current.pose===pose)void save(lastBlob.current.blob);else setError('Start the camera before capturing.');}}>{busy?'Saving sample…':'Capture / retake current pose'}</button><label className="block space-y-2 text-sm text-text-muted">Or upload a photo for this pose<input className="block w-full max-w-full text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-surface-muted file:px-3 file:py-3 file:text-text" type="file" accept="image/jpeg,image/png" disabled={busy} onChange={e=>{if(e.target.files?.[0])void save(e.target.files[0]);e.target.value='';}}/></label></div></section>
- <aside className="space-y-4 rounded-xl border border-border bg-surface p-5"><div className="flex items-center justify-between"><h2 className="font-semibold">Capture checklist</h2><span className="font-mono text-sm text-text-muted">{status.completed_poses.length}/{status.required_poses.length}</span></div><div className="h-2 overflow-hidden rounded-full bg-surface-muted"><div className="h-full rounded-full bg-primary transition-all" style={{width:`${status.required_poses.length?status.completed_poses.length/status.required_poses.length*100:0}%`}}/></div><ol className="space-y-2">{status.required_poses.map((p,i)=><li key={p}><button disabled={busy} aria-current={pose===p?'step':undefined} onClick={()=>{setPose(p);stable.current=0;}} className={`flex min-h-12 w-full items-center gap-3 rounded-lg border p-3 text-left text-sm ${pose===p?'border-primary bg-primary/10':'border-border bg-surface'} `}><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${status.completed_poses.includes(p)?'bg-success/10 text-success':'bg-surface-muted text-text-muted'}`}>{status.completed_poses.includes(p)?'✓':i+1}</span><span className="flex-1 capitalize">{p.toLowerCase().replace(/_/g,' ')}</span>{status.completed_poses.includes(p)&&<span className="text-xs text-success">Retake</span>}</button></li>)}</ol><p role="status" className="rounded-lg bg-surface-muted p-3 text-sm text-text-muted">{status.complete?'All samples saved. Enrollment is complete.':'Samples are checked on the server before they are saved.'}</p>{status.complete&&<button className="min-h-11 w-full rounded-lg bg-success p-3 text-sm font-semibold text-white" onClick={()=>onNavigate?.('recognition-test')}>Open Recognition Test</button>}</aside></div>}
+ {status&&<div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)]"><section className="min-w-0 space-y-4 rounded-xl border border-border bg-surface p-4 sm:p-5"><div><h2 className="font-semibold">{pose.replace(/_/g,' ')}</h2><p className="mt-1 text-sm text-text-muted">{status.hints[pose]}</p></div>{!confirmRemoval && <WebcamPanel key={sid} onFrame={frame}/>}<div className="space-y-4 border-t border-border pt-4"><label className="flex items-center gap-3 text-sm"><input className="h-5 w-5 accent-primary" type="checkbox" checked={automatic} onChange={e=>setAutomatic(e.target.checked)}/> Auto-capture after 1 second of valid pose</label><button className="min-h-11 w-full rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50" disabled={busy} onClick={()=>{if(lastBlob.current?.studentId===sid&&lastBlob.current.pose===pose)void save(lastBlob.current.blob);else setError('Start the camera before capturing.');}}>{busy?'Saving sample…':'Capture / retake current pose'}</button><label className="block space-y-2 text-sm text-text-muted">Or upload a photo for this pose<input className="block w-full max-w-full text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-surface-muted file:px-3 file:py-3 file:text-text" type="file" accept="image/jpeg,image/png" disabled={busy} onChange={e=>{if(e.target.files?.[0])void save(e.target.files[0]);e.target.value='';}}/></label></div></section>
+ <aside className="space-y-4 rounded-xl border border-border bg-surface p-5"><div className="flex items-center justify-between"><h2 className="font-semibold">Capture checklist</h2><span className="font-mono text-sm text-text-muted">{status.completed_poses.length}/{status.required_poses.length}</span></div><div className="h-2 overflow-hidden rounded-full bg-surface-muted"><div className="h-full rounded-full bg-primary transition-all" style={{width:`${status.required_poses.length?status.completed_poses.length/status.required_poses.length*100:0}%`}}/></div><ol className="space-y-2">{status.required_poses.map((p,i)=><li key={p}><button disabled={busy} aria-current={pose===p?'step':undefined} onClick={()=>{setPose(p);stable.current=0;}} className={`flex min-h-12 w-full items-center gap-3 rounded-lg border p-3 text-left text-sm ${pose===p?'border-primary bg-primary/10':'border-border bg-surface'} `}><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${status.completed_poses.includes(p)?'bg-success/10 text-success':'bg-surface-muted text-text-muted'}`}>{status.completed_poses.includes(p)?'✓':i+1}</span><span className="flex-1 capitalize">{p.toLowerCase().replace(/_/g,' ')}</span>{status.completed_poses.includes(p)&&<span className="text-xs text-success">Retake</span>}</button></li>)}</ol><p role="status" className="rounded-lg bg-surface-muted p-3 text-sm text-text-muted">{status.complete?'All samples saved. Enrollment is complete.':'Samples are checked on the server before they are saved.'}</p>{status.complete&&<button className="min-h-11 w-full rounded-lg bg-success p-3 text-sm font-semibold text-white" onClick={()=>onNavigate?.('recognition-test')}>Open Recognition Test</button>}
+ {canRemoveFaceData && <Button variant="danger" disabled={busy} className="w-full" onClick={() => {
+   stable.current = 0;
+   lastBlob.current = null;
+   setRemovalError('');
+   setNotice('');
+   setConfirmRemoval(true);
+ }}>Remove face data</Button>}
+ </aside></div>}
+ <Modal isOpen={confirmRemoval} onClose={() => { if (!removing) setConfirmRemoval(false); }}
+  title="Remove face data?" footer={<>
+   <Button variant="secondary" disabled={removing} onClick={() => setConfirmRemoval(false)}>Cancel</Button>
+   <Button variant="danger" disabled={removing} onClick={() => void removeFaceData()}>
+    {removing ? 'Removing…' : 'Remove face data'}
+   </Button>
+  </>}>
+  <p className="text-sm text-text-muted">This permanently deletes the saved face samples and any pending face photos for {selectedStudent ? `${selectedStudent.first_name} ${selectedStudent.last_name}` : 'the selected student'}. Their account and attendance history are kept.</p>
+  {removalError && <p role="alert" className="mt-3 text-sm text-danger">{removalError}</p>}
+ </Modal>
  </div>;
 }

@@ -2,15 +2,16 @@
 import asyncio
 import hashlib
 from dataclasses import asdict
+from datetime import datetime, timezone
 import cv2
 import numpy as np
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from backend.app.core.config import settings
-from backend.app.models.entities import Student, FaceProfile
+from backend.app.models.entities import AuditLog, FaceProfile, Student, StudentPortalRequest
 from backend.app.services.recognition_service import get_pipeline, RecognitionService
 
-POSE_HINTS = {'FRONT':'Look straight ahead', 'LEFT_15':'Turn slightly left', 'RIGHT_15':'Turn slightly right', 'TILT_UP':'Tilt your chin up', 'TILT_DOWN':'Tilt your chin down', 'ROLL_RIGHT':'Tilt your head slightly sideways', 'BACKUP_FRONT':'Look straight ahead for the backup sample'}
+POSE_HINTS = {'FRONT':'Look straight ahead', 'LEFT_15':'Turn slightly to your left', 'RIGHT_15':'Turn slightly to your right', 'TILT_UP':'Tilt your chin up', 'TILT_DOWN':'Tilt your chin down', 'ROLL_RIGHT':'Tilt your head slightly sideways', 'BACKUP_FRONT':'Look straight ahead for the backup sample'}
 _enrollment_lock = asyncio.Lock()
 
 def required_poses():
@@ -22,15 +23,16 @@ def required_poses():
 def pose_matches(pose, target):
     if target in {'FRONT','BACKUP_FRONT'}:
         return abs(pose.yaw)<=18 and abs(pose.pitch)<=25 and abs(pose.roll)<=15
-    if target=='LEFT_15': return -40<=pose.yaw<=-8 and abs(pose.pitch)<=30
-    if target=='RIGHT_15': return 8<=pose.yaw<=40 and abs(pose.pitch)<=30
+    # The estimator uses the unmirrored image: image-right is the student's left.
+    if target=='LEFT_15': return 8<=pose.yaw<=40 and abs(pose.pitch)<=30
+    if target=='RIGHT_15': return -40<=pose.yaw<=-8 and abs(pose.pitch)<=30
     if target=='TILT_UP': return pose.pitch<=-8 and abs(pose.yaw)<=25
     if target=='TILT_DOWN': return 18<=pose.pitch<=45 and abs(pose.yaw)<=25
     if target=='ROLL_RIGHT': return 10<=abs(pose.roll)<=30 and abs(pose.yaw)<=25
     return False
 
-def check_image(data, target, embed=False):
-    if target not in required_poses():
+def check_image(data, target, embed=False, *, match_test=False):
+    if not (match_test and target == "FRONT") and target not in required_poses():
         raise HTTPException(422,'Choose a configured enrollment pose.')
     if not data or len(data)>10*1024*1024:
         raise HTTPException(413,'Upload a nonempty image under 10 MB.')
@@ -56,6 +58,14 @@ def check_image(data, target, embed=False):
     embedding=pipeline.embedder.extract_from_crop(pipeline.aligner.align(image,face.landmarks)) if embed and valid else None
     return result,embedding
 
+
+def matches_template(embedding, stored) -> bool:
+    vector = np.asarray(stored, dtype=np.float32)
+    if vector.shape != (512,) or not np.isfinite(vector).all():
+        return False
+    norm = np.linalg.norm(vector)
+    return bool(norm > 0 and float(np.dot(embedding, vector / norm)) >= 0.58)
+
 async def enrollment_status(db, student_id):
     if not await db.get(Student,student_id): raise HTTPException(404,'Student not found.')
     profiles=(await db.scalars(select(FaceProfile).where(FaceProfile.student_id==student_id))).all()
@@ -63,7 +73,38 @@ async def enrollment_status(db, student_id):
     completed=sorted({p.pose_type for p in profiles} & set(poses))
     return {'required_poses':poses,'completed_poses':completed,'hints':POSE_HINTS,'sample_count':len(completed),'complete':set(poses)<=set(completed)}
 
-async def enroll(db,student_id,data,target):
+async def remove_face_data(db, student_id: str, admin_id: str):
+    async with _enrollment_lock:
+        student = await db.get(Student, student_id)
+        if student is None:
+            raise HTTPException(404, "Student not found.")
+        removed = await db.execute(delete(FaceProfile).where(FaceProfile.student_id == student_id))
+        cleared = await db.execute(
+            update(StudentPortalRequest)
+            .where(
+                StudentPortalRequest.student_id == student_id,
+                StudentPortalRequest.kind.in_(("FACE_REGISTER", "FACE_UPDATE")),
+                StudentPortalRequest.status == "PENDING",
+            )
+            .values(
+                status="REJECTED", pending_key=None, photo=None,
+                review_note="Face data removed by an administrator.",
+                reviewed_by=admin_id, reviewed_at=datetime.now(timezone.utc),
+            )
+        )
+        student.enrollment_status = "NOT_ENROLLED"
+        if removed.rowcount or cleared.rowcount:
+            db.add(AuditLog(
+                user_id=admin_id, action="DELETE_FACE_DATA", entity_type="Student",
+                entity_id=student_id,
+                old_values={"face_profiles": removed.rowcount, "pending_photos": cleared.rowcount},
+                new_values={"enrollment_status": "NOT_ENROLLED"},
+            ))
+        await db.commit()
+        await RecognitionService.sync_gallery_from_db(db)
+    return await enrollment_status(db, student_id)
+
+async def enroll(db, student_id, data, target, *, self_enrollment: bool = False):
     student=await db.get(Student,student_id)
     if not student: raise HTTPException(404,'Student not found.')
     result,embedding=await asyncio.to_thread(check_image,data,target,True)
@@ -71,11 +112,16 @@ async def enroll(db,student_id,data,target):
         return {'success':False,'message':result['hint'],**result}
     async with _enrollment_lock:
         profiles=(await db.scalars(select(FaceProfile))).all()
+        own_profiles = [profile for profile in profiles if profile.student_id == student_id]
+        if self_enrollment and own_profiles and not any(
+            matches_template(embedding, profile.embedding_data) for profile in own_profiles
+        ):
+            raise HTTPException(422, "This photo does not match the face already registered for your account.")
         for profile in profiles:
             if profile.student_id==student_id: continue
             vector=np.asarray(profile.embedding_data,dtype=np.float32)
             if vector.shape==(512,) and np.linalg.norm(vector)>0 and float(np.dot(embedding,vector/np.linalg.norm(vector)))>=0.80:
-                other=await db.get(Student,profile.student_id)
+                other = None if self_enrollment else await db.get(Student, profile.student_id)
                 raise HTTPException(409,f'This face is already enrolled for {other.first_name if other else "another student"}. Ask an administrator to review the identity.')
         same=[p for p in profiles if p.student_id==student_id and p.pose_type==target]
         profile=same[0] if same else FaceProfile(student_id=student_id,pose_type=target)

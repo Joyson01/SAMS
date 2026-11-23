@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, Users, RefreshCw } from 'lucide-react';
 import { apiClient } from '../../services/api';
+import { CorrectionForm, FaceRequests, fieldClass, RequestState, StudentReviewQueue } from './StudentRequests';
 import { AuthUser } from '../../services/authApi';
 import { formatApiErrorMessage } from '../../utils/apiError';
 import { Avatar, Button, Modal, EmptyState, Skeleton, StatusBadge } from '../../components/ui';
@@ -23,6 +24,7 @@ export function UsersPage() {
   const inputClass='mt-2 min-h-11 w-full rounded-lg border border-border bg-surface px-3 py-2 text-text';
   return <div className="space-y-6"><header className="flex flex-wrap items-center justify-between gap-4"><div><h1 className="text-2xl font-semibold tracking-tight">Users</h1><p className="mt-1 text-sm text-text-muted">Manage campus accounts, access and student records.</p></div><Button icon={<Plus size={17}/>} onClick={()=>{setCreating(true);setError('');}}>Create account</Button></header>
     {feedback}
+    <StudentReviewQueue />
     <section className="rounded-xl border border-border bg-surface"><div className="flex items-center gap-3 border-b border-border p-4"><label className="flex-1"><span className="sr-only">Search users</span><input placeholder="Search by name, username or email" className={inputClass+' !mt-0'} value={search} onChange={e=>{setSearch(e.target.value);setPage(0);}}/></label><Button variant="secondary" icon={<RefreshCw size={16}/>} disabled={loading} onClick={()=>void load()}>Refresh</Button></div>
     {loading?<div className="space-y-3 p-5">{[0,1,2].map(i=><Skeleton key={i} className="h-16"/>)}</div>:!filtered.length?<EmptyState icon={<Users size={24}/>} title={error?'Users unavailable':'No users found'} description={error?'Try reloading the directory.':'Try another search or create an account.'} actionLabel={error?'Retry':'Create account'} onAction={()=>error?void load():setCreating(true)}/>:<div className="divide-y divide-border">{filtered.slice(page*10,page*10+10).map(u=><article key={u.id} className="flex flex-wrap items-center gap-4 p-4 hover:bg-surface-muted/60"><Avatar name={u.full_name || u.username} size="lg"/><div className="min-w-[180px] flex-1"><h2 className="font-medium">{u.full_name || u.username}</h2><p className="break-all text-xs text-text-muted">{u.username} · {u.email}</p></div><span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{u.role}</span><span className={`text-xs font-medium ${u.is_active?'text-success':'text-text-muted'}`}>{u.is_active?'Active':'Disabled'}</span><div className="flex w-full gap-2 sm:w-auto"><Button size="sm" variant="secondary" onClick={()=>{setSelected(u.id);setError('');setNotice('');}}>Manage</Button><Button size="sm" variant="ghost" disabled={busy} onClick={()=>setToggleUser(u)}>{u.is_active?'Deactivate':'Activate'}</Button></div></article>)}</div>}
     <div className="flex items-center justify-between gap-3 border-t border-border p-4"><Button size="sm" variant="secondary" disabled={!page} onClick={()=>setPage(page-1)}>Previous</Button><span className="text-xs text-text-muted">Page {page+1} · {filtered.length} users</span><Button size="sm" variant="secondary" disabled={(page+1)*10>=filtered.length} onClick={()=>setPage(page+1)}>Next</Button></div></section>
@@ -80,14 +82,135 @@ function StudentDetails({ profile }: { profile: StudentProfile }) {
   );
 }
 
-type PersonalAttendance = {linked:boolean;profile?:StudentProfile;items:{id:string;date:string;subject:string;status:string;remarks:string}[]};
+type AttendanceItem = { id: string; date: string; subject: string; status: string; remarks: string | null };
+type PersonalAttendance = { linked: boolean; profile?: StudentProfile; items: AttendanceItem[] };
+const presenceStatuses = new Set(['PRESENT', 'LATE', 'MANUAL_PRESENT']);
+
+function AttendanceDashboard({ items, requests, onSaved }: { items: AttendanceItem[]; requests: RequestState | null; onSaved: () => void }) {
+  const [subject, setSubject] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [target, setTarget] = useState('75');
+  const subjects = [...new Set(items.map(row => row.subject))].sort();
+  const datesValid = !from || !to || from <= to;
+  const filtered = datesValid ? items.filter(row =>
+    (!subject || row.subject === subject) && (!from || row.date >= from) && (!to || row.date <= to)
+  ) : [];
+  const attended = filtered.filter(row => presenceStatuses.has(row.status)).length;
+  const total = filtered.length;
+  const percentage = total ? (attended * 100 / total).toFixed(1) : '0';
+  const targetPercent = Number(target);
+  const targetValid = Number.isInteger(targetPercent) && targetPercent >= 1 && targetPercent <= 100;
+  const needed = targetPercent < 100
+    ? Math.max(0, Math.ceil((targetPercent * total - 100 * attended) / (100 - targetPercent)))
+    : null;
+
+  if (!items.length) {
+    return <EmptyState title="No attendance recorded yet" description="Your attendance history will appear after your first recorded session." />;
+  }
+
+  return <>
+    <section className="space-y-5 rounded-xl border border-border bg-surface p-6">
+      <h2 className="font-semibold">Attendance overview</h2>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <label className="block text-sm font-medium">Subject
+          <select className={fieldClass} value={subject} onChange={event => setSubject(event.target.value)}>
+            <option value="">All subjects</option>
+            {subjects.map(name => <option key={name}>{name}</option>)}
+          </select>
+        </label>
+        <label className="block text-sm font-medium">From
+          <input className={fieldClass} type="date" value={from} onChange={event => setFrom(event.target.value)} />
+        </label>
+        <label className="block text-sm font-medium">To
+          <input className={fieldClass} type="date" value={to} onChange={event => setTo(event.target.value)} />
+        </label>
+      </div>
+      {!datesValid && <p role="alert" className="text-sm text-danger">Choose an end date on or after the start date.</p>}
+      {datesValid && total === 0 && <p className="text-sm text-text-muted">No sessions match these filters.</p>}
+      {total > 0 && <>
+        <p><strong>{percentage}%</strong> · {attended} of {total} recorded sessions attended</p>
+        <div className="space-y-2">
+          {subjects.filter(name => !subject || name === subject).map(name => {
+            const records = filtered.filter(row => row.subject === name);
+            if (!records.length) return null;
+            const count = records.filter(row => presenceStatuses.has(row.status)).length;
+            return <div key={name} className="flex justify-between gap-4 text-sm">
+              <span>{name}</span><span>{count}/{records.length}</span>
+            </div>;
+          })}
+        </div>
+        <p className="text-xs text-text-muted">Present, late, and manual-present marks count as attendance.</p>
+        <div className="space-y-2 border-t border-border pt-4">
+          <label className="block max-w-40 text-sm font-medium">Attendance target (%)
+            <input className={fieldClass} type="number" min="1" max="100" step="1" value={target}
+              onChange={event => setTarget(event.target.value)} />
+          </label>
+          <p className="text-sm" aria-live="polite">
+            {!targetValid ? 'Enter a whole percentage from 1 to 100.'
+              : 100 * attended >= targetPercent * total ? 'You’ve reached this target.'
+              : needed === null ? 'A 100% target is out of reach with the current records.'
+              : `Attend the next ${needed} consecutive ${needed === 1 ? 'session' : 'sessions'} to reach this target.`}
+          </p>
+          <p className="text-xs text-text-muted">The estimate uses the filtered records.</p>
+        </div>
+      </>}
+    </section>
+    {total > 0 && <section className="rounded-xl border border-border bg-surface">
+      <h2 className="border-b border-border p-5 font-semibold">Session history</h2>
+      <div className="divide-y divide-border">
+        {filtered.map(row => <article key={row.id} className="flex flex-wrap items-center justify-between gap-3 p-5">
+          <div>
+            <h3 className="text-sm font-medium">{row.subject}</h3>
+            <p className="text-xs text-text-muted">{row.date}{row.remarks ? ` · ${row.remarks}` : ''}</p>
+          </div>
+          <StatusBadge status={row.status} category="attendance" />
+          {requests && <CorrectionForm record={row} request={requests.items.find(req => req.record_id === row.id)} onSaved={onSaved} />}
+        </article>)}
+      </div>
+    </section>}
+  </>;
+}
+
 export function MyAttendancePage() {
- const [data,setData]=useState<PersonalAttendance|null>(null),[error,setError]=useState('');
- const load=useCallback(async()=>{try{setData((await apiClient.get<PersonalAttendance>('/auth/my-attendance')).data);setError('');}catch(e){setError(formatApiErrorMessage(e,'Unable to load attendance.'));}},[]);
- useEffect(()=>{void load();},[load]);
- const items=data?.items||[];
- const present=items.filter(r=>['PRESENT','LATE','MANUAL_PRESENT'].includes(r.status)).length;
- const percent=items.length?Math.round(present/items.length*100):0;
- const subjects=Array.from(new Set(items.map(r=>r.subject)));
- return <div className="space-y-6"><header><h1 className="text-2xl font-semibold">My attendance</h1><p className="mt-1 text-sm text-text-muted">Your recorded sessions and subject attendance.</p></header>{!error && data?.profile && <StudentDetails profile={data.profile} />}{error?<EmptyState title="Attendance unavailable" description={error} actionLabel="Retry" onAction={()=>void load()}/>:!data?<Skeleton className="h-64"/>:!data.linked?<EmptyState title="Connect your student record" description="Ask your administrator to link your account using your roll number and student code."/>:!items.length?<EmptyState title="No attendance recorded yet" description="Your attendance history will appear after your first recorded session."/>:<><section className="grid gap-6 rounded-xl border border-border bg-surface p-6 sm:grid-cols-[auto_1fr]"><div className="relative mx-auto h-36 w-36"><svg viewBox="0 0 100 100" className="-rotate-90" aria-hidden="true"><circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="8" className="text-surface-muted"/><circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="8" strokeDasharray={`${percent*2.64} 264`} strokeLinecap="round" className="text-primary"/></svg><div className="absolute inset-0 flex flex-col items-center justify-center"><strong className="text-3xl">{percent}%</strong><span className="text-xs text-text-muted">Recorded presence</span></div></div><div className="space-y-4">{subjects.map(subject=>{const rows=items.filter(r=>r.subject===subject);const count=rows.filter(r=>['PRESENT','LATE','MANUAL_PRESENT'].includes(r.status)).length;return <div key={subject}><div className="mb-2 flex justify-between gap-3 text-sm"><span>{subject}</span><span className="text-text-muted">{count}/{rows.length}</span></div><div className="h-2 overflow-hidden rounded-full bg-surface-muted"><div className="h-full rounded-full bg-primary" style={{width:`${count/rows.length*100}%`}}/></div></div>;})}<p className="text-xs text-text-muted">Based on recorded sessions. Present, late and manual-present marks count as presence.</p></div></section><section className="rounded-xl border border-border bg-surface"><h2 className="border-b border-border p-5 font-semibold">Session history</h2><div className="divide-y divide-border">{items.map(r=><article key={r.id} className="flex flex-wrap items-center justify-between gap-3 p-5"><div><h3 className="text-sm font-medium">{r.subject}</h3><p className="text-xs text-text-muted">{r.date}{r.remarks?` · ${r.remarks}`:''}</p></div><StatusBadge status={r.status} category="attendance"/></article>)}</div></section></>}</div>;
+  const [data, setData] = useState<PersonalAttendance | null>(null);
+  const [error, setError] = useState('');
+  const [requestError, setRequestError] = useState('');
+  const [requests, setRequests] = useState<RequestState | null>(null);
+  const loadRequests = useCallback(async () => {
+    try {
+      setRequests((await apiClient.get<RequestState>('/student-portal/requests')).data);
+      setRequestError('');
+    } catch (err) {
+      setRequestError(formatApiErrorMessage(err, 'Unable to load student requests.'));
+    }
+  }, []);
+  const load = useCallback(async () => {
+    try {
+      setData((await apiClient.get<PersonalAttendance>('/auth/my-attendance')).data);
+      setError('');
+    } catch (err) {
+      setError(formatApiErrorMessage(err, 'Unable to load attendance.'));
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const linked = Boolean(data?.linked);
+  useEffect(() => { if (linked) void loadRequests(); }, [linked, loadRequests]);
+
+  return <div className="space-y-6">
+    <header>
+      <h1 className="text-2xl font-semibold">My attendance</h1>
+      <p className="mt-1 text-sm text-text-muted">Your recorded sessions and subject attendance.</p>
+    </header>
+    {error ? <EmptyState title="Attendance unavailable" description={error} actionLabel="Retry" onAction={() => void load()} />
+      : !data ? <Skeleton className="h-64" />
+      : !data.linked ? <EmptyState title="Connect your student record" description="Ask your administrator to link your account using your roll number and student code." />
+      : <>
+        {data.profile && <StudentDetails profile={data.profile} />}
+        <AttendanceDashboard items={data.items} requests={requests} onSaved={() => void loadRequests()} />
+        {requestError && <EmptyState title="Student requests unavailable" description={requestError}
+          actionLabel="Retry" onAction={() => void loadRequests()} />}
+        {requests && <FaceRequests state={requests} onSaved={() => void loadRequests()} />}
+      </>}
+  </div>;
 }

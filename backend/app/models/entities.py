@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     Time,
@@ -485,3 +486,23 @@ class UserStudentLink(Base):
     __tablename__ = "user_student_links"
     user_id: Mapped[str] = mapped_column(GUID, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     student_id: Mapped[str] = mapped_column(GUID, ForeignKey("students.id", ondelete="CASCADE"), unique=True, nullable=False)
+
+
+class StudentPortalRequest(Base):
+    __tablename__ = "student_portal_requests"
+
+    id: Mapped[str] = mapped_column(GUID, primary_key=True, default=generate_uuid)
+    student_id: Mapped[str] = mapped_column(GUID, ForeignKey("students.id", ondelete="CASCADE"), index=True)
+    requested_by: Mapped[str] = mapped_column(GUID, ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(16), default="PENDING", index=True)
+    pending_key: Mapped[Optional[str]] = mapped_column(String(100), unique=True)
+    record_id: Mapped[Optional[str]] = mapped_column(GUID, ForeignKey("attendance_records.id", ondelete="CASCADE"))
+    requested_status: Mapped[Optional[str]] = mapped_column(String(32))
+    reason: Mapped[Optional[str]] = mapped_column(String(1000))
+    pose: Mapped[Optional[str]] = mapped_column(String(24))
+    photo: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"))
+    review_note: Mapped[Optional[str]] = mapped_column(String(1000))
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

@@ -3,11 +3,23 @@ import { formatApiErrorMessage } from '../../utils/apiError';
 
 export type FaceBox = { bbox: number[]; label: string; color: string };
 export type FrameResult = { boxes?: FaceBox[]; message?: string; valid?: boolean; quality?: { blur?: number; brightness?: number } };
-export function WebcamPanel({ onFrame, onSample, disabled=false }: {onFrame:(blob:Blob, signal:AbortSignal)=>Promise<FrameResult>;onSample?:(blob:Blob)=>void;disabled?:boolean}) {
+export function WebcamPanel({ onFrame, onSample, onCapture, disabled=false }: {onFrame?:(blob:Blob, signal:AbortSignal)=>Promise<FrameResult>;onSample?:(blob:Blob)=>void;onCapture?:(blob:Blob)=>void;disabled?:boolean}) {
  const video=useRef<HTMLVideoElement>(null), overlay=useRef<HTMLCanvasElement>(null), callback=useRef(onFrame), sample=useRef(onSample);
+ const [captureReady, setCaptureReady] = useState(false);
+ const analyzesFrames = Boolean(onFrame || onSample);
+ const capture = () => {
+  const frame = video.current;
+  if (!frame || !frame.videoWidth || !frame.videoHeight) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.min(960, frame.videoWidth);
+  canvas.height = Math.round(frame.videoHeight * canvas.width / frame.videoWidth);
+  canvas.getContext('2d')?.drawImage(frame, 0, 0, canvas.width, canvas.height);
+  canvas.toBlob(blob => { if (blob) onCapture?.(blob); }, 'image/jpeg', 0.85);
+ };
  callback.current=onFrame; sample.current=onSample;
  const [devices,setDevices]=useState<MediaDeviceInfo[]>([]),[device,setDevice]=useState(''),[running,setRunning]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[fps,setFps]=useState(0),[quality,setQuality]=useState<FrameResult['quality']>(),[valid,setValid]=useState(false);
  useEffect(()=>{
+  setCaptureReady(false);
   if(!running||disabled)return;
   let stopped=false,stream:MediaStream|undefined,timer:ReturnType<typeof setTimeout>|undefined;
   const controller=new AbortController();
@@ -23,7 +35,7 @@ export function WebcamPanel({ onFrame, onSample, disabled=false }: {onFrame:(blo
     if(blob&&!stopped){
      try{
       sample.current?.(blob);
-      const result=await callback.current(blob,controller.signal);
+      const result=await callback.current?.(blob,controller.signal) ?? {};
       if(stopped)return;
       setMessage(result.message||'');setQuality(result.quality);setValid(result.valid===true);
       const now=performance.now();setFps(1000/(now-previous));previous=now;
@@ -44,14 +56,16 @@ export function WebcamPanel({ onFrame, onSample, disabled=false }: {onFrame:(blo
     if(stopped){stream.getTracks().forEach(t=>t.stop());return;}
     setDevices((await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput'));
     if(video.current){video.current.srcObject=stream;await video.current.play();}
-    setError('');void tick();
+    if(stopped)return;
+    setCaptureReady(true);setError('');if(analyzesFrames)void tick();
    }catch(e){if(stopped)return;const name=(e as DOMException).name;setError(name==='NotAllowedError'?'Camera permission denied. Allow camera access in your browser settings.':name==='NotFoundError'?'No camera found. Connect a webcam and retry.':name==='NotReadableError'?'Camera is in use. Close other camera apps and retry.':(e as Error).message);setRunning(false);}
   })();
   return()=>{stopped=true;controller.abort();if(timer)clearTimeout(timer);stream?.getTracks().forEach(t=>t.stop());if(video.current)video.current.srcObject=null;};
- },[running,device,disabled]);
+ },[running,device,disabled,analyzesFrames]);
  return <section className="space-y-4"><div className="flex flex-wrap items-end gap-3"><button type="button" disabled={disabled} className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50" onClick={()=>{setError('');setRunning(!running);}}>{running?'Stop camera':error?'Retry camera':'Start camera'}</button><label className="min-w-0 flex-1 text-xs font-medium text-text-muted">Camera device<select className="mt-1 block min-h-11 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text" value={device} onChange={e=>setDevice(e.target.value)}><option value="">Built-in / default</option>{devices.map(d=><option key={d.deviceId} value={d.deviceId}>{d.label||'Camera'}</option>)}</select></label></div>
- <div className="relative overflow-hidden rounded-xl bg-[#020617]"><video ref={video} aria-label="Mirrored camera preview" playsInline muted className={`block h-auto w-full -scale-x-100 ${!running?'aspect-video':''}`}/><canvas ref={overlay} className="pointer-events-none absolute inset-0 h-full w-full"/>{running?<div className={`pointer-events-none absolute left-1/2 top-1/2 h-3/4 w-1/3 -translate-x-1/2 -translate-y-1/2 rounded-[50%] border-2 border-dashed ${valid?'border-green-400':'border-white/30'}`}/>:<div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center"><span className="text-sm font-semibold text-white">Camera is off</span><span className="mt-2 max-w-xs text-xs leading-relaxed text-[#cbd5e1]">Start your camera when ready. Your browser will ask for permission.</span></div>}<span className="absolute bottom-3 left-3 rounded-md bg-black/70 px-2 py-1 font-mono text-xs text-white">{running?fps.toFixed(1):'0'} FPS · mirrored</span></div>
+ <div className="relative overflow-hidden rounded-xl bg-[#020617]"><video ref={video} aria-label="Mirrored camera preview" playsInline muted className={`block h-auto w-full -scale-x-100 ${!running?'aspect-video':''}`}/><canvas ref={overlay} className="pointer-events-none absolute inset-0 h-full w-full"/>{running?<div className={`pointer-events-none absolute left-1/2 top-1/2 h-3/4 w-1/3 -translate-x-1/2 -translate-y-1/2 rounded-[50%] border-2 border-dashed ${valid?'border-green-400':'border-white/30'}`}/>:<div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center"><span className="text-sm font-semibold text-white">Camera is off</span><span className="mt-2 max-w-xs text-xs leading-relaxed text-[#cbd5e1]">Start your camera when ready. Your browser will ask for permission.</span></div>}{analyzesFrames&&<span className="absolute bottom-3 left-3 rounded-md bg-black/70 px-2 py-1 font-mono text-xs text-white">{running?fps.toFixed(1):'0'} FPS · mirrored</span>}</div>
+ {onCapture&&running&&<button type="button" disabled={disabled||!captureReady} className="min-h-11 rounded-lg border border-border px-4 py-2 text-sm font-semibold disabled:opacity-50" onClick={capture}>Capture photo</button>}
  {message&&<p role="status" className="rounded-lg border border-primary/20 bg-primary/10 p-3 text-sm text-text">{message}</p>}{error&&<p role="alert" className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">{error}</p>}
  {quality&&<dl className="grid grid-cols-2 gap-3">{[['Sharpness',quality.blur],['Brightness',quality.brightness]].map(([label,value])=><div key={label} className="rounded-lg bg-surface-muted p-3"><dt className="text-xs text-text-muted">{label}</dt><dd className="mt-1 font-mono text-sm text-text">{typeof value==='number'?value.toFixed(0):'—'}</dd></div>)}</dl>}
- <p className="text-xs leading-relaxed text-text-muted">Frames pause while this tab is hidden. Stop camera to release it.</p></section>;
+ {analyzesFrames&&<p className="text-xs leading-relaxed text-text-muted">Frames pause while this tab is hidden. Stop camera to release it.</p>}</section>;
 }

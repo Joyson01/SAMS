@@ -1,12 +1,13 @@
 # AttedDEL
 
-AttedDEL is an attendance management workspace for faculty and administrators. It brings together class schedules, student records, attendance sessions, reports, and camera diagnostics in a responsive React interface backed by FastAPI.
+AttedDEL is an attendance management workspace for students, faculty, operators, and administrators. It brings together class schedules, student records, attendance sessions, reports, and camera diagnostics in a responsive React interface backed by FastAPI.
 
 The repository is named **SAMS**. Use the **`joyson` branch** for the current application and UI updates. The separate legacy `attendance_app` remains for compatibility and regression coverage.
 
 ## Workspace overview
 
 - **Dashboard:** attendance summaries, daily classes, recent activity and system health.
+- **Student portal:** personal details, subject and date filters, an attendance target calculator, correction requests, face enrollment, and a face-match check.
 - **Attendance sessions:** scheduling, session records, roster review and manual attendance.
 - **Students and academics:** student directory, classes, subjects, batches and timetable management.
 - **Reports:** attendance analytics and CSV exports.
@@ -20,6 +21,7 @@ The app also contains enrollment, recognition and photo-review workflows. Detect
 - [Technology](#technology)
 - [System architecture](#system-architecture)
 - [Project workflow](#project-workflow)
+- [Student portal and face enrollment](#student-portal-and-face-enrollment)
 - [AI models and their responsibilities](#ai-models-and-their-responsibilities)
 - [Machine-learning concepts](#machine-learning-concepts)
 - [Algorithms and image processing](#algorithms-and-image-processing)
@@ -31,6 +33,7 @@ The app also contains enrollment, recognition and photo-review workflows. Detect
 - [Configuration and operations](#configuration-and-operations)
 - [API](#api)
 - [Repository guide](#repository-guide)
+- [Claude project handoff](docs/CLAUDE-HANDOFF.md)
 - [Technical references](#technical-references)
 
 ## Technology
@@ -52,6 +55,9 @@ flowchart LR
     UI --> API[FastAPI API and role checks]
     API --> Academic[Student and academic services]
     API --> Attendance[Attendance and report services]
+    API --> Portal[Student portal and correction requests]
+    Portal --> DB
+    Portal --> Vision
     API --> Diagnostic[Anonymous photo detection service]
     API --> Existing[Existing recognition and media services]
     Academic --> DB[(SQLAlchemy: SQLite or PostgreSQL)]
@@ -84,7 +90,7 @@ Runtime state and database state are different. Stream trackers, temporary obser
 ```mermaid
 flowchart TD
     A[Sign in] --> B{Account role}
-    B -->|Student| C[View linked personal attendance]
+    B -->|Student| C[View records, request corrections, or enroll a face]
     B -->|Authorized staff| D[Manage classes, subjects and student records]
     D --> E[Prepare timetable and session roster]
     E --> F[Create or select attendance session]
@@ -114,6 +120,19 @@ flowchart TD
 ```
 
 No detection is a possible valid result. A face box means the detector found a face-like region; it does not establish identity, presence for an entire lecture, or the total number of occupants.
+
+## Student portal and face enrollment
+
+Open **Portal sign in** and enter a username, email, or Student User ID. The same form handles every role. A student account must be linked to a student record by an administrator under **Users**. An existing `/student-login` bookmark opens the shared sign-in page.
+
+- **My details** displays the roster fields available for the linked record. The API masks the middle four digits of a ten-digit mobile number. The local Comp B roster uses Student User ID prefixes `124` and `224` for its academic-year ranges and displays Current Semester VI.
+- **My attendance** filters recorded sessions by subject and dates. The target calculator uses the selected records and estimates how many consecutive future sessions the student needs to attend. Present, late, and manual-present marks count as attended.
+- **Attendance corrections** start from a student's own session history. Administrators review requests under **Users → Student requests**. An approved correction applies an audited manual override.
+- **Face registration** starts directly from the linked student account. Auto-capture waits for one second of a valid pose, saves it, and advances to the next required pose. Manual capture and JPEG upload are also available. The first accepted photo establishes the account's initial face template. Later photos must match a saved template.
+- **Check face match** compares a front-facing capture with the signed-in student's saved templates and returns a match or no match. It does not write an attendance record.
+- **Admin face enrollment** uses the same server-side pose validation. **Remove face data** clears a selected student's saved face profiles and pending legacy face photos, resets their enrollment status, and refreshes the gallery. Attendance records and the student account are retained.
+
+First-time self-enrollment relies on the authenticated student account. Use strong, unique credentials before exposing the portal to students over a network. A password derived from a Student User ID permits anyone who knows that ID to sign in and establish the initial face template. Face comparison on a still photo does not establish liveness.
 
 ## AI models and their responsibilities
 
@@ -327,6 +346,7 @@ The count represents detected visible faces, not everyone in the room. Small, co
 ## Functionality and validation notes
 
 - Public student registration, login, refresh rotation, logout invalidation, bootstrap restrictions, staff account management and student record linking.
+- Shared sign-in, linked student profiles, direct guided face enrollment, account-scoped face matching, and audited attendance correction review. The student-portal integration test exercises these API paths with simulated embeddings.
 - Academic CRUD, batch management, class-subject mapping, timetable editing and an idempotent academic-only demo seeder.
 - Server-validated face quality/pose checks, duplicate identity rejection at 0.80, pose retakes, SQL embedding persistence and automatic runtime gallery updates.
 - Read-only Recognition Test with live/uploaded images, mirrored boxes, similarity and top candidates, gallery/latency stats and development controls.
@@ -334,7 +354,7 @@ The count represents detected visible faces, not everyone in the room. Small, co
 - Photo preview/review/confirmation, margin buckets, one-to-one selection, idempotency and protection of MANUAL_PRESENT/EXCUSED.
 - Linux startup from a clean source snapshot, frontend TypeScript/build, HTTP smoke and Chromium fake-camera flow.
 
-The automated camera tests configured **FRONT only** on disposable servers. Physical webcam permissions, all seven guided poses, Windows/macOS startup, real phones/RTSP, PostgreSQL and CUDA still require validation. No physical webcam was used. See [manual QA](docs/MANUAL_QA.md), [troubleshooting](docs/TROUBLESHOOTING.md), [audit](docs/AUDIT.md) and [final verification report](docs/FINAL_REPORT.md).
+The original recognition smoke tests configured **FRONT only** on disposable servers. Later Chromium checks exercised seven-pose student capture and progression with a simulated camera and mocked pose responses. Physical webcam behavior, real-person matching, Windows/macOS startup, real phones and RTSP cameras, PostgreSQL, and CUDA still require validation. See [manual QA](docs/MANUAL_QA.md), [troubleshooting](docs/TROUBLESHOOTING.md), [audit](docs/AUDIT.md) and [final verification report](docs/FINAL_REPORT.md).
 
 For the November 16, 2026 updates, the anonymous detection and photo-detector checks passed (14 tests). The frontend production build passed after UI polishing. Browser checks covered navigation, directory search, dialog controls, desktop and phone layouts, dark mode and keyboard focus. These are scoped results, not a new full-suite certification. See the [UI polish report](docs/UNSLOP_DIRECTION.md) and [anonymous detection design](docs/anonymous-detection-design.md).
 
@@ -376,6 +396,7 @@ Canonical prefix: `/api/v1`; `/api` is a compatibility alias. Auth uses bearer t
 
 - Auth: `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`, `/auth/setup-status`, `/auth/bootstrap-admin`, `/auth/users`, `/auth/users/{id}/student`, `/auth/my-attendance`.
 - Students: `/students`, `/students/{id}`, `/students/{id}/enroll`, `/students/{id}/enroll/check`, `/students/{id}/enroll/status`.
+- Student portal: `/student-portal/requests`, `/student-portal/corrections`, `/student-portal/face/check` (pose guidance), `/student-portal/face` (save), `/student-portal/face/match` (compare), and admin `/student-portal/review`.
 - Academics: `/classes`, `/subjects`, `/classes/{id}/batches`, `/classes/{id}/subjects`, `/classes/{id}/timetable`, `/classes/timetable/entries`.
 - Recognition: `/recognition/analyze-frame` (no writes), `/recognition/process` (active-session attendance), `/recognition/config`, `/recognition/thresholds`.
 - Anonymous detection: `POST /detection/photo`, multipart field `file`; ADMIN/FACULTY only. Returns frame dimensions, face boxes, detection scores, small-face flags, count and latency.

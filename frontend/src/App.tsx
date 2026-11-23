@@ -168,6 +168,7 @@ const Workspace: React.FC = () => {
           {activeTab === 'enrollment' && (
             <FaceEnrollmentPage
               initialStudentId={enrollingStudentId}
+              canRemoveFaceData={role === 'ADMIN'}
               onNavigate={handleNavigate}
             />
           )}
