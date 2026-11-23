@@ -102,9 +102,9 @@ export function Classmates() {
         </label>
         {students.length ? <div className="overflow-x-auto rounded-xl border border-border bg-surface">
           <table className="w-full text-left text-sm">
-            <thead><tr><th className="p-3" scope="col">Roll</th><th scope="col">Name</th><th scope="col">Surname</th><th className="sr-only" scope="col">Chat</th></tr></thead>
+            <thead><tr><th className="p-3" scope="col">Roll</th><th scope="col">Full name</th><th className="sr-only" scope="col">Chat</th></tr></thead>
             <tbody>{students.map(student => <tr key={student.id} className="border-t border-border">
-              <td className="p-3">{student.roll_number}</td><td className="pr-2">{student.first_name}</td><td>{student.last_name}</td>
+              <td className="p-3">{student.roll_number}</td><td className="pr-2">{name(student)}</td>
               <td className="p-2 text-right">{student.can_chat ? <Button variant="secondary" aria-label={'Chat with ' + name(student)} onClick={() => setPeer(student)}>Chat</Button>
                 : <span className="text-xs text-text-muted">Unavailable</span>}</td>
             </tr>)}</tbody>

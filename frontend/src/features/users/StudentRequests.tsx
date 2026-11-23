@@ -318,46 +318,50 @@ function FaceMatchPanel() {
   const [error, setError] = useState('');
 
   const [source, setSource] = useState<'camera' | 'upload'>('camera');
-  const lastFrame = useRef(-Infinity);
-  const cameraSignal = useRef<AbortSignal>();
-  const liveResult = useRef<{ valid?: boolean; message?: string }>({});
+  const request = useRef<AbortController>();
+  useEffect(() => () => request.current?.abort(), []);
 
-  async function compare(photo: Blob, signal?: AbortSignal) {
-    const payload = new FormData();
-    payload.append('file', photo, 'face.' + (photo.type === 'image/png' ? 'png' : 'jpg'));
-    const { data } = await apiClient.post<{ matched: boolean }>('/student-portal/face/match', payload, { signal });
-    return { valid: data.matched, message: data.matched ? 'Face matches your saved scan.' : 'Face did not match your saved scan.' };
+  function clearCheck() {
+    request.current?.abort();
+    setBusy(false);
+    setResult('');
+    setError('');
   }
 
   async function check(photo: Blob) {
-    if (busy) return;
+    if (request.current && !request.current.signal.aborted) return;
     if (photo.size > 10 * 1024 * 1024 || !['image/jpeg', 'image/png'].includes(photo.type)) {
       setResult('');
       setError('Choose a JPEG or PNG photo under 10 MB.');
       return;
     }
+    const controller = new AbortController();
+    request.current = controller;
     setBusy(true);
     setResult('');
     setError('');
     try {
-      setResult((await compare(photo)).message);
+      const payload = new FormData();
+      payload.append('file', photo, photo.type === 'image/png' ? 'face.png' : 'face.jpg');
+      const { data } = await apiClient.post<{ matched: boolean }>('/student-portal/face/match', payload, { signal: controller.signal });
+      if (!controller.signal.aborted) {
+        setResult(data.matched ? 'Face matches your saved scan.' : 'Face did not match. Try again with your face centered in good light.');
+      }
     } catch (err) {
-      setError(formatApiErrorMessage(err, 'Could not check your face match.'));
+      if (!controller.signal.aborted) setError(formatApiErrorMessage(err, 'Could not check your face match.'));
     } finally {
-      setBusy(false);
+      if (request.current === controller) { request.current = undefined; setBusy(false); }
     }
   }
 
   return <div className="space-y-4 p-5 sm:p-6">
     <h3 className="font-semibold">Check face match</h3>
-    <p className="text-sm text-text-muted">Use your camera or choose a photo with one clear face. Only your saved face is checked.</p>
+    <p className="text-sm text-text-muted">Start the camera, center your face, then select Check this frame. You can also upload a photo.</p>
     <div className="flex gap-2">
       {(['camera', 'upload'] as const).map(mode => <Button key={mode} variant={source === mode ? 'primary' : 'secondary'}
         disabled={busy} aria-pressed={source === mode} onClick={() => {
           setSource(mode);
-          setResult('');
-          setError('');
-          lastFrame.current = -Infinity;
+          clearCheck();
         }}>{mode === 'camera' ? 'Live camera' : 'Upload photo'}</Button>)}
     </div>
     {source === 'upload' ? <label className="block text-sm font-medium">Check an uploaded photo
@@ -367,22 +371,8 @@ function FaceMatchPanel() {
           event.target.value = '';
           if (file) void check(file);
         }} />
-    </label> : <WebcamPanel compact onFrame={async (frame, signal) => {
-      if (cameraSignal.current !== signal) {
-        cameraSignal.current = signal;
-        liveResult.current = {};
-        lastFrame.current = -Infinity;
-      }
-      if (performance.now() - lastFrame.current < 1500) return liveResult.current;
-      lastFrame.current = performance.now();
-      try {
-        const result = await compare(frame, signal);
-        if (!signal.aborted) liveResult.current = result;
-      } catch (err) {
-        if (!signal.aborted) liveResult.current = { message: formatApiErrorMessage(err, 'Could not check this frame.') };
-      }
-      return liveResult.current;
-    }} />}
+    </label> : <WebcamPanel compact onCapture={photo => void check(photo)} captureBusy={busy}
+      captureLabel="Check this frame" onCameraChange={clearCheck} />}
     {busy && <p role="status" className="text-sm">Checking face…</p>}
     {result && <p role="status" className="text-sm font-medium">{result}</p>}
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}

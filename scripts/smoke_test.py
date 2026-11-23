@@ -98,6 +98,14 @@ def run_http(base,bootstrap_token,samples):
         assert analyzed['faces'][0]['best_match']['student_id']==sid
         unknown=request('POST','/recognition/analyze-frame',files={'file':('unknown.jpg',samples[1],'image/jpeg')})
         assert all(f['bucket']=='UNKNOWN' for f in unknown['faces']),unknown
+        student_tokens = request('POST', '/auth/login', json={
+            'username_or_email': user['username'], 'password': account['password'],
+        })
+        student_headers = {'Authorization': 'Bearer ' + student_tokens['access_token']}
+        match_endpoint = '/student-portal/face/match'
+        assert request('POST', match_endpoint, headers=student_headers, files=files) == {'matched': True}
+        assert request('POST', match_endpoint, headers=student_headers,
+                       files={'file': ('other.jpg', samples[1], 'image/jpeg')}) == {'matched': False}
         now=datetime.now(timezone.utc)
         session=request('POST','/attendance/sessions',201,json=dict(class_id=cls['id'],class_name=cls['name'],subject_id=subject['id'],subject=subject['name'],room='Laptop',scheduled_date=now.date().isoformat(),start_time=now.time().replace(tzinfo=None).isoformat(),end_time=(now+timedelta(minutes=30)).time().replace(tzinfo=None).isoformat()))
         session_id=session['id'];request('PUT',f'/attendance/sessions/{session_id}/start')
