@@ -114,7 +114,7 @@ const poseNames: Record<string, string> = {
   BACKUP_FRONT: 'Backup front photo',
 };
 
-export function FaceRequests({ state, onSaved }: { state: RequestState; onSaved: () => void }) {
+export function FaceRequests({ state, onSaved, studentName }: { studentName?: string; state: RequestState; onSaved: () => void }) {
   const [selected, setSelected] = useState('');
   const [image, setImage] = useState<File | null>(null);
   const [preview, setPreview] = useState('');
@@ -207,7 +207,7 @@ export function FaceRequests({ state, onSaved }: { state: RequestState; onSaved:
         }}>{editing ? 'Close editor' : 'Update photos'}</Button>}
       </div>
     </header>
-    {checkingMatch ? <FaceMatchPanel /> : (!complete || editing) && <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.85fr)]">
+    {checkingMatch ? <FaceMatchPanel studentName={studentName} /> : (!complete || editing) && <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.85fr)]">
       <div className="min-w-0 lg:col-start-2 lg:row-start-1">
         <div className="mb-2 flex items-center justify-between gap-3 text-sm">
           <h3 className="font-semibold">Required poses</h3>
@@ -312,10 +312,17 @@ export function FaceRequests({ state, onSaved }: { state: RequestState; onSaved:
   </section>;
 }
 
-function FaceMatchPanel() {
+type MatchResult = {
+  matched: boolean;
+  face: { bbox: [number, number, number, number]; width: number; height: number };
+};
+
+function FaceMatchPanel({ studentName }: { studentName?: string }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState('');
   const [error, setError] = useState('');
+  const [preview, setPreview] = useState<{ url: string; match: MatchResult }>();
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview.url); }, [preview]);
 
   const [source, setSource] = useState<'camera' | 'upload'>('camera');
   const request = useRef<AbortController>();
@@ -324,6 +331,7 @@ function FaceMatchPanel() {
   function clearCheck() {
     request.current?.abort();
     setBusy(false);
+    setPreview(undefined);
     setResult('');
     setError('');
   }
@@ -335,6 +343,7 @@ function FaceMatchPanel() {
       setError('Choose a JPEG or PNG photo under 10 MB.');
       return;
     }
+    setPreview(undefined);
     const controller = new AbortController();
     request.current = controller;
     setBusy(true);
@@ -343,8 +352,9 @@ function FaceMatchPanel() {
     try {
       const payload = new FormData();
       payload.append('file', photo, photo.type === 'image/png' ? 'face.png' : 'face.jpg');
-      const { data } = await apiClient.post<{ matched: boolean }>('/student-portal/face/match', payload, { signal: controller.signal });
+      const { data } = await apiClient.post<MatchResult>('/student-portal/face/match', payload, { signal: controller.signal });
       if (!controller.signal.aborted) {
+        if (data.face) setPreview({ url: URL.createObjectURL(photo), match: data });
         setResult(data.matched ? 'Face matches your saved scan.' : 'Face did not match. Try again with your face centered in good light.');
       }
     } catch (err) {
@@ -353,6 +363,9 @@ function FaceMatchPanel() {
       if (request.current === controller) { request.current = undefined; setBusy(false); }
     }
   }
+
+  const bounds = preview?.match.face;
+  const [left, top, right, bottom] = bounds?.bbox || [0, 0, 0, 0];
 
   return <div className="space-y-4 p-5 sm:p-6">
     <h3 className="font-semibold">Check face match</h3>
@@ -373,6 +386,20 @@ function FaceMatchPanel() {
         }} />
     </label> : <WebcamPanel compact onCapture={photo => void check(photo)} captureBusy={busy}
       captureLabel="Check this frame" onCameraChange={clearCheck} />}
+    {preview && bounds && <figure className="max-w-lg">
+      <figcaption className="mb-2 text-sm font-medium">Checked image</figcaption>
+      <div className="relative overflow-hidden rounded-xl">
+        <img src={preview.url} alt="The image used for your face check" width={bounds.width} height={bounds.height}
+          className="block h-auto w-full" />
+        <div className={`pointer-events-none absolute border-2 ${preview.match.matched ? 'border-green-400' : 'border-amber-400'}`}
+          style={{ left: 100 * left / bounds.width + '%', top: 100 * top / bounds.height + '%',
+            width: 100 * (right - left) / bounds.width + '%', height: 100 * (bottom - top) / bounds.height + '%' }}>
+          <span className="absolute left-0 top-0 max-w-full truncate rounded-br bg-black/80 px-1.5 py-0.5 text-xs font-semibold text-white">
+            {preview.match.matched ? studentName || 'Your face' : 'No match'}
+          </span>
+        </div>
+      </div>
+    </figure>}
     {busy && <p role="status" className="text-sm">Checking face…</p>}
     {result && <p role="status" className="text-sm font-medium">{result}</p>}
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}

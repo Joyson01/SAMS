@@ -179,7 +179,10 @@ async def test_face_match(
     result, embedding = await asyncio.to_thread(check_image, data, "FRONT", True, match_test=True)
     if embedding is None:
         raise HTTPException(422, result["hint"])
-    return {"matched": any(matches_template(embedding, stored) for stored in templates)}
+    return {
+        "matched": any(matches_template(embedding, stored) for stored in templates),
+        "face": {"bbox": result["bbox"], "width": result["frame_width"], "height": result["frame_height"]},
+    }
 
 
 @router.get("/review")

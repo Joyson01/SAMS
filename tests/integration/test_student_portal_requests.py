@@ -77,7 +77,7 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
     candidate = np.ones(512, dtype=np.float32) / np.sqrt(512)
 
     def validated_image(data, pose, embed=False, **kwargs):
-        result = {"valid": True, "hint": "Hold still", "blur": 120}
+        result = {"valid": True, "hint": "Hold still", "blur": 120, "bbox": [10, 20, 50, 60], "frame_width": 100, "frame_height": 100}
         return result, candidate if embed else None
 
     async def sync_gallery(db):
@@ -102,7 +102,7 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
     assert registered.status_code == 201, registered.text
     assert registered.json()["completed_poses"] == ["FRONT"]
     assert (await test_db_session.scalar(select(FaceProfile.student_id))) == own.id
-    assert (await match_face()).json() == {"matched": True}
+    assert (await match_face()).json() == {"matched": True, "face": {"bbox": [10, 20, 50, 60], "width": 100, "height": 100}}
     refreshed = await client.get(f"{portal}/requests", headers=student_headers)
     assert refreshed.json()["existing_poses"] == ["FRONT"]
     candidate = -candidate
@@ -111,10 +111,10 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
     await test_db_session.commit()
     redirected = await client.post(f"{portal}/face/match", headers=student_headers,
                                    data={"student_id": other.id}, files=files)
-    assert redirected.json() == {"matched": False}
+    assert redirected.json()["matched"] is False
     await test_db_session.delete(other_profile)
     await test_db_session.commit()
-    assert (await match_face()).json() == {"matched": False}
+    assert (await match_face()).json()["matched"] is False
     assert (await submit_face()).status_code == 422
     candidate = -candidate
     updated = await submit_face()

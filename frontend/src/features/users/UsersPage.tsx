@@ -227,12 +227,12 @@ export function MyAttendancePage({ onNavigate }: { onNavigate: (tab: string) => 
       : !data ? <Skeleton className="h-64" />
       : !data.linked ? <EmptyState title="Connect your student record" description="Ask your administrator to link your account using your roll number and student code." />
       : <>
-        <PeriodCalendar records={data.items} />
-        {data.profile && <details className="rounded-xl border border-border bg-surface p-4">
+        {data.profile && <details open className="rounded-xl border border-border bg-surface p-4">
           <summary className="cursor-pointer font-semibold">Student details</summary>
           <div className="mt-3"><StudentDetails profile={data.profile} /></div>
         </details>}
-        {requests && <FaceRequests state={requests} onSaved={() => void loadRequests()} />}
+        <PeriodCalendar records={data.items} />
+        {requests && <FaceRequests studentName={data.profile?.name} state={requests} onSaved={() => void loadRequests()} />}
         <AttendanceDashboard items={data.items} requests={requests} onSaved={() => void loadRequests()} />
         {requestError && <EmptyState title="Student requests unavailable" description={requestError}
           actionLabel="Retry" onAction={() => void loadRequests()} />}
