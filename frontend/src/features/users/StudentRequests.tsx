@@ -319,12 +319,14 @@ function FaceMatchPanel() {
 
   const [source, setSource] = useState<'camera' | 'upload'>('camera');
   const lastFrame = useRef(-Infinity);
+  const cameraSignal = useRef<AbortSignal>();
+  const liveResult = useRef<{ valid?: boolean; message?: string }>({});
 
   async function compare(photo: Blob, signal?: AbortSignal) {
     const payload = new FormData();
     payload.append('file', photo, 'face.' + (photo.type === 'image/png' ? 'png' : 'jpg'));
     const { data } = await apiClient.post<{ matched: boolean }>('/student-portal/face/match', payload, { signal });
-    return data.matched ? 'Face matches your saved scan.' : 'Face did not match your saved scan.';
+    return { valid: data.matched, message: data.matched ? 'Face matches your saved scan.' : 'Face did not match your saved scan.' };
   }
 
   async function check(photo: Blob) {
@@ -338,7 +340,7 @@ function FaceMatchPanel() {
     setResult('');
     setError('');
     try {
-      setResult(await compare(photo));
+      setResult((await compare(photo)).message);
     } catch (err) {
       setError(formatApiErrorMessage(err, 'Could not check your face match.'));
     } finally {
@@ -365,16 +367,21 @@ function FaceMatchPanel() {
           event.target.value = '';
           if (file) void check(file);
         }} />
-    </label> : <WebcamPanel onFrame={async (frame, signal) => {
-      if (performance.now() - lastFrame.current < 1500) return {};
+    </label> : <WebcamPanel compact onFrame={async (frame, signal) => {
+      if (cameraSignal.current !== signal) {
+        cameraSignal.current = signal;
+        liveResult.current = {};
+        lastFrame.current = -Infinity;
+      }
+      if (performance.now() - lastFrame.current < 1500) return liveResult.current;
       lastFrame.current = performance.now();
       try {
-        const message = await compare(frame, signal);
-        if (!signal.aborted) { setResult(message); setError(''); }
+        const result = await compare(frame, signal);
+        if (!signal.aborted) liveResult.current = result;
       } catch (err) {
-        if (!signal.aborted) { setResult(''); setError(formatApiErrorMessage(err, 'Could not check this frame.')); }
+        if (!signal.aborted) liveResult.current = { message: formatApiErrorMessage(err, 'Could not check this frame.') };
       }
-      return {};
+      return liveResult.current;
     }} />}
     {busy && <p role="status" className="text-sm">Checking face…</p>}
     {result && <p role="status" className="text-sm font-medium">{result}</p>}

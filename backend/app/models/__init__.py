@@ -1,4 +1,4 @@
-from backend.app.models.classroom import ClassroomPost
+from backend.app.models.classroom import ClassmateMessage, ClassroomPost
 from backend.app.models.semester_result import SemesterResult
 from backend.app.models.entities import (
     User,
@@ -14,6 +14,7 @@ from backend.app.models.entities import (
 
 __all__ = [
     "ClassroomPost",
+    "ClassmateMessage",
     "SemesterResult",
     "User",
     "Student",

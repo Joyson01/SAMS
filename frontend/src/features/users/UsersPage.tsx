@@ -209,10 +209,6 @@ export function MyAttendancePage() {
       <h1 className="text-2xl font-semibold">My attendance</h1>
       <p className="mt-1 text-sm text-text-muted">Your recorded sessions and subject attendance.</p>
     </header>
-    <details className="rounded-xl border border-border bg-surface px-4 py-3" open>
-      <summary className="cursor-pointer font-semibold">Notifications</summary>
-      <p className="mt-2 text-sm"><strong>Admin</strong> · Hello</p>
-    </details>
     {error ? <EmptyState title="Attendance unavailable" description={error} actionLabel="Retry" onAction={() => void load()} />
       : !data ? <Skeleton className="h-64" />
       : !data.linked ? <EmptyState title="Connect your student record" description="Ask your administrator to link your account using your roll number and student code." />

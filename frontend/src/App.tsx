@@ -84,7 +84,7 @@ const Workspace: React.FC = () => {
     return () => clearInterval(interval);
   }, [isAuthenticated]);
 
-  const academicTab = ['classroom', 'semester-results'].includes(activeTab) && ['STUDENT', 'FACULTY', 'HOD', 'ADMIN'].includes(role);
+  const academicTab = (activeTab === 'classroom' || (activeTab === 'semester-results' && role !== 'STUDENT')) && ['STUDENT', 'FACULTY', 'HOD', 'ADMIN'].includes(role);
   const currentTab = academicTab ? activeTab
     : role === 'STUDENT' ? (['classmates', 'my-timetable'].includes(activeTab) ? activeTab : 'my-attendance')
     : role === 'HOD' ? 'department'

@@ -98,6 +98,10 @@ export default function ClassroomBoard() {
   const control = 'mt-1 w-full rounded-lg border bg-white p-2 text-slate-900';
   return <section className="space-y-4 rounded-xl border p-4" aria-label="Classroom">
     <h2 className="text-xl font-semibold">Classroom</h2>
+    {board && !board.can_publish && <article className="rounded-lg border border-border bg-surface p-4">
+      <p className="text-sm text-text-muted">Demo announcement</p>
+      <h3 className="font-semibold">New semester will begin soon</h3>
+    </article>}
     {error && <div role="alert">{error} <button type="button" className="underline" onClick={() => { setError(''); setReload(value => value + 1); }}>Refresh stream</button></div>}
     {!board && !error && <p role="status">Loading classroom…</p>}
     {board && board.classes.length === 0 && <p>{board.can_publish

@@ -28,3 +28,13 @@ class AssignmentSubmission(Base):
     student_id: Mapped[str] = mapped_column(GUID, ForeignKey("students.id", ondelete="CASCADE"), primary_key=True)
     answer: Mapped[str] = mapped_column(Text)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ClassmateMessage(Base):
+    __tablename__ = "classmate_messages"
+
+    id: Mapped[str] = mapped_column(GUID, primary_key=True, default=generate_uuid)
+    sender_id: Mapped[str] = mapped_column(GUID, ForeignKey("students.id", ondelete="CASCADE"), index=True)
+    recipient_id: Mapped[str] = mapped_column(GUID, ForeignKey("students.id", ondelete="CASCADE"), index=True)
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

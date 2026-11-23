@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Menu, User } from 'lucide-react';
+import { Bell, Menu, User } from 'lucide-react';
 import { ThemeToggle } from './ui/ThemeToggle';
 import { ServiceHealthResponse } from '../types';
 
@@ -83,6 +83,13 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* RIGHT: System status, Notifications, User profile */}
       <div className="flex items-center gap-1 sm:gap-3 shrink-0">
+        {role === 'STUDENT' && <details className="relative">
+          <summary aria-label="Notifications" title="Notifications" className="grid h-10 w-10 cursor-pointer list-none place-items-center rounded-lg hover:bg-slate-100 [&::-webkit-details-marker]:hidden"><Bell size={17} /></summary>
+          <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-border bg-surface p-3 text-text shadow-lg">
+            <h2 className="text-sm font-semibold">Notifications</h2>
+            <p className="mt-2 text-sm"><strong>Admin</strong> · Hello</p>
+          </div>
+        </details>}
         <ThemeToggle />
         {/* User Profile */}
         <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
