@@ -84,7 +84,7 @@ class StudentService:
 
         # Apply pagination & sorting
         offset = (page - 1) * limit
-        query = query.order_by(Student.roll_number.asc()).offset(offset).limit(limit)
+        query = query.order_by(func.length(func.ltrim(Student.roll_number, "0")), func.ltrim(Student.roll_number, "0"), Student.roll_number).offset(offset).limit(limit)
 
         result = await db.execute(query)
         students = result.scalars().all()

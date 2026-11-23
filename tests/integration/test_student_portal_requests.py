@@ -40,6 +40,12 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
     test_db_session.add_all([UserStudentLink(user_id=user_id, student_id=own.id), own_record, other_record])
     await test_db_session.commit()
 
+    attendance = await client.get(f"{auth}/my-attendance", headers=student_headers)
+    assert attendance.status_code == 200
+    [period] = attendance.json()["items"]
+    assert period["id"] == own_record.id
+    assert (period["start_time"], period["end_time"]) == ("09:00:00", "10:00:00")
+
     correction = {"requested_status": "PRESENT", "reason": "I was there."}
     for record, status in ((other_record, 404), (own_record, 201)):
         response = await client.post(f"{portal}/corrections", headers=student_headers,

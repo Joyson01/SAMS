@@ -51,7 +51,7 @@ def check_image(data, target, embed=False, *, match_test=False):
     face=faces[0]
     quality=pipeline.quality_analyzer.analyze(image,face.bbox)
     pose=pipeline.pose_estimator.estimate(face.landmarks)
-    valid=quality.is_valid and pose_matches(pose,target)
+    valid=quality.is_valid and (match_test or pose_matches(pose,target))
     hint='Hold still' if valid else (quality.rejection_reason if not quality.is_valid else POSE_HINTS[target])
     if quality.brightness and quality.brightness<40: hint='Too dark. Face a light source.'
     result.update(bbox=face.bbox.to_list()[:4],yaw=pose.yaw,pitch=pose.pitch,roll=pose.roll,blur=quality.sharpness,brightness=quality.brightness,valid=bool(valid),hint=hint,quality=asdict(quality))

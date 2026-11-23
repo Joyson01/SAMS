@@ -173,9 +173,9 @@ async def test_face_match(
     templates = (await db.scalars(select(FaceProfile.embedding_data).where(FaceProfile.student_id == sid))).all()
     if not templates:
         raise HTTPException(409, "Register a face before checking for a match.")
-    data = await file.read(MAX_PHOTO_SIZE + 1)
-    if len(data) > MAX_PHOTO_SIZE:
-        raise HTTPException(413, "Upload a JPEG under 2 MB.")
+    data = await file.read(10 * 1024 * 1024 + 1)
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Upload a JPEG or PNG under 10 MB.")
     result, embedding = await asyncio.to_thread(check_image, data, "FRONT", True, match_test=True)
     if embedding is None:
         raise HTTPException(422, result["hint"])

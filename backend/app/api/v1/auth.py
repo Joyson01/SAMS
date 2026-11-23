@@ -176,4 +176,4 @@ async def my_attendance(db: AsyncSession = Depends(get_db), user: User = Depends
         "discipline": details.discipline if details else None,
     }
     rows = (await db.execute(select(AttendanceRecord, AttendanceSession).join(AttendanceSession).where(AttendanceRecord.student_id == link.student_id).order_by(AttendanceSession.scheduled_date.desc()))).all()
-    return {"linked": True, "profile": profile, "items": [{"id": r.id, "date": s.scheduled_date, "subject": s.subject, "status": r.status, "remarks": r.remarks} for r, s in rows]}
+    return {"linked": True, "profile": profile, "items": [{"id": r.id, "date": s.scheduled_date, "subject": s.subject, "start_time": s.start_time, "end_time": s.end_time, "status": r.status, "remarks": r.remarks} for r, s in rows]}

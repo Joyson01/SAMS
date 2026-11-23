@@ -329,9 +329,9 @@ function FaceMatchPanel() {
 
   async function check(photo: Blob) {
     if (busy) return;
-    if (photo.size > 2 * 1024 * 1024 || !['image/jpeg', 'image/png'].includes(photo.type)) {
+    if (photo.size > 10 * 1024 * 1024 || !['image/jpeg', 'image/png'].includes(photo.type)) {
       setResult('');
-      setError('Choose a JPEG or PNG photo under 2 MB.');
+      setError('Choose a JPEG or PNG photo under 10 MB.');
       return;
     }
     setBusy(true);
@@ -348,7 +348,7 @@ function FaceMatchPanel() {
 
   return <div className="space-y-4 p-5 sm:p-6">
     <h3 className="font-semibold">Check face match</h3>
-    <p className="text-sm text-text-muted">Use your camera or choose a photo with one face looking straight ahead. Only your saved face is checked.</p>
+    <p className="text-sm text-text-muted">Use your camera or choose a photo with one clear face. Only your saved face is checked.</p>
     <div className="flex gap-2">
       {(['camera', 'upload'] as const).map(mode => <Button key={mode} variant={source === mode ? 'primary' : 'secondary'}
         disabled={busy} aria-pressed={source === mode} onClick={() => {
