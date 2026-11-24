@@ -1,11 +1,15 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, Response
+from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from backend.app.core.security import require_roles
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
+from backend.app.models.classroom import ClassmateMessage, ClassroomPost
+from backend.app.models.entities import AuditLog, User
 from backend.app.schemas.audit import AuditLogListResponse
-from backend.app.services.audit_service import AuditService
+from backend.app.services.audit_service import AuditService, record_activity
 
 router = APIRouter(prefix="/audit-logs", tags=["Compliance & Audit Logs"], dependencies=[Depends(require_roles("ADMIN"))])
 
@@ -45,3 +49,25 @@ async def list_audit_logs(
         items=items,
     )
 
+
+@router.get("/{event_id}/message")
+async def read_audited_message(
+    event_id: UUID,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_roles("ADMIN")),
+):
+    event = await db.get(AuditLog, str(event_id))
+    body = None
+    if event and (event.action, event.entity_type) == ("STUDENT_SEND_MESSAGE", "ClassmateMessage"):
+        body = await db.scalar(select(ClassmateMessage.body).where(ClassmateMessage.id == event.entity_id))
+    elif event and (event.action, event.entity_type) == ("STUDENT_SEND_GROUP_MESSAGE", "ClassroomPost"):
+        body = await db.scalar(select(ClassroomPost.body).where(
+            ClassroomPost.id == event.entity_id, ClassroomPost.kind == "group_message",
+        ))
+    if body is None:
+        raise HTTPException(404, "Message is no longer available for this audit entry.")
+
+    record_activity(db, admin, "VIEW_CHAT_MESSAGE", "AuditLog", str(event_id))
+    response.headers["Cache-Control"] = "no-store"
+    return {"body": body}

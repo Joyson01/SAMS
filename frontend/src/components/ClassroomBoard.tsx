@@ -55,7 +55,7 @@ function AssignmentWork({ post, staff, onSubmitted }: {post: Post; staff: boolea
       <p role="status">Turned in on {new Date(submitted.submitted_at).toLocaleString()}</p>
       <p className="whitespace-pre-wrap break-words">{submitted.answer}</p>
     </div> : <form onSubmit={submit}>
-      <label>Your answer<textarea name="answer" required maxLength={6000} className="block w-full rounded-lg border p-2" /></label>
+      <label>Your answer<textarea name="answer" required maxLength={6000} className="block w-full min-w-0 max-w-full resize-y rounded-lg border p-2" /></label>
       <button disabled={busy} className="mt-2 rounded-lg bg-blue-700 px-4 py-2 text-white">{busy ? 'Submitting…' : 'Turn in final answer'}</button>
     </form>}
   </div>;
@@ -131,7 +131,7 @@ export default function ClassroomBoard({ embedded = false, view = 'stream', onNo
     }
   }
 
-  const control = 'mt-1 min-h-11 w-full rounded-lg border border-border bg-surface p-2 text-text';
+  const control = 'mt-1 min-h-11 w-full min-w-0 max-w-full rounded-lg border border-border bg-surface p-2 text-text';
   const posts = (board?.posts ?? []).filter(post => {
     if (!embedded || view === 'stream') return true;
     if (view === 'notes') return post.kind === 'material';
@@ -139,8 +139,8 @@ export default function ClassroomBoard({ embedded = false, view = 'stream', onNo
   });
   const heading = !embedded ? 'Classroom' : view === 'assignments' ? 'Assignments' : view === 'notes' ? 'Notes and resources' : 'Class feed';
   const assignmentFilters = [{ id: 'all', label: 'All' }, { id: 'todo', label: 'To do' }, { id: 'submitted', label: 'Turned in' }] as const;
-  return <section className={embedded ? 'space-y-4 p-4 sm:p-5' : 'space-y-4 rounded-xl border border-border p-4'} aria-label={heading}>
-    <h2 className="text-xl font-semibold">{heading}</h2>
+  return <section className={embedded ? 'min-w-0 space-y-3 p-2.5 [overflow-wrap:anywhere] sm:space-y-4 sm:p-5' : 'space-y-4 rounded-xl border border-border p-4'} aria-label={heading}>
+    <h2 className="text-lg font-semibold sm:text-xl">{heading}</h2>
     {embedded && view === 'assignments' && <div role="group" className="flex flex-wrap gap-2" aria-label="Filter assignments">
       {assignmentFilters.map(({ id, label }) => <button key={id} type="button" aria-pressed={assignmentStatus === id}
         onClick={() => setAssignmentStatus(id)}
@@ -153,9 +153,9 @@ export default function ClassroomBoard({ embedded = false, view = 'stream', onNo
       ? 'No active classes are available. Ask an administrator to register the class in Courses & Rooms → Classes & Sections and assign its teacher.'
       : 'Your roster has no matching active classroom. Ask your department to check your class and department.'}</p>}
     {board && board.classes.length > 0 && <>
-      {embedded && view === 'notes' && !board.can_publish && <details open={noteOpen} onToggle={event => setNoteOpen(event.currentTarget.open)} className="rounded-xl border border-border px-4">
+      {embedded && view === 'notes' && !board.can_publish && <details open={noteOpen} onToggle={event => setNoteOpen(event.currentTarget.open)} className="rounded-xl border border-border px-3 sm:px-4">
         <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold">Share notes with your class</summary>
-        <form onSubmit={shareNote} className="grid gap-3 pb-4">
+        <form onSubmit={shareNote} className="grid min-w-0 gap-3 pb-4 [&>label]:min-w-0">
           <label>Class<select required className={control} name="class_id">{board.classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
           <label>Title<input className={control} name="title" required maxLength={160} /></label>
           <label>Notes<textarea className={control} name="body" required maxLength={6000} rows={3} /></label>
@@ -179,7 +179,7 @@ export default function ClassroomBoard({ embedded = false, view = 'stream', onNo
       {!posts.length && <p className="rounded-xl border border-dashed border-border p-6 text-sm text-text-muted">{view === 'assignments' ? 'No assignments in this view.' : view === 'notes' ? 'No notes or resources yet. You can share the first note with your class.' : 'Class updates, assignments, and shared notes will appear here.'}</p>}
       {posts.map(post => {
         const { label, icon: PostIcon } = postTypes[post.kind];
-        return <article className="space-y-2 rounded-xl border border-border bg-surface-muted/40 p-4" key={post.id}>
+        return <article className="min-w-0 space-y-2 rounded-xl border border-border bg-surface-muted/40 p-3 sm:p-4" key={post.id}>
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <span className="flex items-center gap-2 font-medium text-primary"><PostIcon size={17} aria-hidden="true" />{label}</span>
           {post.kind === 'assignment' && !board.can_publish && <span className="rounded-full bg-surface-muted px-3 py-1 text-xs font-medium">{post.my_submission ? 'Turned in' : 'To do'}</span>}
@@ -188,7 +188,7 @@ export default function ClassroomBoard({ embedded = false, view = 'stream', onNo
         <p className="text-sm">{post.author || 'Staff'} · {new Date(post.created_at).toLocaleDateString()}{board.can_publish && " · " + (board.classes.find(c => c.id === post.class_id)?.name ?? "Class")}</p>
         <p className="whitespace-pre-wrap break-words">{post.body}</p>
         {post.due_date && <p>Due <time dateTime={post.due_date}>{new Date(post.due_date + 'T00:00:00').toLocaleDateString()}</time></p>}
-        {post.classroom_url && <a href={post.classroom_url} className="inline-flex min-h-11 items-center gap-2 font-medium text-primary underline" rel="noopener noreferrer" target="_blank">Open in Google Classroom <ExternalLink size={15} aria-hidden="true" /></a>}
+        {post.classroom_url && <a href={post.classroom_url} className="inline-flex min-h-11 max-w-full items-center gap-2 text-sm font-medium text-primary underline" rel="noopener noreferrer" target="_blank">Open in Google Classroom <ExternalLink size={15} className="shrink-0" aria-hidden="true" /></a>}
         {post.kind === 'assignment' && <AssignmentWork post={post} staff={board.can_publish} onSubmitted={() => setReload(value => value + 1)} />}
       </article>;
       })}

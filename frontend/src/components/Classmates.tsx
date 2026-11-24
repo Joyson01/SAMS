@@ -106,8 +106,8 @@ function Chat({ title, conversation, peer, close }: { title: string; conversatio
   }
 
   return <section className="flex min-w-0 flex-col" aria-label={group ? 'Class group chat' : 'Private conversation'}>
-    <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3">
-      <Button variant="secondary" className="min-h-11 md:hidden" aria-label="Back to messages" onClick={close}><ArrowLeft size={18} /></Button>
+    <header className="flex items-center gap-2 border-b border-border bg-surface px-2.5 py-2 sm:gap-3 sm:px-4 sm:py-3">
+      <Button variant="secondary" className="min-h-11 !w-11 shrink-0 !px-0 md:hidden" aria-label="Back to messages" onClick={close}><ArrowLeft size={18} /></Button>
       {group ? <Initials label={title} /> : <StudentAvatar name={title} avatarUrl={peer?.avatar_url} size="lg" />}
       <div className="min-w-0">
         <h2 className="truncate font-semibold">{title}</h2>
@@ -120,19 +120,19 @@ function Chat({ title, conversation, peer, close }: { title: string; conversatio
         const panel = event.currentTarget;
         followLatest.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 80;
       }}
-      className="h-[clamp(17rem,48dvh,35rem)] space-y-3 overflow-y-auto bg-surface-muted px-4 py-5">
+      className="h-[clamp(11rem,43dvh,25rem)] space-y-2 overflow-y-auto overscroll-contain bg-surface-muted px-2.5 py-3 sm:h-[clamp(17rem,48dvh,35rem)] sm:space-y-3 sm:px-4 sm:py-5">
       {!messages ? !error && <p role="status" className="text-text-muted">Loading messages…</p> : !messages.length &&
         <p className="py-10 text-center text-sm text-text-muted">{group ? 'No group messages yet. Send the first message to your class.' : 'Start a conversation or share a file using the attachment button.'}</p>}
       {messages?.map(message => <article key={message.id}
-        className={`w-fit max-w-[88%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${message.mine ? 'ml-auto rounded-br-sm border border-primary/30 bg-primary/10' : 'rounded-bl-sm border border-border bg-surface'}`}>
+        className={`w-fit min-w-0 max-w-[90%] rounded-2xl px-3 py-2 sm:max-w-[88%] sm:px-4 sm:py-2.5 text-sm shadow-sm ${message.mine ? 'ml-auto rounded-br-sm border border-primary/30 bg-primary/10' : 'rounded-bl-sm border border-border bg-surface'}`}>
         <span className={group && !message.mine ? "mb-1 block text-xs font-semibold text-primary" : "sr-only"}>{message.mine ? "You" : message.author || title}</span>
         {message.filename ? <Button variant="secondary" className="min-h-11 max-w-full whitespace-normal text-left" onClick={() => void download(message)}>
           <FileText size={18} className="shrink-0" /><span className="min-w-0 break-all">{message.filename}</span><span className="sr-only">Download file</span>
-        </Button> : <p className="whitespace-pre-wrap break-words">{message.body}</p>}
+        </Button> : <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.body}</p>}
         <time className="mt-1 block text-right text-xs text-text-muted" dateTime={message.created_at}>{new Date(message.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</time>
       </article>)}
     </div>
-    <form onSubmit={send} className="border-t border-border bg-surface p-3">
+    <form onSubmit={send} className="border-t border-border bg-surface p-2 sm:p-3">
       {actionError && <p role="alert" className="mb-2 text-sm text-danger">{actionError}</p>}
       <div className="flex items-end gap-2">
         {!group && <><input ref={attachmentInput} hidden type="file" onChange={event => {
@@ -140,15 +140,16 @@ function Chat({ title, conversation, peer, close }: { title: string; conversatio
           event.currentTarget.value = '';
           if (file) void attach(file);
         }} />
-        <Button type="button" variant="secondary" className="min-h-11 shrink-0" aria-label="Attach notes or a file up to 10 MB"
+        <Button type="button" variant="secondary" className="min-h-11 !w-11 shrink-0 !px-0" aria-label="Attach notes or a file up to 10 MB"
           title="Attach notes or a file up to 10 MB" disabled={sending} onClick={() => attachmentInput.current?.click()}><Paperclip size={18} /></Button></>}
         <label className="min-w-0 flex-1"><span className="sr-only">Message</span>
-          <textarea rows={1} className="block min-h-11 w-full rounded-xl border border-border bg-surface-muted px-3 py-2.5"
+          <textarea rows={1} className="block min-h-11 w-full resize-y rounded-xl border border-border bg-surface-muted px-3 py-2.5 text-base sm:text-sm"
             placeholder="Write a message" maxLength={2000} value={draft} disabled={sending} onChange={event => setDraft(event.target.value)} />
         </label>
-        <Button type="submit" className="min-h-11 shrink-0" aria-label="Send message" disabled={sending || !draft.trim()}><Send size={18} /></Button>
+        <Button type="submit" className="min-h-11 !w-11 shrink-0 !px-0" aria-label="Send message" disabled={sending || !draft.trim()}><Send size={18} /></Button>
       </div>
       {sending && <p role="status" className="mt-2 text-sm text-text-muted">Sending…</p>}
+      <p className="mt-2 text-xs text-text-muted">Administrators can review messages.</p>
     </form>
   </section>;
 }
@@ -227,8 +228,8 @@ export function Classmates({ selection, onSelectionHandled }: {
     .sort((a, b) => Number(previews.has(b.id)) - Number(previews.has(a.id)) ||
       (previews.has(a.id) && previews.has(b.id) ? recent.indexOf(a.id) - recent.indexOf(b.id) : 0));
   return <section className="mx-auto max-w-6xl space-y-4">
-    <header className="rounded-3xl bg-[#102920] p-5 text-white sm:p-7">
-      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Messages</h1>
+    <header className="rounded-2xl bg-[#102920] px-4 py-3 text-white sm:rounded-3xl sm:p-7">
+      <h1 className="text-2xl font-semibold tracking-tight sm:text-4xl">Messages</h1>
       {directory && <p className="mt-2 text-sm text-emerald-100">{directory.class_name} · Section {directory.section}</p>}
     </header>
     <div className="grid min-w-0 overflow-hidden rounded-2xl border border-border bg-surface md:grid-cols-[17rem_minmax(0,1fr)] lg:grid-cols-[20rem_minmax(0,1fr)]">
@@ -280,18 +281,18 @@ export function Classmates({ selection, onSelectionHandled }: {
 
 export function ClassSpace() {
   const [section, setSection] = useState<Section>('stream');
-  return <section className="mx-auto max-w-6xl space-y-4">
-    <header className="rounded-3xl bg-[#102920] p-5 text-white sm:p-7">
-      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Class Space</h1>
+  return <section className="mx-auto w-full min-w-0 max-w-6xl space-y-3 sm:space-y-4">
+    <header className="rounded-2xl bg-[#102920] px-4 py-3 text-white sm:rounded-3xl sm:p-7">
+      <h1 className="text-2xl font-semibold tracking-tight sm:text-4xl">Class Space</h1>
     </header>
     <nav aria-label="Class Space" className="grid grid-cols-3 gap-1 rounded-2xl border border-border bg-surface p-1.5">
       {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-current={section === id ? 'page' : undefined}
         onClick={() => setSection(id)}
-        className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 text-sm font-semibold ${section === id ? 'bg-primary/10 text-primary' : 'text-text-muted hover:bg-surface-muted hover:text-text'}`}>
-        <Icon size={17} aria-hidden="true" />{label}
+        className={`flex min-h-11 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-center text-xs font-semibold sm:flex-row sm:gap-2 sm:px-2 sm:text-sm ${section === id ? 'bg-primary/10 text-primary' : 'text-text-muted hover:bg-surface-muted hover:text-text'}`}>
+        <Icon size={17} className="shrink-0" aria-hidden="true" /><span>{label}</span>
       </button>)}
     </nav>
-    <div className="rounded-2xl border border-border bg-surface">
+    <div className="min-w-0 rounded-2xl border border-border bg-surface">
       <ClassroomBoard embedded view={section} onNoteShared={() => setSection('notes')} />
     </div>
   </section>;

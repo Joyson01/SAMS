@@ -81,10 +81,26 @@ async def test_classmates_directory_and_private_chat(staff_client, test_db_sessi
     assert (await staff_client.get(portal, headers=headers)).status_code == 403
 
     events = (await db.scalars(select(AuditLog).where(AuditLog.entity_type == "ClassmateMessage"))).all()
-    assert {event.action: event.new_values for event in events} == {
+    assert {event.action: {key: value for key, value in event.new_values.items() if key != "_request"} for event in events} == {
         "STUDENT_SEND_MESSAGE": {"classmate_id": friend.id, "classmate_name": "friend Student"},
-        "STUDENT_SHARE_FILE": {"classmate_id": friend.id, "classmate_name": "friend Student"},
-        "STUDENT_DOWNLOAD_FILE": {"classmate_id": own.id, "classmate_name": "own Student"},
+        "STUDENT_SHARE_FILE": {"classmate_id": friend.id, "classmate_name": "friend Student", "file_name": "notes.txt", "file_size_bytes": 11},
+        "STUDENT_DOWNLOAD_FILE": {"classmate_id": own.id, "classmate_name": "own Student", "file_name": "notes.txt", "file_size_bytes": 11},
     }
     assert all(event.ip_address and event.user_agent for event in events)
     assert (await staff_client.get("/api/v1/audit-logs", headers=headers)).status_code == 403
+
+    sent_event = next(event for event in events if event.action == "STUDENT_SEND_MESSAGE")
+    event_url = f"/api/v1/audit-logs/{sent_event.id}/message"
+    assert (await staff_client.get(event_url, headers=headers)).status_code == 403
+    review = await staff_client.get(event_url)
+    assert review.status_code == 200
+    assert review.json() == {"body": "Hello from TE-B"}
+    assert review.headers["cache-control"] == "no-store"
+
+    attachment_event = next(event for event in events if event.action == "STUDENT_SHARE_FILE")
+    assert (await staff_client.get(f"/api/v1/audit-logs/{attachment_event.id}/message")).status_code == 404
+    await db.flush()
+    view = await db.scalar(select(AuditLog).where(AuditLog.action == "VIEW_CHAT_MESSAGE"))
+    assert view.entity_id == sent_event.id
+    assert set(view.new_values) == {"_request"}
+    assert view.new_values["_request"]["method"] == "GET"

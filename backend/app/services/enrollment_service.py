@@ -203,7 +203,7 @@ async def enroll(db, student_id, data, target, *, self_enrollment: bool = False,
         completed={p.pose_type for p in profiles if p.student_id==student_id}|{target}
         student.enrollment_status='ENROLLED' if set(required_poses())<=completed else 'PARTIAL'
         if actor is not None:
-            record_student_activity(db, actor, "UPDATE_FACE" if same else "REGISTER_FACE", "Student", student_id)
+            record_student_activity(db, actor, "UPDATE_FACE" if same else "REGISTER_FACE", "Student", student_id, metadata={"pose": target})
         await db.commit()
         await RecognitionService.sync_gallery_from_db(db)
     return {'success':True,'message':'Sample saved and recognition gallery updated.',**(await enrollment_status(db,student_id))}

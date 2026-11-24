@@ -82,7 +82,12 @@ async def test_classroom_stream_is_scoped(test_db_session):
     events, count = await AuditService.list_audit_logs(db, student_activity=True)
     assert count == 3
     assert {entry.action for entry in events} == {"STUDENT_TURN_IN_ASSIGNMENT", "STUDENT_SHARE_NOTE", "STUDENT_SEND_GROUP_MESSAGE"}
-    assert all(entry.user_id == student_user.id and entry.old_values is None and entry.new_values is None for entry in events)
+    assert all(entry.user_id == student_user.id and entry.old_values is None for entry in events)
+    assert {entry.action: entry.new_values for entry in events} == {
+        "STUDENT_TURN_IN_ASSIGNMENT": None,
+        "STUDENT_SHARE_NOTE": {"class_id": first.id},
+        "STUDENT_SEND_GROUP_MESSAGE": {"class_id": first.id},
+    }
     student.section = "A"
     await db.flush()
     assert not (await board(student_user, db))["posts"]

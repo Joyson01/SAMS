@@ -24,7 +24,7 @@ from backend.app.core.logging import logger, setup_logging
 from backend.app.core.security import require_roles
 from backend.app.core.rate_limit import RequestRateLimit
 from backend.app.database.session import check_database_connection, init_db_schema
-from backend.app.services.audit_service import audit_client, client_metadata
+from backend.app.services.audit_service import audit_client, audit_request, client_metadata
 from backend.app.services.face_recognition_service import face_recognition_service
 
 
@@ -113,6 +113,8 @@ async def request_logging_middleware(request: Request, call_next):
     start_time = time.perf_counter()
     context = audit_client.set(client_metadata(request_client_ip(request.scope), request.headers.get("user-agent")))
 
+    request_context = audit_request.set((req_id, request.method, request.scope))
+
     try:
         response = await call_next(request)
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
@@ -144,6 +146,7 @@ async def request_logging_middleware(request: Request, call_next):
         )
 
     finally:
+        audit_request.reset(request_context)
         audit_client.reset(context)
 
 

@@ -112,7 +112,7 @@ async def share_note(
     post = ClassroomPost(author_id=user.id, kind="material", **payload.model_dump())
     db.add(post)
     await db.flush()
-    record_student_activity(db, user, "SHARE_NOTE", "ClassroomPost", post.id)
+    record_student_activity(db, user, "SHARE_NOTE", "ClassroomPost", post.id, metadata={"class_id": post.class_id})
     return {"id": post.id}
 
 
@@ -147,7 +147,7 @@ async def send_group_message(class_id: str, payload: GroupMessageInput, user: Us
     post = ClassroomPost(class_id=class_id, author_id=user.id, kind="group_message", title="", body=payload.body)
     db.add(post)
     await db.flush()
-    record_student_activity(db, user, "SEND_GROUP_MESSAGE", "ClassroomPost", post.id)
+    record_student_activity(db, user, "SEND_GROUP_MESSAGE", "ClassroomPost", post.id, metadata={"class_id": class_id})
     return group_message_data(post, user.full_name, user)
 
 

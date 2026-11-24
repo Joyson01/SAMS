@@ -26,9 +26,12 @@ from backend.app.schemas.auth import TokenResponse, UserRegisterRequest, UserRes
 DUMMY_PASSWORD_HASH = hash_password("unused-placeholder-for-login-timing")
 
 
-def record_auth_event(db: AsyncSession, user: User | None, action: str) -> None:
+def record_auth_event(db: AsyncSession, user: User | None, action: str, *, reason: str | None = None) -> None:
     prefix = "STUDENT_" if user and user.role == "STUDENT" else ""
-    record_activity(db, user, prefix + action, "User", user.id if user else "unknown")
+    metadata = {"account_role": user.role} if user else {}
+    if reason:
+        metadata["failure_reason"] = reason
+    record_activity(db, user, prefix + action, "User", user.id if user else "unknown", metadata=metadata or None)
 
 
 class AuthService:
@@ -123,7 +126,7 @@ class AuthService:
         user = (await db.execute(query)).scalars().first()
         valid_password = await asyncio.to_thread(verify_password, password, user.password_hash if user else DUMMY_PASSWORD_HASH)
         if not user or not valid_password:
-            record_auth_event(db, user, "SIGN_IN_FAILED")
+            record_auth_event(db, user, "SIGN_IN_FAILED", reason="INVALID_CREDENTIALS")
             await db.commit()
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -131,11 +134,11 @@ class AuthService:
                 headers={"WWW-Authenticate": "Bearer"},
             )
         if not user.is_active:
-            record_auth_event(db, user, "SIGN_IN_FAILED")
+            record_auth_event(db, user, "SIGN_IN_FAILED", reason="ACCOUNT_DISABLED")
             await db.commit()
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This user account has been disabled.")
         if settings.ENVIRONMENT.lower() in {"production", "prod"} and user.username == "admin" and password == "Admin@12345":
-            record_auth_event(db, user, "SIGN_IN_FAILED")
+            record_auth_event(db, user, "SIGN_IN_FAILED", reason="DEVELOPMENT_PASSWORD_BLOCKED")
             await db.commit()
             raise HTTPException(403, "Change the development administrator password before production use.")
         result = await cls._issue_session(db, user, interactive=True)

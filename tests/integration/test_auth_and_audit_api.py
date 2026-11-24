@@ -63,4 +63,10 @@ async def test_auth_and_audit_api_workflow(staff_client):
     items = {item["action"]: item for item in security_logs.json()["items"] if item["username"] == "dean_admin"}
     assert set(items) == {"SIGN_IN", "SIGN_IN_FAILED"}
     assert all(item["ip_address"] == "127.0.0.1" and item["user_agent"] == user_agent for item in items.values())
-    assert all(item["new_values"] is None for item in items.values())
+    assert items["SIGN_IN_FAILED"]["new_values"]["failure_reason"] == "INVALID_CREDENTIALS"
+    assert all(item["request_details"]["method"] == "POST" for item in items.values())
+    assert all(item["request_details"]["route"].endswith("/auth/login") for item in items.values())
+    assert items["SIGN_IN"]["new_values"] == {"account_role": "ADMIN"}
+    assert set(items["SIGN_IN_FAILED"]["new_values"]) == {"account_role", "failure_reason"}
+    assert items["SIGN_IN"]["request_details"]["id"] == login_resp.headers["X-Request-ID"]
+    assert items["SIGN_IN_FAILED"]["request_details"]["id"] == failed.headers["X-Request-ID"]

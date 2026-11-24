@@ -5,10 +5,15 @@
 | Finding | Change |
 | --- | --- |
 | Sign-in failures and staff sessions were absent from the audit trail. | `backend/app/services/auth_service.py` records successful and failed sign-ins and sign-outs. Unknown accounts are recorded without saving the submitted identifier. Successful login and token refresh responses use `Cache-Control: no-store`. |
-| Audit entries did not consistently capture request context. | `backend/app/services/audit_service.py` records the validated client IP and a bounded, browser-reported user agent when an audited action happens over HTTP. Account creation, access changes, password resets and student links are audit events. |
+| Audit entries did not consistently capture request context. | `backend/app/services/audit_service.py` records the validated client IP and a bounded, browser-reported user agent when an audited action happens over HTTP. The event captures a server request ID, HTTP method and route template. Account creation, access changes, password resets and student links are audit events. |
 | Proxy-supplied IP headers can be impersonated when accepted directly. | `backend/app/core/client_ip.py` uses the connection peer by default. It accepts a single valid Cloudflare client IP only from a tunnel peer explicitly listed in `TRUSTED_CLOUDFLARE_PROXY_IPS`. The audit log and request rate limiter use the same extraction. |
 | Institution-wide recognition diagnostics and gallery maintenance had broader permissions than needed. | `backend/app/api/v1/recognition.py` and `media_attendance.py` restrict global diagnostics and maintenance to administrators. Faculty live recognition requires an authorized session and filters candidate identities before returning the response. |
 | The live recognition handler read the whole file into memory. | `backend/app/api/v1/recognition.py` limits its read to 10 MiB plus one byte and rejects oversized files before decoding. |
+
+## Chat and student activity
+
+- For an audited message, an administrator can retrieve the original text on demand. The app records that access and does not duplicate the text in the audit record.
+- File-sharing and download events capture the attachment name and size. Class notes and group messages capture the class ID, and face enrollment events capture the pose label. Audit metadata excludes credentials, tokens, face templates and file contents.
 
 ## Production configuration and remaining work
 

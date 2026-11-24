@@ -136,7 +136,7 @@ async def send_attachment(peer_id: str, file: UploadFile = File(...), db: AsyncS
     db.add(ClassmateAttachment(message_id=message.id, filename=filename, content=content))
     await db.flush()
     record_student_activity(db, user, "SHARE_FILE", "ClassmateMessage", message.id,
-                            metadata=private_chat_metadata(peer))
+                            metadata={**private_chat_metadata(peer), "file_name": filename, "file_size_bytes": len(content)})
     return message_data(message, own, filename)
 
 
@@ -153,7 +153,8 @@ async def download_attachment(peer_id: str, message_id: str, db: AsyncSession = 
     if attachment is None:
         raise HTTPException(404, "Attachment not found.")
     record_student_activity(db, user, "DOWNLOAD_FILE", "ClassmateMessage", message_id,
-                            metadata=private_chat_metadata(peer))
+                            metadata={**private_chat_metadata(peer), "file_name": attachment.filename,
+                                      "file_size_bytes": len(attachment.content)})
     return Response(attachment.content, media_type="application/octet-stream", headers={
         "Content-Disposition": "attachment; filename*=UTF-8''" + quote(attachment.filename, safe=""),
         "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",

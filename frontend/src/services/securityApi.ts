@@ -18,3 +18,8 @@ export const fetchAuditLogs = async (filters?: AuditLogFilterParams): Promise<Au
   return response.data;
 };
 
+
+export const fetchAuditMessage = async (eventId: string, signal: AbortSignal): Promise<string> => {
+  const response = await apiClient.get<{ body: string }>(`/audit-logs/${eventId}/message`, { signal });
+  return response.data.body;
+};

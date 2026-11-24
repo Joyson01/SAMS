@@ -7,6 +7,7 @@ export interface AuditLogEntry {
   entity_id: string;
   old_values?: Record<string, unknown> | null;
   new_values?: Record<string, unknown> | null;
+  request_details?: { id: string; method: string; route?: string } | null;
   ip_address?: string | null;
   user_agent?: string | null;
   created_at: string;

@@ -1,6 +1,6 @@
 import { Modal, Skeleton, Button, EmptyState } from '../../components/ui';
 import { formatApiErrorMessage } from '../../utils/apiError';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -10,7 +10,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { AuditLogEntry } from '../../types/security';
-import { fetchAuditLogs } from '../../services/securityApi';
+import { fetchAuditLogs, fetchAuditMessage } from '../../services/securityApi';
 
 function deviceLabel(userAgent?: string | null): string {
   if (!userAgent) return 'Not recorded';
@@ -25,6 +25,39 @@ function deviceLabel(userAgent?: string | null): string {
     : /(?:Chrome|CriOS)\//i.test(userAgent) ? 'Chrome'
     : /Safari\//i.test(userAgent) ? 'Safari' : '';
   return [browser, platform].filter(Boolean).join(' · ') || 'Other client';
+}
+
+function AuditMessage({ eventId }: { eventId: string }) {
+  const [body, setBody] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const request = useRef<AbortController>();
+  useEffect(() => () => request.current?.abort(), []);
+
+  async function showMessage() {
+    const controller = new AbortController();
+    request.current = controller;
+    setLoading(true);
+    setError('');
+    try {
+      const message = await fetchAuditMessage(eventId, controller.signal);
+      if (!controller.signal.aborted) setBody(message);
+    } catch (err) {
+      if (!controller.signal.aborted) setError(formatApiErrorMessage(err, 'Could not load the message.'));
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
+    }
+  }
+
+  return <section className="min-w-0 space-y-2 rounded-xl border border-border p-3">
+    <h3 className="text-sm font-semibold">Chat message</h3>
+    {body === null
+      ? <Button size="sm" variant="secondary" disabled={loading} onClick={() => void showMessage()}>
+        {loading ? 'Loading message…' : 'Show message'}
+      </Button>
+      : <p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm">{body}</p>}
+    {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+  </section>;
 }
 
 export const AuditLogsPage: React.FC = () => {
@@ -137,6 +170,9 @@ export const AuditLogsPage: React.FC = () => {
             <option value="CREATE">CREATE</option>
             <option value="UPDATE">UPDATE</option>
             <option value="DELETE">DELETE</option>
+            <option value="STUDENT_SEND_MESSAGE">Private messages sent</option>
+            <option value="STUDENT_SEND_GROUP_MESSAGE">Group messages sent</option>
+            <option value="VIEW_CHAT_MESSAGE">Admin message reviews</option>
           </select>
         </div>
 
@@ -275,9 +311,23 @@ export const AuditLogsPage: React.FC = () => {
                 {selectedLog.entity_type === 'ClassmateMessage' && typeof selectedLog.new_values?.classmate_name === 'string' && (
                   <div><dt className="text-text-muted">Other participant</dt><dd>{selectedLog.new_values.classmate_name}</dd></div>
                 )}
+                {selectedLog.request_details && <>
+                  <div><dt className="text-text-muted">Request ID</dt><dd className="break-all font-mono">{selectedLog.request_details.id}</dd></div>
+                  <div><dt className="text-text-muted">Request method</dt><dd className="font-mono">{selectedLog.request_details.method}</dd></div>
+                  {selectedLog.request_details.route && <div className="sm:col-span-2"><dt className="text-text-muted">API route</dt><dd className="break-all font-mono">{selectedLog.request_details.route}</dd></div>}
+                </>}
+                {selectedLog.entity_type === 'ClassmateMessage' && typeof selectedLog.new_values?.file_name === 'string' && (
+                  <div className="sm:col-span-2"><dt className="text-text-muted">Attachment</dt><dd className="break-all">
+                    {selectedLog.new_values.file_name}
+                    {typeof selectedLog.new_values.file_size_bytes === 'number' && ` · ${selectedLog.new_values.file_size_bytes.toLocaleString()} bytes`}
+                  </dd></div>
+                )}
                 <div className="sm:col-span-2"><dt className="text-text-muted">Entity ID</dt><dd className="break-all font-mono">{selectedLog.entity_id}</dd></div>
               </dl>
               <p className="text-xs text-text-muted">The browser reports its own information. An IP may be shared by several devices or networks.</p>
+
+              {['STUDENT_SEND_MESSAGE', 'STUDENT_SEND_GROUP_MESSAGE'].includes(selectedLog.action) &&
+                <AuditMessage key={selectedLog.id} eventId={selectedLog.id} />}
 
               {/* Old Values vs New Values JSON Diff */}
               {selectedLog.entity_type !== 'ClassmateMessage' && (selectedLog.old_values || selectedLog.new_values) && <div className="space-y-2">
