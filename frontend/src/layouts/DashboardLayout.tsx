@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Sidebar } from '../components/Sidebar';
-import { BookOpen, CalendarDays, ChartNoAxesColumn, UserRound } from 'lucide-react';
+import { BookOpen, CalendarDays, ChartNoAxesColumn, MessageCircle, UserRound } from 'lucide-react';
 import { Header } from '../components/Header';
 import { ServiceHealthResponse } from '../types';
 
@@ -24,11 +24,12 @@ const studentPages = [
   { id: 'my-attendance', label: 'Attendance', icon: ChartNoAxesColumn },
   { id: 'my-timetable', label: 'Timetable', icon: CalendarDays },
   { id: 'classmates', label: 'Class Space', icon: BookOpen },
+  { id: 'messages', label: 'Messages', icon: MessageCircle },
 ];
 
 function StudentNavigation({ activeTab, navigate }: { activeTab: string; navigate: (tab: string) => void }) {
   return <nav aria-label="Student navigation"
-    className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 gap-1 border-t border-border bg-surface px-2 pt-2 pb-[max(.5rem,env(safe-area-inset-bottom))] md:sticky md:top-16 md:flex md:justify-center md:gap-2 md:border-b md:border-t-0 md:p-2">
+    className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 gap-1 border-t border-border bg-surface px-2 pt-2 pb-[max(.5rem,env(safe-area-inset-bottom))] md:sticky md:top-16 md:flex md:justify-center md:gap-2 md:border-b md:border-t-0 md:p-2">
     {studentPages.map(({ id, label, icon: Icon }) => <button type="button" key={id}
       aria-current={activeTab === id ? 'page' : undefined} onClick={() => navigate(id)}
       className={`flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-xs font-semibold transition-colors md:flex-row md:gap-2 md:px-5 md:text-sm ${activeTab === id ? 'bg-primary/10 text-primary' : 'text-text-muted hover:bg-surface-muted hover:text-text'}`}>

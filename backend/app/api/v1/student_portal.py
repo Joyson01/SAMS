@@ -1,6 +1,6 @@
 """Student-owned attendance and enrollment requests with administrator review."""
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -13,20 +13,21 @@ from sqlalchemy.orm import defer
 from backend.app.core.security import require_roles
 from backend.app.database.session import get_db
 from backend.app.models.entities import (
-    AttendanceRecord, AttendanceSession, Batch, ClassSection, FaceProfile, Student, StudentPortalRequest, TimetableEntry,
+    AttendanceRecord, AttendanceSession, AuditLog, Batch, ClassSection, FaceProfile, Student, StudentPortalRequest, TimetableEntry,
     User, UserStudentLink,
 )
 from backend.app.schemas.attendance import AttendanceOverridePayload
 from backend.app.services.attendance_service import AttendanceService
-from backend.app.services.enrollment_service import POSE_HINTS, check_image, enroll, matches_template, required_poses
+from backend.app.services.enrollment_service import POSE_HINTS, check_face_matches, check_image, enroll, face_update_allowed, required_poses
 
-from backend.app.services.audit_service import record_student_activity
+from backend.app.services.audit_service import record_activity, record_student_activity
 
 router = APIRouter(prefix="/student-portal", tags=["Student Portal"])
 student_only = require_roles("STUDENT")
 admin_only = require_roles("ADMIN")
 MAX_PHOTO_SIZE = 2 * 1024 * 1024
 ATTENDANCE_REQUEST_KINDS = ("CORRECTION", "LEAVE", "MEDICAL", "ON_DUTY")
+REVIEWABLE_KINDS = (*ATTENDANCE_REQUEST_KINDS, "FACE_UPDATE")
 Note = Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=1000)]
 
 
@@ -35,6 +36,10 @@ class CorrectionRequest(BaseModel):
     requested_status: Literal["PRESENT", "ABSENT", "LATE", "EXCUSED"]
     reason: Note
     kind: Literal["CORRECTION", "LEAVE", "MEDICAL", "ON_DUTY"] = "CORRECTION"
+
+
+class FaceUpdateRequest(BaseModel):
+    reason: Note
 
 
 class ReviewRequest(BaseModel):
@@ -113,8 +118,14 @@ async def student_requests(db: AsyncSession = Depends(get_db), user: User = Depe
         .order_by(StudentPortalRequest.created_at.desc())
     )).all()
     poses = (await db.scalars(select(FaceProfile.pose_type).where(FaceProfile.student_id == sid).distinct())).all()
+    face_request = await db.scalar(select(StudentPortalRequest).options(defer(StudentPortalRequest.photo))
+        .where(StudentPortalRequest.student_id == sid, StudentPortalRequest.requested_by == user.id,
+               StudentPortalRequest.kind == "FACE_UPDATE")
+        .order_by(StudentPortalRequest.created_at.desc(), StudentPortalRequest.id.desc()).limit(1))
     return {
         "items": [request_data(req) for req in requests],
+        "face_update_request": request_data(face_request) if face_request else None,
+        "can_update_face": await face_update_allowed(db, sid, user.id),
         "existing_poses": poses, "required_poses": required_poses(), "hints": POSE_HINTS,
     }
 
@@ -139,6 +150,23 @@ async def submit_correction(
         requested_status=payload.requested_status, reason=payload.reason,
     ))
     record_student_activity(db, user, "REQUEST_" + payload.kind, "StudentPortalRequest", result["id"])
+    return result
+
+
+@router.post("/face/update-request", status_code=201)
+async def request_face_update(
+    payload: FaceUpdateRequest, db: AsyncSession = Depends(get_db), user: User = Depends(student_only),
+):
+    sid = await linked_student(db, user)
+    if not await db.scalar(select(FaceProfile.id).where(FaceProfile.student_id == sid).limit(1)):
+        raise HTTPException(409, "Register your face before requesting an update.")
+    if await face_update_allowed(db, sid, user.id):
+        raise HTTPException(409, "You already have approval to update your face photos.")
+    result = await save_request(db, StudentPortalRequest(
+        student_id=sid, requested_by=user.id, kind="FACE_UPDATE",
+        pending_key=f"face-update:{sid}", reason=payload.reason,
+    ))
+    record_student_activity(db, user, "REQUEST_FACE_UPDATE", "StudentPortalRequest", result["id"])
     return result
 
 
@@ -175,23 +203,43 @@ async def check_face_pose(
 @router.post("/face/match")
 async def test_face_match(
     file: UploadFile = File(...),
+    live: bool = False,
+    photo: bool = False,
     db: AsyncSession = Depends(get_db), user: User = Depends(student_only),
 ):
     sid = await linked_student(db, user)
-    templates = (await db.scalars(select(FaceProfile.embedding_data).where(FaceProfile.student_id == sid))).all()
-    if not templates:
+    student = await db.get(Student, sid)
+    if student is None or student.status != "ACTIVE":
+        raise HTTPException(403, "An active student record is required to check recognition.")
+    scope = Student.id == sid
+    if all(value and value.strip() for value in (student.department, student.class_name, student.section)):
+        scope = and_(Student.department == student.department, Student.class_name == student.class_name,
+                     Student.section == student.section)
+
+    rows = (await db.execute(
+        select(Student.id, Student.first_name, Student.last_name, FaceProfile.embedding_data)
+        .join(FaceProfile, FaceProfile.student_id == Student.id)
+        .where(Student.status == "ACTIVE", scope)
+    )).all()
+    if not any(row.id == sid for row in rows):
         raise HTTPException(409, "Register a face before checking for a match.")
     data = await file.read(10 * 1024 * 1024 + 1)
     if len(data) > 10 * 1024 * 1024:
         raise HTTPException(413, "Upload a JPEG or PNG under 10 MB.")
-    result, embedding = await asyncio.to_thread(check_image, data, "FRONT", True, match_test=True)
-    if embedding is None:
-        raise HTTPException(422, result["hint"])
-    record_student_activity(db, user, "CHECK_FACE_MATCH", "Student", sid)
-    return {
-        "matched": any(matches_template(embedding, stored) for stored in templates),
-        "face": {"bbox": result["bbox"], "width": result["frame_width"], "height": result["frame_height"]},
-    }
+    templates = [(row.id, row.embedding_data) for row in rows]
+    names = {row.id: f"{row.first_name} {row.last_name}".strip() for row in rows}
+    result = await asyncio.to_thread(check_face_matches, data, templates, names, photo=photo and not live)
+    if live:
+        recent = await db.scalar(select(AuditLog.id).where(
+            AuditLog.user_id == user.id,
+            AuditLog.action == "STUDENT_CHECK_FACE_LIVE",
+            AuditLog.created_at >= datetime.now(timezone.utc) - timedelta(minutes=1),
+        ).limit(1))
+        if recent is None:
+            record_student_activity(db, user, "CHECK_FACE_LIVE", "Student", sid)
+    else:
+        record_student_activity(db, user, "CHECK_FACE_MATCH", "Student", sid)
+    return result
 
 
 @router.get("/review")
@@ -202,7 +250,7 @@ async def review_queue(db: AsyncSession = Depends(get_db), _: User = Depends(adm
         .join(Student, StudentPortalRequest.student_id == Student.id)
         .outerjoin(AttendanceRecord, StudentPortalRequest.record_id == AttendanceRecord.id)
         .outerjoin(AttendanceSession, AttendanceRecord.session_id == AttendanceSession.id)
-        .where(StudentPortalRequest.status == "PENDING", StudentPortalRequest.kind.in_(ATTENDANCE_REQUEST_KINDS))
+        .where(StudentPortalRequest.status == "PENDING", StudentPortalRequest.kind.in_(REVIEWABLE_KINDS))
         .order_by(StudentPortalRequest.created_at, StudentPortalRequest.id).limit(100)
     )).all()
     return [{
@@ -230,14 +278,16 @@ async def review_request(
     db: AsyncSession = Depends(get_db), admin: User = Depends(admin_only),
 ):
     request = await db.get(StudentPortalRequest, request_id)
-    if request is None or request.status != "PENDING" or request.kind not in ATTENDANCE_REQUEST_KINDS:
+    if request is None or request.status != "PENDING" or request.kind not in REVIEWABLE_KINDS:
         raise HTTPException(409, "This request is no longer pending.")
 
     async def claim():
         await claim_review(db, request, payload, admin.id)
 
     await claim()
-    if payload.decision == "APPROVED":
+    if request.kind == "FACE_UPDATE":
+        record_activity(db, admin, f"{payload.decision}_FACE_UPDATE", "StudentPortalRequest", request.id)
+    elif payload.decision == "APPROVED":
         await AttendanceService.override_record(
             db, request.record_id,
             AttendanceOverridePayload(status=request.requested_status, remarks=payload.note),

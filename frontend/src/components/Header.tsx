@@ -24,6 +24,7 @@ const TAB_TITLES: Record<string, string> = {
   dashboard: 'Dashboard',
   'my-timetable': 'My Timetable',
   classmates: 'Class Space',
+  messages: 'Messages',
   'student-profile': 'My Profile',
   classroom: 'Classroom',
   'semester-results': 'Semester marksheets',

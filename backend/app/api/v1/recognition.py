@@ -34,6 +34,9 @@ async def process_recognition_image(
     from backend.app.services.attendance_service import AttendanceService
     from backend.app.schemas.attendance import AttendanceMarkPayload
 
+    if user.role == "FACULTY" and not session_id:
+        raise HTTPException(403, "Faculty recognition requires an assigned attendance session.")
+
     if session_id:
         await require_session_access(db, user, session_id)
         from backend.app.models.entities import AttendanceSession
@@ -50,7 +53,10 @@ async def process_recognition_image(
             detail=f"Unsupported file format '{file.content_type}'. Please upload a JPEG or PNG image.",
         )
 
-    image_bytes = await file.read()
+    max_bytes = 10 * 1024 * 1024
+    image_bytes = await file.read(max_bytes + 1)
+    if len(image_bytes) > max_bytes:
+        raise HTTPException(413, "Upload an image of 10 MB or less.")
     if len(image_bytes) == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty.")
 
@@ -86,6 +92,20 @@ async def process_recognition_image(
                     )
             await db.commit()
 
+        if user.role == "FACULTY":
+            for face in rec_res.faces:
+                face.top_candidates = [candidate for candidate in face.top_candidates if candidate.student_id in eligible]
+                if not face.best_match or face.best_match.student_id not in eligible:
+                    face.best_match = None
+                    face.decision = "UNKNOWN"
+                    face.status = "UNKNOWN"
+                    face.provisional_name = None
+                    face.decision_reason = "No verified match in this class."
+                else:
+                    # The diagnostics text is built against the full gallery.
+                    face.provisional_name = None
+                    face.decision_reason = "Match in this class."
+
         return rec_res
     except ValueError as val_err:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(val_err))
@@ -93,6 +113,7 @@ async def process_recognition_image(
 
 @router.post(
     "/stream/reset",
+    dependencies=[Depends(require_roles("ADMIN"))],
     summary="Reset Stream Tracking & Identity Cache",
     description="Clears tracking state and identity cache for a given session and/or camera.",
 )
@@ -106,6 +127,7 @@ async def reset_stream_state(
 
 @router.post(
     "/sync-gallery",
+    dependencies=[Depends(require_roles("ADMIN"))],
     summary="Synchronize In-Memory Vector Gallery with Database",
     description="Reloads all active student face templates from PostgreSQL into the fast vectorized similarity search cache.",
 )
@@ -283,7 +305,7 @@ async def update_thresholds(
     return RecognitionService.set_thresholds(config)
 
 
-@router.post('/analyze-frame', dependencies=[Depends(require_roles('ADMIN','FACULTY'))])
+@router.post('/analyze-frame', dependencies=[Depends(require_roles('ADMIN'))])
 async def analyze_frame(file: UploadFile = File(...), db: AsyncSession = Depends(get_db), photo: bool = Query(False)):
     """Stateless recognition probe: no attendance or biometric writes."""
     import cv2

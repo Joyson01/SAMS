@@ -1,16 +1,47 @@
+from contextvars import ContextVar
+from datetime import timezone
 from typing import Any, Dict, List, Optional, Tuple
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import Session, selectinload
 
+from backend.app.core.client_ip import validated_ip
 from backend.app.models.entities import AuditLog, User
 from backend.app.schemas.audit import AuditLogResponse
 
 
-def record_student_activity(db: AsyncSession, user: User, action: str, entity_type: str, entity_id: str) -> None:
-    """Add metadata to the caller's transaction without copying student content."""
+audit_client: ContextVar[tuple[str | None, str | None]] = ContextVar("audit_client", default=(None, None))
+
+
+def client_metadata(host: str | None, agent: str | None) -> tuple[str | None, str | None]:
+    address = validated_ip(host)
+    user_agent = "".join(character for character in (agent or "") if character.isprintable()).strip()[:255]
+    return address, user_agent or None
+
+
+@event.listens_for(Session, "before_flush")
+def attach_audit_client(session: Session, _context, _instances) -> None:
+    address, user_agent = audit_client.get()
+    if not address and not user_agent:
+        return
+    for record in session.new:
+        if isinstance(record, AuditLog):
+            record.ip_address = record.ip_address or address
+            record.user_agent = record.user_agent or user_agent
+
+
+def record_activity(db: AsyncSession, user: User | None, action: str, entity_type: str, entity_id: str,
+                    *, metadata: dict[str, str] | None = None) -> None:
+    """Add request metadata to the caller's transaction without retaining submitted content."""
+    address, user_agent = audit_client.get()
+    db.add(AuditLog(user_id=user.id if user else None, action=action, entity_type=entity_type,
+                    entity_id=entity_id, new_values=metadata, ip_address=address, user_agent=user_agent))
+
+
+def record_student_activity(db: AsyncSession, user: User, action: str, entity_type: str, entity_id: str,
+                    *, metadata: dict[str, str] | None = None) -> None:
     if user.role == "STUDENT":
-        db.add(AuditLog(user_id=user.id, action=f"STUDENT_{action}", entity_type=entity_type, entity_id=entity_id))
+        record_activity(db, user, f"STUDENT_{action}", entity_type, entity_id, metadata=metadata)
 
 
 class AuditService:
@@ -55,6 +86,7 @@ class AuditService:
         page: int = 1,
         page_size: int = 25,
         student_activity: bool = False,
+        sign_in_activity: bool = False,
     ) -> Tuple[List[AuditLogResponse], int]:
         """Lists audit logs with filtering and pagination."""
         query = select(AuditLog).options(selectinload(AuditLog.user))
@@ -62,6 +94,9 @@ class AuditService:
 
         if student_activity:
             filters.append(AuditLog.action.startswith("STUDENT_", autoescape=True))
+
+        if sign_in_activity:
+            filters.append(AuditLog.action.in_(("SIGN_IN", "STUDENT_SIGN_IN", "SIGN_IN_FAILED", "STUDENT_SIGN_IN_FAILED", "SIGN_OUT", "STUDENT_SIGN_OUT")))
 
         if action:
             filters.append(AuditLog.action == action.upper())
@@ -79,7 +114,7 @@ class AuditService:
             count_q = count_q.where(and_(*filters))
         total_count = (await db.execute(count_q)).scalar_one()
 
-        query = query.order_by(AuditLog.created_at.desc())
+        query = query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
         query = query.offset((page - 1) * page_size).limit(page_size)
 
         result = await db.execute(query)
@@ -89,7 +124,7 @@ class AuditService:
             AuditLogResponse(
                 id=log.id,
                 user_id=log.user_id,
-                username=log.user.username if log.user else "System",
+                username=log.user.username if log.user else ("Unidentified account" if log.action == "SIGN_IN_FAILED" else "System"),
                 action=log.action,
                 entity_type=log.entity_type,
                 entity_id=log.entity_id,
@@ -97,7 +132,7 @@ class AuditService:
                 new_values=log.new_values,
                 ip_address=log.ip_address,
                 user_agent=log.user_agent,
-                created_at=log.created_at,
+                created_at=log.created_at if log.created_at.tzinfo else log.created_at.replace(tzinfo=timezone.utc),
             )
             for log in logs
         ]

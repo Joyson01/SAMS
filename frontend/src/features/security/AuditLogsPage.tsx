@@ -12,6 +12,21 @@ import {
 import { AuditLogEntry } from '../../types/security';
 import { fetchAuditLogs } from '../../services/securityApi';
 
+function deviceLabel(userAgent?: string | null): string {
+  if (!userAgent) return 'Not recorded';
+  const platform = /iPhone/i.test(userAgent) ? 'iPhone'
+    : /iPad/i.test(userAgent) ? 'iPad'
+    : /Android/i.test(userAgent) ? 'Android'
+    : /Windows/i.test(userAgent) ? 'Windows'
+    : /Macintosh/i.test(userAgent) ? 'Mac'
+    : /Linux/i.test(userAgent) ? 'Linux' : '';
+  const browser = /Edg(?:e|A|iOS)?\//i.test(userAgent) ? 'Edge'
+    : /(?:Firefox|FxiOS)\//i.test(userAgent) ? 'Firefox'
+    : /(?:Chrome|CriOS)\//i.test(userAgent) ? 'Chrome'
+    : /Safari\//i.test(userAgent) ? 'Safari' : '';
+  return [browser, platform].filter(Boolean).join(' · ') || 'Other client';
+}
+
 export const AuditLogsPage: React.FC = () => {
   const [error, setError] = useState('');
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
@@ -19,6 +34,7 @@ export const AuditLogsPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [actionFilter, setActionFilter] = useState<string>('');
   const [entityFilter, setEntityFilter] = useState<string>('');
+  const [signInActivity, setSignInActivity] = useState(false);
   const [studentActivity, setStudentActivity] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 25;
@@ -34,6 +50,7 @@ export const AuditLogsPage: React.FC = () => {
         page,
         page_size: pageSize,
         student_activity: studentActivity || undefined,
+        sign_in_activity: signInActivity || undefined,
       });
       setLogs(data.items);
       setTotalCount(data.total_count);
@@ -46,11 +63,9 @@ export const AuditLogsPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [actionFilter, entityFilter, studentActivity, page]);
+  }, [actionFilter, entityFilter, studentActivity, signInActivity, page]);
 
-  const actionLabel = (action: string) => action.startsWith('STUDENT_')
-    ? action.toLowerCase().replace(/_/g, ' ').replace(/^./, letter => letter.toUpperCase())
-    : action;
+  const actionLabel = (action: string) => action.toLowerCase().replace(/_/g, ' ').replace(/^./, letter => letter.toUpperCase());
 
   const getActionBadgeColor = (action: string) => {
     switch (action.toUpperCase()) {
@@ -93,6 +108,14 @@ export const AuditLogsPage: React.FC = () => {
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Audit category">
+        <Button variant={signInActivity ? 'secondary' : 'primary'} aria-pressed={!signInActivity} onClick={() => {
+          setSignInActivity(false); setActionFilter(''); setEntityFilter(''); setPage(1);
+        }}>All activity</Button>
+        <Button variant={signInActivity ? 'primary' : 'secondary'} aria-pressed={signInActivity} onClick={() => {
+          setSignInActivity(true); setActionFilter(''); setEntityFilter(''); setStudentActivity(false); setPage(1);
+        }}>Sign-in activity</Button>
+      </div>
       {/* Filter Ribbon */}
       <div className="bg-surface border border-border rounded-xl p-4 flex flex-wrap items-center gap-4 text-xs">
         <div className="flex items-center gap-1.5 text-text-muted font-semibold">
@@ -104,6 +127,7 @@ export const AuditLogsPage: React.FC = () => {
           <label className="text-text-muted">Action Type:</label>
           <select
             aria-label="Filter audit actions"
+            disabled={signInActivity}
             value={actionFilter}
             onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
             className="bg-surface border border-border rounded-lg px-3 py-1.5 text-text"
@@ -120,6 +144,7 @@ export const AuditLogsPage: React.FC = () => {
           <label className="text-text-muted">Entity Type:</label>
           <select
             aria-label="Filter audit entities"
+            disabled={signInActivity}
             value={entityFilter}
             onChange={(e) => { setEntityFilter(e.target.value); setPage(1); }}
             className="bg-surface border border-border rounded-lg px-3 py-1.5 text-text"
@@ -129,6 +154,9 @@ export const AuditLogsPage: React.FC = () => {
             <option value="Student">Student</option>
             <option value="AttendanceSession">AttendanceSession</option>
             <option value="Camera">Camera</option>
+            <option value="ClassmateMessage">Private chat</option>
+            <option value="ClassroomPost">Class space</option>
+            <option value="AssignmentSubmission">Assignments</option>
           </select>
         </div>
 
@@ -151,14 +179,15 @@ export const AuditLogsPage: React.FC = () => {
       {loading && <Skeleton className="h-32"/>}
       {/* Audit Logs Table */}
       <div className="bg-surface border border-border rounded-xl overflow-x-auto shadow-sm">
-        <div className="divide-y divide-border md:hidden">{!logs.length && !loading && !error && <EmptyState title="No audit entries found" description="Try another filter. New administrative actions will appear here."/>}{logs.map(log=><article key={log.id} className="space-y-3 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><span className={`rounded-full border px-2 py-1 text-xs font-semibold ${getActionBadgeColor(log.action)}`}>{actionLabel(log.action)}</span><span className="text-xs text-text-muted">{new Date(log.created_at).toLocaleString()}</span></div><p className="text-sm font-medium">{log.entity_type} · {log.username || 'System'}</p><p className="break-all font-mono text-xs text-text-muted">{log.entity_id}</p><Button variant="secondary" size="sm" icon={<Eye size={15}/>} onClick={()=>setSelectedLog(log)}>View entry</Button></article>)}</div>
+        <div className="divide-y divide-border md:hidden">{!logs.length && !loading && !error && <EmptyState title="No audit entries found" description="Try another filter. New administrative actions will appear here."/>}{logs.map(log=><article key={log.id} className="space-y-3 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><span className={`rounded-full border px-2 py-1 text-xs font-semibold ${getActionBadgeColor(log.action)}`}>{actionLabel(log.action)}</span><span className="text-xs text-text-muted">{new Date(log.created_at).toLocaleString()}</span></div><p className="text-sm font-medium">{log.entity_type} · {log.username || 'System'}</p><p className="break-all font-mono text-xs text-text-muted">{log.ip_address || 'IP not recorded'} · {deviceLabel(log.user_agent)}</p><Button variant="secondary" size="sm" icon={<Eye size={15}/>} onClick={()=>setSelectedLog(log)}>View entry</Button></article>)}</div>
         <table className="hidden w-full text-left text-xs md:table">
           <thead className="bg-surface/80 text-text-muted uppercase tracking-wider font-semibold border-b border-border">
             <tr>
               <th className="py-3 px-4">Timestamp</th>
               <th className="py-3 px-4">Action</th>
               <th className="py-3 px-4">Entity Type</th>
-              <th className="py-3 px-4">Entity ID</th>
+              <th className="py-3 px-4">IP address</th>
+              <th className="py-3 px-4">Device / browser</th>
               <th className="py-3 px-4">Performed By</th>
               <th className="py-3 px-4 text-right">Details</th>
             </tr>
@@ -180,8 +209,9 @@ export const AuditLogsPage: React.FC = () => {
                 </td>
                 <td className="py-3 px-4 font-medium text-text">{log.entity_type}</td>
                 <td className="py-3 px-4 font-mono text-text-muted max-w-[150px] truncate">
-                  {log.entity_id}
+                  {log.ip_address || 'Not recorded'}
                 </td>
+                <td className="py-3 px-4 text-text-muted">{deviceLabel(log.user_agent)}</td>
                 <td className="py-3 px-4 font-semibold text-text">
                   {log.username || 'System'}
                 </td>
@@ -190,7 +220,7 @@ export const AuditLogsPage: React.FC = () => {
                     onClick={() => setSelectedLog(log)}
                     className="px-2.5 py-1 rounded bg-surface hover:bg-surface text-indigo-300 hover:text-indigo-200 flex items-center gap-1 ml-auto font-semibold"
                   >
-                    <Eye className="w-3.5 h-3.5" /> View Diff
+                    <Eye className="w-3.5 h-3.5" /> View entry
                   </button>
                 </td>
               </tr>
@@ -198,7 +228,7 @@ export const AuditLogsPage: React.FC = () => {
 
             {logs.length === 0 && !loading && !error && (
               <tr>
-                <td colSpan={6} className="py-12 text-center text-text-muted">
+                <td colSpan={7} className="py-12 text-center text-text-muted">
                   <ShieldAlert className="w-8 h-8 mx-auto mb-2 text-text-muted" />
                   No audit logs match the current search filters.
                 </td>
@@ -238,9 +268,20 @@ export const AuditLogsPage: React.FC = () => {
                 </div>
               </div>
 
+              <dl className="grid gap-3 rounded-xl border border-border p-3 text-sm sm:grid-cols-2">
+                <div><dt className="text-text-muted">IP address</dt><dd className="break-all font-mono">{selectedLog.ip_address || 'Not recorded'}</dd></div>
+                <div><dt className="text-text-muted">Device / browser</dt><dd>{deviceLabel(selectedLog.user_agent)}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-text-muted">Reported user agent</dt><dd className="break-all">{selectedLog.user_agent || 'Not recorded'}</dd></div>
+                {selectedLog.entity_type === 'ClassmateMessage' && typeof selectedLog.new_values?.classmate_name === 'string' && (
+                  <div><dt className="text-text-muted">Other participant</dt><dd>{selectedLog.new_values.classmate_name}</dd></div>
+                )}
+                <div className="sm:col-span-2"><dt className="text-text-muted">Entity ID</dt><dd className="break-all font-mono">{selectedLog.entity_id}</dd></div>
+              </dl>
+              <p className="text-xs text-text-muted">The browser reports its own information. An IP may be shared by several devices or networks.</p>
+
               {/* Old Values vs New Values JSON Diff */}
-              <div className="space-y-2">
-                <span className="text-text-muted font-semibold block">State Change Delta:</span>
+              {selectedLog.entity_type !== 'ClassmateMessage' && (selectedLog.old_values || selectedLog.new_values) && <div className="space-y-2">
+                <span className="text-text-muted font-semibold block">Record changes</span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="bg-surface p-3 rounded-xl border border-border/80">
                     <span className="text-[10px] text-rose-400 font-bold uppercase block mb-1">
@@ -263,7 +304,7 @@ export const AuditLogsPage: React.FC = () => {
                     </pre>
                   </div>
                 </div>
-              </div>
+              </div>}
             </div>
 
         </Modal>

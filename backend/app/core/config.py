@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     AUTH_BYPASS: bool = False
     BOOTSTRAP_TOKEN: str = ""
+    TRUSTED_CLOUDFLARE_PROXY_IPS: str = ""
     ENROLLMENT_REQUIRED_POSES: str = "FRONT,LEFT_15,RIGHT_15,TILT_UP,TILT_DOWN,ROLL_RIGHT,BACKUP_FRONT"
 
     @field_validator("DEBUG", mode="before")

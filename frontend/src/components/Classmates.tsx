@@ -13,7 +13,6 @@ const sections = [
   { id: 'stream', label: 'Class feed', icon: BookOpen },
   { id: 'assignments', label: 'Assignments', icon: ClipboardList },
   { id: 'notes', label: 'Notes', icon: FileText },
-  { id: 'messages', label: 'Messages', icon: MessageCircle },
 ] as const;
 type Section = typeof sections[number]['id'];
 type Message = { id: string; body: string; mine: boolean; created_at: string; filename?: string; author?: string };
@@ -167,7 +166,6 @@ export function Classmates({ selection, onSelectionHandled }: {
   const [groupError, setGroupError] = useState('');
   const [groupAttempt, retryGroups] = useState(0);
   const [group, setGroup] = useState<{ id: string; name: string }>();
-  const [section, setSection] = useState<Section>('stream');
   const [inbox, setInbox] = useState<InboxItem[]>([]);
   const [directory, setDirectory] = useState<Directory | null>(null);
   const [error, setError] = useState('');
@@ -187,7 +185,7 @@ export function Classmates({ selection, onSelectionHandled }: {
   }, [attempt]);
 
   useEffect(() => {
-    if (section !== 'messages' || groups) return;
+    if (groups) return;
     const controller = new AbortController();
     setGroupError('');
     apiClient.get<{ classes: { id: string; name: string }[] }>('/classroom', { signal: controller.signal })
@@ -196,10 +194,9 @@ export function Classmates({ selection, onSelectionHandled }: {
         if (!controller.signal.aborted) setGroupError(formatApiErrorMessage(reason, 'Unable to load class groups.'));
       });
     return () => controller.abort();
-  }, [section, groups, groupAttempt]);
+  }, [groups, groupAttempt]);
 
   useEffect(() => {
-    if (section !== 'messages') return;
     const controller = new AbortController();
     let timer: number;
     async function loadInbox() {
@@ -213,11 +210,10 @@ export function Classmates({ selection, onSelectionHandled }: {
     }
     void loadInbox();
     return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [section]);
+  }, []);
 
   useEffect(() => {
     if (!selection || !directory) return;
-    setSection('messages');
     setGroup(undefined);
     setPeer(directory.students.find(student => student.id === selection.peerId && student.can_chat));
     onSelectionHandled?.();
@@ -232,21 +228,11 @@ export function Classmates({ selection, onSelectionHandled }: {
       (previews.has(a.id) && previews.has(b.id) ? recent.indexOf(a.id) - recent.indexOf(b.id) : 0));
   return <section className="mx-auto max-w-6xl space-y-4">
     <header className="rounded-3xl bg-[#102920] p-5 text-white sm:p-7">
-      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Class Space</h1>
+      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Messages</h1>
       {directory && <p className="mt-2 text-sm text-emerald-100">{directory.class_name} · Section {directory.section}</p>}
     </header>
-    <nav aria-label="Class Space" className="grid grid-cols-2 gap-1 rounded-2xl border border-border bg-surface p-1.5 sm:grid-cols-4">
-      {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-current={section === id ? 'page' : undefined}
-        onClick={() => setSection(id)}
-        className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 text-sm font-semibold ${section === id ? 'bg-primary/10 text-primary' : 'text-text-muted hover:bg-surface-muted hover:text-text'}`}>
-        <Icon size={17} aria-hidden="true" />{label}
-      </button>)}
-    </nav>
-    {section !== 'messages' && <div className="rounded-2xl border border-border bg-surface">
-      <ClassroomBoard embedded view={section} onNoteShared={() => setSection('notes')} />
-    </div>}
-    {section === 'messages' && <div className="grid min-w-0 overflow-hidden rounded-2xl border border-border bg-surface md:grid-cols-[17rem_minmax(0,1fr)] lg:grid-cols-[20rem_minmax(0,1fr)]">
-      <aside aria-label="Class Space conversations" className={`min-w-0 border-border md:block md:border-r ${peer || group ? 'hidden' : ''}`}>
+    <div className="grid min-w-0 overflow-hidden rounded-2xl border border-border bg-surface md:grid-cols-[17rem_minmax(0,1fr)] lg:grid-cols-[20rem_minmax(0,1fr)]">
+      <aside aria-label="Conversations" className={`min-w-0 border-border md:block md:border-r ${peer || group ? 'hidden' : ''}`}>
         <div className="space-y-3 p-3">
           <h2 className="px-2 text-sm font-semibold">Class groups</h2>
           {groupError ? <p role="alert" className="text-sm">{groupError} <button className="underline" onClick={() => retryGroups(n => n + 1)}>Retry</button></p>
@@ -285,9 +271,28 @@ export function Classmates({ selection, onSelectionHandled }: {
         : peer ? <Chat key={peer.id} title={name(peer)} conversation={'/student-portal/classmates/' + peer.id} peer={peer} close={() => setPeer(undefined)} />
         : <div className="grid min-h-40 place-content-center gap-2 border-t border-border p-6 text-center md:border-t-0">
           <MessageCircle size={26} className="mx-auto text-primary" aria-hidden="true" />
-          <p className="font-semibold">Choose a classmate to chat</p>
-          <p className="text-sm text-text-muted">Send a private message or share a file.</p>
+          <p className="font-semibold">Choose a conversation</p>
+          <p className="text-sm text-text-muted">Open a class group or message a classmate.</p>
         </div>}
-    </div>}
+    </div>
+  </section>;
+}
+
+export function ClassSpace() {
+  const [section, setSection] = useState<Section>('stream');
+  return <section className="mx-auto max-w-6xl space-y-4">
+    <header className="rounded-3xl bg-[#102920] p-5 text-white sm:p-7">
+      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Class Space</h1>
+    </header>
+    <nav aria-label="Class Space" className="grid grid-cols-3 gap-1 rounded-2xl border border-border bg-surface p-1.5">
+      {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-current={section === id ? 'page' : undefined}
+        onClick={() => setSection(id)}
+        className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 text-sm font-semibold ${section === id ? 'bg-primary/10 text-primary' : 'text-text-muted hover:bg-surface-muted hover:text-text'}`}>
+        <Icon size={17} aria-hidden="true" />{label}
+      </button>)}
+    </nav>
+    <div className="rounded-2xl border border-border bg-surface">
+      <ClassroomBoard embedded view={section} onNoteShared={() => setSection('notes')} />
+    </div>
   </section>;
 }

@@ -18,11 +18,13 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.app.api.v1.router import api_router
 from backend.app.core.config import settings
+from backend.app.core.client_ip import request_client_ip
 from backend.app.core.exceptions import SAMSException
 from backend.app.core.logging import logger, setup_logging
 from backend.app.core.security import require_roles
 from backend.app.core.rate_limit import RequestRateLimit
 from backend.app.database.session import check_database_connection, init_db_schema
+from backend.app.services.audit_service import audit_client, client_metadata
 from backend.app.services.face_recognition_service import face_recognition_service
 
 
@@ -109,6 +111,7 @@ async def request_logging_middleware(request: Request, call_next):
     req_id = uuid.uuid4().hex[:8]
     request.state.request_id = req_id
     start_time = time.perf_counter()
+    context = audit_client.set(client_metadata(request_client_ip(request.scope), request.headers.get("user-agent")))
 
     try:
         response = await call_next(request)
@@ -139,6 +142,9 @@ async def request_logging_middleware(request: Request, call_next):
             },
             headers={"X-Request-ID": req_id, "X-Process-Time-Ms": str(elapsed_ms)},
         )
+
+    finally:
+        audit_client.reset(context)
 
 
 # Global Exception Handlers

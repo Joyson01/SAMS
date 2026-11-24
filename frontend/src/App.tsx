@@ -29,6 +29,7 @@ const AuditLogsPage = React.lazy(() => import('./features/security/AuditLogsPage
 
 const StudentTimetable = React.lazy(() => import('./features/timetable/StudentTimetable'));
 const Classmates = React.lazy(() => import('./components/Classmates').then(module => ({ default: module.Classmates })));
+const ClassSpace = React.lazy(() => import('./components/Classmates').then(module => ({ default: module.ClassSpace })));
 const ClassroomBoard = React.lazy(() => import('./components/ClassroomBoard'));
 const SemesterResults = React.lazy(() => import('./components/SemesterResults').then(module => ({ default: module.SemesterResults })));
 
@@ -97,9 +98,9 @@ const Workspace: React.FC = () => {
 
   const academicTab = ['classroom', 'semester-results'].includes(activeTab) && ['FACULTY', 'HOD', 'ADMIN'].includes(role);
   const currentTab = academicTab ? activeTab
-    : role === 'STUDENT' ? (['classmates', 'classroom'].includes(activeTab) ? 'classmates' : ['my-attendance', 'my-timetable'].includes(activeTab) ? activeTab : 'student-profile')
+    : role === 'STUDENT' ? (['classmates', 'classroom'].includes(activeTab) ? 'classmates' : ['my-attendance', 'my-timetable', 'messages'].includes(activeTab) ? activeTab : 'student-profile')
     : role === 'HOD' ? 'department'
-    : (activeTab === 'recognition-test' || activeTab === 'anonymous-detection') && !['ADMIN', 'FACULTY'].includes(role) ? 'dashboard'
+    : ((activeTab === 'recognition-test' && role !== 'ADMIN') || (activeTab === 'anonymous-detection' && !['ADMIN', 'FACULTY'].includes(role))) ? (role === 'FACULTY' ? 'attendance' : 'dashboard')
     : role === 'FACULTY' && activeTab === 'dashboard' ? 'attendance' : activeTab;
 
   const handleNavigate = (tab: string, studentId?: string) => {
@@ -151,19 +152,20 @@ const Workspace: React.FC = () => {
         onRefreshHealth={loadHealth}
         isRefreshing={isRefreshing}
         activeTab={currentTab}
-        openChat={peerId => { setChatSelection({ peerId }); setActiveTab("classmates"); }}
+        openChat={peerId => { setChatSelection({ peerId }); setActiveTab("messages"); }}
         setActiveTab={setActiveTab}
       >
         <ErrorBoundary key={activeTab} fallbackTitle={`Error in ${activeTab.toUpperCase()}`}>
           {currentTab === 'my-attendance' && role === 'STUDENT' && <MyAttendancePage />}
           {currentTab === 'student-profile' && role === 'STUDENT' && <MyAttendancePage profileView />}
           {currentTab === 'my-timetable' && role === 'STUDENT' && <StudentTimetable />}
-          {currentTab === 'classmates' && role === 'STUDENT' && <Classmates selection={chatSelection} onSelectionHandled={() => setChatSelection(undefined)} />}
+          {currentTab === 'classmates' && role === 'STUDENT' && <ClassSpace />}
+          {currentTab === 'messages' && role === 'STUDENT' && <Classmates selection={chatSelection} onSelectionHandled={() => setChatSelection(undefined)} />}
           {academicTab && currentTab === 'classroom' && <ClassroomBoard />}
           {academicTab && currentTab === 'semester-results' && <SemesterResults studentView={role === 'STUDENT'} />}
           {currentTab === 'department' && role === 'HOD' && <DepartmentPage />}
           {role !== 'STUDENT' && role !== 'HOD' && <>
-          {currentTab === 'recognition-test' && ['ADMIN','FACULTY'].includes(role) && <RecognitionTestPage />}
+          {currentTab === 'recognition-test' && role === 'ADMIN' && <RecognitionTestPage />}
           {currentTab === 'anonymous-detection' && ['ADMIN','FACULTY'].includes(role) && <AnonymousDetectionPage />}
           {currentTab === 'users' && role === 'ADMIN' && <UsersPage />}
           {currentTab === 'dashboard' && role !== 'FACULTY' && <DashboardOverview onNavigate={handleNavigate} admin={role === 'ADMIN'} />}

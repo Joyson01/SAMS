@@ -55,6 +55,7 @@ async def validate_session_biometrics(
 
 @router.post(
     "/analyze-image",
+    dependencies=[Depends(require_roles("ADMIN"))],
     summary="Diagnostic Face Detection & Recognition on Image",
     description="Development diagnostic endpoint returning structured face bounding boxes, confidences, and identity matches without modifying session attendance.",
 )
@@ -91,7 +92,7 @@ async def diagnose_image(
     except Exception as exc:
         logger.error(f"Error diagnosing image: {exc}", exc_info=True)
         traceback.print_exc()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Diagnostic image processing failed: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Diagnostic image processing failed.")
 
 
 @router.post(

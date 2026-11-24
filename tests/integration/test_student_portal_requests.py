@@ -1,12 +1,12 @@
 from datetime import time
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from sqlalchemy import select
 
-from backend.app.api.v1 import student_portal
 from backend.app.models.entities import (
-    AttendanceRecord, AttendanceSession, FaceProfile, Student, UserStudentLink,
+    AttendanceRecord, AttendanceSession, AuditLog, FaceProfile, Student, UserStudentLink,
 )
 from backend.app.services import enrollment_service
 
@@ -84,7 +84,15 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
     async def sync_gallery(db):
         return 1
 
-    monkeypatch.setattr(student_portal, "check_image", validated_image)
+    boxes = [[10, 20, 40, 60], [50, 20, 80, 60], [75, 70, 95, 95]]
+    faces = [SimpleNamespace(bbox=SimpleNamespace(to_list=lambda box=box: box), landmarks=index) for index, box in enumerate(boxes)]
+    pipeline = SimpleNamespace(
+        detector=SimpleNamespace(detect=lambda image: faces),
+        quality_analyzer=SimpleNamespace(analyze=lambda image, box: SimpleNamespace(is_valid=box.to_list()[0] < 75)),
+        aligner=SimpleNamespace(align=lambda image, index: index),
+        embedder=SimpleNamespace(extract_from_crop=lambda index: candidate if index == 0 else np.zeros(512)),
+    )
+    monkeypatch.setattr(enrollment_service, "decode_face_image", lambda data: (np.empty((100, 100, 3)), pipeline))
     monkeypatch.setattr(enrollment_service, "check_image", validated_image)
     monkeypatch.setattr(enrollment_service.RecognitionService, "sync_gallery_from_db", sync_gallery)
     photo = b"\xff\xd8\xfftest\xff\xd9"
@@ -99,25 +107,88 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
 
     assert (await client.post(f"{portal}/face/match", files=files)).status_code == 403
     assert (await match_face()).status_code == 409
+    update_url = f"{portal}/face/update-request"
+    update_payload = {"reason": "The camera struggles to recognize me."}
+    assert (await client.post(update_url, headers=student_headers, json=update_payload)).status_code == 409
     registered = await submit_face()
     assert registered.status_code == 201, registered.text
     assert registered.json()["completed_poses"] == ["FRONT"]
     assert (await test_db_session.scalar(select(FaceProfile.student_id))) == own.id
-    assert (await match_face()).json() == {"matched": True, "face": {"bbox": [10, 20, 50, 60], "width": 100, "height": 100}}
+    assert (await match_face()).json() == {
+        "faces": [
+            {"bbox": boxes[0], "status": "VERIFIED", "name": "Portal own", "similarity": 1.0},
+            {"bbox": boxes[1], "status": "UNKNOWN"},
+            {"bbox": boxes[2], "status": "LOW_QUALITY"},
+        ],
+        "width": 100, "height": 100,
+    }
+    for _ in range(2):
+        live = await client.post(f"{portal}/face/match?live=true", headers=student_headers, files=files)
+        assert live.status_code == 200, live.text
+        assert [face["status"] for face in live.json()["faces"]] == ["VERIFIED", "UNKNOWN", "LOW_QUALITY"]
+        await test_db_session.flush()
+    live_events = (await test_db_session.scalars(select(AuditLog.id).where(
+        AuditLog.user_id == user_id, AuditLog.action == "STUDENT_CHECK_FACE_LIVE"
+    ))).all()
+    assert len(live_events) == 1
     refreshed = await client.get(f"{portal}/requests", headers=student_headers)
     assert refreshed.json()["existing_poses"] == ["FRONT"]
     candidate = -candidate
     other_profile = FaceProfile(student_id=other.id, pose_type="FRONT", embedding_data=candidate.tolist())
+    other.section = "B"
     test_db_session.add(other_profile)
     await test_db_session.commit()
     redirected = await client.post(f"{portal}/face/match", headers=student_headers,
                                    data={"student_id": other.id}, files=files)
-    assert redirected.json()["matched"] is False
+    assert redirected.json()["faces"][0] == {"bbox": boxes[0], "status": "UNKNOWN"}
+    def analyze_group_photo(image, gallery):
+        assert set(gallery) == {own.id}
+        return [
+            {"bbox": boxes[0], "bucket": "VERIFIED", "student_id": own.id, "similarity": 0.812},
+            {"bbox": boxes[1], "bucket": "NEEDS_REVIEW", "student_id": own.id, "similarity": 0.514},
+        ]
+
+    monkeypatch.setattr(enrollment_service, "decode_photo", lambda data: np.empty((200, 300, 3)))
+    monkeypatch.setattr(enrollment_service, "recognize_photo", analyze_group_photo)
+    group = await client.post(f"{portal}/face/match?photo=true", headers=student_headers, files=files)
+    assert group.status_code == 200, group.text
+    assert group.json() == {
+        "faces": [
+            {"bbox": boxes[0], "status": "VERIFIED", "name": "Portal own", "similarity": 0.812},
+            {"bbox": boxes[1], "status": "NEEDS_REVIEW", "name": "Portal own", "similarity": 0.514},
+        ],
+        "width": 300, "height": 200,
+    }
+    other.section = own.section
+    await test_db_session.commit()
+    recognized = (await match_face()).json()["faces"][0]
+    assert recognized == {"bbox": boxes[0], "status": "VERIFIED", "name": "Portal other", "similarity": 1.0}
+    pipeline.embedder.extract_from_crop = lambda index: candidate * (2 if index == 0 else 1)
+    duplicate_faces = (await match_face()).json()["faces"]
+    assert [face["status"] for face in duplicate_faces] == ["VERIFIED", "NEEDS_REVIEW", "LOW_QUALITY"]
+    assert duplicate_faces[1]["name"] == "Portal other"
+    assert duplicate_faces[1]["similarity"] == 1.0
+    pipeline.embedder.extract_from_crop = lambda index: candidate if index == 0 else np.zeros(512)
     await test_db_session.delete(other_profile)
     await test_db_session.commit()
-    assert (await match_face()).json()["matched"] is False
+    assert (await match_face()).json()["faces"][0]["status"] == "UNKNOWN"
     assert (await submit_face()).status_code == 422
     candidate = -candidate
+    assert (await submit_face()).status_code == 403
+    pending = await client.post(update_url, headers=student_headers, json=update_payload)
+    assert pending.status_code == 201, pending.text
+    await test_db_session.commit()
+    assert (await client.post(update_url, headers=student_headers, json=update_payload)).status_code == 409
+    assert (await submit_face()).status_code == 403
+    review_url = f"{portal}/review/{pending.json()['id']}"
+    queue = await client.get(f"{portal}/review")
+    assert pending.json()["id"] in {item["id"] for item in queue.json()}
+    assert (await client.post(review_url, headers=student_headers, json=decision)).status_code == 403
+    approved = await client.post(review_url, json=decision)
+    assert approved.status_code == 200, approved.text
+    state = await client.get(f"{portal}/requests", headers=student_headers)
+    assert state.json()["can_update_face"]
+    assert state.json()["face_update_request"]["status"] == "APPROVED"
     updated = await submit_face()
     assert updated.status_code == 201, updated.text
 
@@ -128,4 +199,5 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
     assert removed.json()["completed_poses"] == []
     assert own.enrollment_status == "NOT_ENROLLED"
     assert await test_db_session.scalar(select(FaceProfile.id)) is None
+    await test_db_session.refresh(own_record)
     assert own_record.status == "EXCUSED"

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, Check, ShieldCheck, Upload } from 'lucide-react';
+import { Camera, Check, ScanFace, ShieldCheck, Upload } from 'lucide-react';
 import { FrameResult, WebcamPanel } from '../../components/camera/WebcamPanel';
 import { Button } from '../../components/ui';
 import { apiClient } from '../../services/api';
@@ -18,6 +18,8 @@ export type StudentRequest = {
 
 export type RequestState = {
   items: StudentRequest[];
+  face_update_request: StudentRequest | null;
+  can_update_face: boolean;
   existing_poses: string[];
   required_poses: string[];
   hints: Record<string, string>;
@@ -114,7 +116,7 @@ const poseNames: Record<string, string> = {
   BACKUP_FRONT: 'Backup front photo',
 };
 
-export function FaceRequests({ state, onSaved, studentName }: { studentName?: string; state: RequestState; onSaved: () => void }) {
+export function FaceRequests({ state, onSaved }: { state: RequestState; onSaved: () => void }) {
   const [selected, setSelected] = useState('');
   const [image, setImage] = useState<File | null>(null);
   const [preview, setPreview] = useState('');
@@ -122,7 +124,6 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [savedPoses, setSavedPoses] = useState<string[] | null>(null);
-  const [checkingMatch, setCheckingMatch] = useState(false);
   const [editing, setEditing] = useState(false);
   const [automatic, setAutomatic] = useState(true);
   const autoEnabled = useRef(true);
@@ -133,6 +134,7 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
   const currentPose = useRef(pose);
   currentPose.current = pose;
   const count = state.required_poses.filter(pose => enrolled.has(pose)).length;
+  const poseNumber = pose ? state.required_poses.indexOf(pose) + 1 : 0;
 
   const complete = count > 0 && count === state.required_poses.length;
 
@@ -196,49 +198,44 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
             </label>;
 
   return <section id="face-registration" className="scroll-mt-24 overflow-hidden rounded-2xl border border-border bg-surface">
-    {(complete || enrolled.size > 0) && <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-6">
-      {complete && <h2 className="flex items-center gap-2 font-semibold"><Check size={19} className="text-primary" /> Face registered</h2>}
-      <div className="flex flex-wrap gap-2">
-        {enrolled.size > 0 && <Button variant="secondary" disabled={busy} onClick={() => {
-          stable.current = null;
-          setImage(null);
-          setCheckingMatch(!checkingMatch);
-          setEditing(false);
-        }}>{checkingMatch ? 'Close match check' : 'Check face match'}</Button>}
-        {complete && <Button variant="secondary" disabled={busy} onClick={() => {
-          setCheckingMatch(false);
-          setEditing(!editing);
-          setSelected('');
-          setImage(null);
-        }}>{editing ? 'Close editor' : 'Update photos'}</Button>}
-      </div>
+    {complete && <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-6">
+      <h2 className="flex items-center gap-2 font-semibold"><Check size={19} className="text-primary" /> Face registered</h2>
+      {state.can_update_face && <Button variant="secondary" disabled={busy} onClick={() => {
+        setEditing(!editing);
+        setSelected('');
+        setImage(null);
+      }}>{editing ? 'Close editor' : 'Replace saved photos'}</Button>}
     </header>}
-    {checkingMatch ? <FaceMatchPanel studentName={studentName} /> : (!complete || editing) && <div className="space-y-5 p-4 sm:p-6">
+    {(!complete || (editing && state.can_update_face)) && <div className="grid gap-4 p-4 lg:grid-cols-[minmax(15rem,1fr)_minmax(0,2fr)] lg:gap-6 sm:p-6">
+      <div className="space-y-4">
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3 text-sm">
           <span className="font-semibold">Photos saved</span>
           <span className="tabular-nums text-text-muted">{count} of {state.required_poses.length}</span>
         </div>
         <div role="progressbar" aria-label="Registration photos saved" aria-valuemin={0}
-          aria-valuemax={Math.max(1, state.required_poses.length)} aria-valuenow={count}
+          aria-valuemax={Math.max(1, state.required_poses.length)} aria-valuenow={count} aria-valuetext={`${count} of ${state.required_poses.length} photos saved`}
           className="flex gap-1.5">
-          {state.required_poses.map(item => <span key={item} className={`h-2 flex-1 rounded-full ${enrolled.has(item) ? 'bg-primary' : 'bg-border'}`} />)}
+          {state.required_poses.map(item => <span key={item} className={`h-2 flex-1 rounded-full ${enrolled.has(item) ? 'bg-primary' : item === pose ? 'bg-primary/35' : 'bg-border'}`} />)}
         </div>
       </div>
-      <div className="space-y-4">
-        {pose ? <>
-          <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:p-5">
-            <p className="text-sm font-medium text-primary">{enrolled.has(pose) ? 'Replace a saved photo' : `Photo ${count + 1} of ${state.required_poses.length}`}</p>
-            <h3 className="mt-1 text-xl font-semibold">{poseNames[pose] ?? label(pose)}</h3>
+        {pose && <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3 sm:p-4">
+          <ScanFace size={22} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+          <div>
+            <p className="text-xs font-semibold text-primary">{enrolled.has(pose) ? 'Replacing saved photo' : `Pose ${poseNumber} of ${state.required_poses.length}`}</p>
+            <h3 className="mt-0.5 text-lg font-semibold leading-snug">{poseNames[pose] ?? label(pose)}</h3>
             {state.hints[pose] && state.hints[pose].trim() !== (poseNames[pose] ?? label(pose)).trim() &&
               <p className="mt-1 text-sm text-text-muted">{state.hints[pose]}</p>}
-            {!image && <p className="mt-2 text-sm text-text-muted">Use the camera or upload a JPEG showing this pose.</p>}
           </div>
+        </div>}
+      </div>
+      <div className="min-w-0 space-y-3">
+        {pose ? <>
           {image && preview && <div className="overflow-hidden rounded-xl border border-border bg-background">
             <img src={preview} alt="Photo selected for this pose" className="aspect-video w-full object-contain" />
           </div>}
           {!image && <div className="space-y-3">
-            <WebcamPanel compact
+            <WebcamPanel compact captureBusy={busy}
             secondaryAction={photoInput}
             cameraOptions={<label className="flex items-center gap-2 text-sm">
               <input type="checkbox" className="h-5 w-5 accent-primary" checked={automatic}
@@ -296,11 +293,13 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
         </> : <p className="rounded-lg bg-background p-4 text-sm text-text-muted">
           All required poses are saved. Select a pose to update it.
         </p>}
-        <details className="rounded-xl border border-border p-3">
-          <summary className="cursor-pointer font-medium">{complete ? 'Choose a photo to update' : 'View all photo poses'}</summary>
-          <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+      </div>
+      <div className="space-y-3 lg:col-span-2">
+        <details className="rounded-xl border border-border px-3">
+          <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">{complete ? 'Choose a photo to update' : 'View all photo poses'}</summary>
+          <ul className="grid gap-2 pb-3 sm:grid-cols-2">
             {state.required_poses.map(item => <li key={item}>
-              <button type="button" aria-pressed={item === pose} disabled={busy}
+              <button type="button" aria-pressed={item === pose} disabled={busy || (enrolled.has(item) && !state.can_update_face)}
                 className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg bg-surface-muted px-3 text-left text-sm"
                 onClick={() => { stable.current = null; setSelected(item); setImage(null); setError(''); }}>
                 {poseNames[item] ?? label(item)}
@@ -319,14 +318,57 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
   </section>;
 }
 
+type DetectedMatch = {
+  bbox: [number, number, number, number];
+} & (
+  { status: 'VERIFIED'; name: string; similarity: number }
+  | { status: 'NEEDS_REVIEW'; name?: string; similarity?: number }
+  | { status: 'UNKNOWN' | 'LOW_QUALITY' }
+);
+
 type MatchResult = {
-  matched: boolean;
-  face: { bbox: [number, number, number, number]; width: number; height: number };
+  width: number;
+  height: number;
+  faces: DetectedMatch[];
 };
 
-function FaceMatchPanel({ studentName }: { studentName?: string }) {
+export function FaceUpdateForm({ state, onSaved }: { state: RequestState; onSaved: () => void }) {
+  const [notice, setNotice] = useState('');
+  const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState('');
+  const [error, setError] = useState('');
+  const request = state.face_update_request;
+
+  if (state.can_update_face) return <p className="text-sm">Approved for seven days after review. Open face setup to replace saved photos.</p>;
+  if (request?.status === 'PENDING' || notice) return <p role="status" className="text-sm">Your request is waiting for an administrator.</p>;
+
+  return <form className="max-w-lg space-y-3" onSubmit={async event => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await apiClient.post('/student-portal/face/update-request', { reason });
+      setNotice('Request submitted');
+      onSaved();
+    } catch (err) {
+      setError(formatApiErrorMessage(err, 'Could not send your face update request.'));
+    } finally {
+      setBusy(false);
+    }
+  }}>
+    {request?.status === 'REJECTED' && <p className="text-sm">Last request declined. {request.review_note}</p>}
+    <label className="block text-sm">Why do you want to update your face photos?
+      <textarea className={fieldClass} value={reason} minLength={2} maxLength={1000} required
+        onChange={event => setReason(event.target.value)} />
+    </label>
+    {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+    <Button type="submit" disabled={busy || reason.trim().length < 2}>{busy ? 'Sending…' : 'Send to administrator'}</Button>
+  </form>;
+}
+
+export function FaceMatchPanel() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<MatchResult | null>(null);
   const [error, setError] = useState('');
   const [preview, setPreview] = useState<{ url: string; match: MatchResult }>();
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview.url); }, [preview]);
@@ -339,14 +381,42 @@ function FaceMatchPanel({ studentName }: { studentName?: string }) {
     request.current?.abort();
     setBusy(false);
     setPreview(undefined);
-    setResult('');
+    setResult(null);
     setError('');
+  }
+
+  const statusLabel = (face: DetectedMatch) => {
+    switch (face.status) {
+      case 'VERIFIED': return face.name + ' · Match';
+      case 'NEEDS_REVIEW': return face.name ? `Possible match: ${face.name}` : 'Uncertain match';
+      case 'LOW_QUALITY': return 'Could not check';
+      default: return 'Unknown';
+    }
+  };
+
+  async function analyze(photo: Blob, signal: AbortSignal, live = false) {
+    const payload = new FormData();
+    payload.append('file', photo, photo.type === 'image/png' ? 'face.png' : 'face.jpg');
+    const { data } = await apiClient.post<MatchResult>('/student-portal/face/match', payload, { signal, params: { live, photo: !live } });
+    if (!signal.aborted) setResult(data);
+    return data;
+  }
+
+  async function analyzeFrame(photo: Blob, signal: AbortSignal): Promise<FrameResult> {
+    const data = await analyze(photo, signal, true);
+    return {
+      boxes: data.faces.map((face, index) => ({
+        bbox: face.bbox,
+        label: `${index + 1} · ${statusLabel(face)}`,
+        color: face.status === 'VERIFIED' ? '#15803d' : face.status === 'UNKNOWN' ? '#b91c1c' : '#92400e',
+      })),
+    };
   }
 
   async function check(photo: Blob) {
     if (request.current && !request.current.signal.aborted) return;
     if (photo.size > 10 * 1024 * 1024 || !['image/jpeg', 'image/png'].includes(photo.type)) {
-      setResult('');
+      setResult(null);
       setError('Choose a JPEG or PNG photo under 10 MB.');
       return;
     }
@@ -354,16 +424,11 @@ function FaceMatchPanel({ studentName }: { studentName?: string }) {
     const controller = new AbortController();
     request.current = controller;
     setBusy(true);
-    setResult('');
+    setResult(null);
     setError('');
     try {
-      const payload = new FormData();
-      payload.append('file', photo, photo.type === 'image/png' ? 'face.png' : 'face.jpg');
-      const { data } = await apiClient.post<MatchResult>('/student-portal/face/match', payload, { signal: controller.signal });
-      if (!controller.signal.aborted) {
-        if (data.face) setPreview({ url: URL.createObjectURL(photo), match: data });
-        setResult(data.matched ? 'Face matches your saved scan.' : 'Face did not match. Try again with your face centered in good light.');
-      }
+      const data = await analyze(photo, controller.signal);
+      if (!controller.signal.aborted) setPreview({ url: URL.createObjectURL(photo), match: data });
     } catch (err) {
       if (!controller.signal.aborted) setError(formatApiErrorMessage(err, 'Could not check your face match.'));
     } finally {
@@ -371,13 +436,11 @@ function FaceMatchPanel({ studentName }: { studentName?: string }) {
     }
   }
 
-  const faceLabel = studentName?.trim() || 'Your face';
-  const bounds = preview?.match.face;
-  const [left, top, right, bottom] = bounds?.bbox || [0, 0, 0, 0];
+  const matchCount = result?.faces.filter(face => face.status === 'VERIFIED').length ?? 0;
 
   return <div className="space-y-4 p-5 sm:p-6">
     <h3 className="font-semibold">Check face match</h3>
-    <p className="text-sm text-text-muted">Start the camera, center your face, then select Check this frame. You can also upload a photo.</p>
+    <p className="text-sm text-text-muted">Check enrolled students in your class and division using the live camera or a photo. This test does not record attendance.</p>
     <div className="flex gap-2">
       {(['camera', 'upload'] as const).map(mode => <Button key={mode} variant={source === mode ? 'primary' : 'secondary'}
         disabled={busy} aria-pressed={source === mode} onClick={() => {
@@ -385,6 +448,8 @@ function FaceMatchPanel({ studentName }: { studentName?: string }) {
           clearCheck();
         }}>{mode === 'camera' ? 'Live camera' : 'Upload photo'}</Button>)}
     </div>
+    <div className={`grid items-start gap-4 ${source === 'camera' ? 'lg:grid-cols-[minmax(0,2fr)_minmax(12rem,1fr)]' : ''}`}>
+    <div className="min-w-0 space-y-3 rounded-xl border border-border bg-surface p-4">
     {source === 'upload' ? <label className="block text-sm font-medium">Check an uploaded photo
       <input type="file" accept="image/jpeg,image/png" disabled={busy} className="mt-2 block max-w-full"
         onChange={event => {
@@ -392,25 +457,49 @@ function FaceMatchPanel({ studentName }: { studentName?: string }) {
           event.target.value = '';
           if (file) void check(file);
         }} />
-    </label> : <WebcamPanel compact onCapture={photo => void check(photo)} captureBusy={busy}
-      captureLabel="Check this frame" onCameraChange={clearCheck} />}
-    {preview && bounds && <figure className="max-w-lg">
+    </label> : <WebcamPanel onFrame={analyzeFrame} frameInterval={750} showGuide={false} onCameraChange={clearCheck} />}
+    {preview && <figure className="w-full">
       <figcaption className="mb-2 text-sm font-medium">Checked image</figcaption>
       <div className="relative overflow-hidden rounded-xl">
-        <img src={preview.url} alt="The image used for your face check" width={bounds.width} height={bounds.height}
+        <img src={preview.url} alt="The image used for your face check" width={preview.match.width} height={preview.match.height}
           className="block h-auto w-full" />
-        <div className={`pointer-events-none absolute border-2 ${preview.match.matched ? 'border-green-400' : 'border-amber-400'}`}
-          style={{ left: 100 * left / bounds.width + '%', top: 100 * top / bounds.height + '%',
-            width: 100 * (right - left) / bounds.width + '%', height: 100 * (bottom - top) / bounds.height + '%' }}>
-          <span className="absolute left-0 top-0 max-w-full truncate rounded-br bg-black/80 px-1.5 py-0.5 text-xs font-semibold text-white">
-            {preview.match.matched ? faceLabel : 'No match'}
-          </span>
-        </div>
+        {preview.match.faces.map((face, index) => {
+          const [left, top, right, bottom] = face.bbox;
+          const { width, height } = preview.match;
+          const status = face.status === 'VERIFIED' ? `${face.name} · ${face.similarity.toFixed(3)}` : statusLabel(face);
+          return <div key={index} className={`pointer-events-none absolute border-2 ${face.status === 'VERIFIED' ? 'border-green-400' : face.status === 'UNKNOWN' ? 'border-rose-400' : 'border-amber-400'}`}
+            style={{ left: 100 * left / width + '%', top: 100 * top / height + '%',
+              width: 100 * (right - left) / width + '%', height: 100 * (bottom - top) / height + '%' }}>
+            <span aria-label={`Face ${index + 1}: ${status}`} className={`absolute w-max max-w-36 truncate rounded px-1 py-0.5 text-[10px] font-semibold leading-tight text-white sm:max-w-48 sm:text-xs
+                ${top / height >= 0.055 ? 'bottom-full' : 'top-0'}
+                ${left / width > 0.55 ? 'right-0' : 'left-0'}
+                ${face.status === 'VERIFIED' ? 'bg-green-800' : face.status === 'UNKNOWN' ? 'bg-red-800' : 'bg-amber-800'}`}>
+              {status}
+            </span>
+          </div>;
+        })}
       </div>
     </figure>}
     {busy && <p role="status" className="text-sm">Checking face…</p>}
-    {result && <p role="status" className="text-sm font-medium">{result}</p>}
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+    </div>
+    <aside className="min-w-0 rounded-xl border border-border bg-surface p-4">
+      <h4 className="font-semibold">Detected faces{result ? ` · ${result.faces.length}` : ''}</h4>
+      <p className="mt-2 text-sm text-text-muted">
+        {!result ? 'Start the camera or upload a photo to see matches.'
+          : !result.faces.length ? 'No faces detected. Try better lighting.'
+          : `${matchCount} of ${result.faces.length} faces matched`}
+      </p>
+      {!!result?.faces.length && <ol className="mt-3 divide-y divide-border">
+        {result.faces.map((face, index) => <li key={index} className="py-2 text-sm">
+          <span className="font-medium">Face {index + 1}</span>
+          <p className={face.status === 'VERIFIED' ? 'text-success' : face.status === 'UNKNOWN' ? 'text-text-muted' : 'text-warning'}>{statusLabel(face)}</p>
+          {(face.status === 'VERIFIED' || face.status === 'NEEDS_REVIEW') && face.similarity !== undefined &&
+            <p className="text-xs text-text-muted">Similarity {face.similarity.toFixed(3)}</p>}
+        </li>)}
+      </ol>}
+    </aside>
+    </div>
   </div>;
 }
 
@@ -435,7 +524,9 @@ function ReviewCard({ item, onReviewed }: { item: ReviewItem; onReviewed: () => 
   return <article className="space-y-3 border-t border-border p-4">
     <h3 className="font-medium">{requestLabels[item.kind]} · {item.student_name}</h3>
     <p className="text-sm text-text-muted">{item.student_pid}{item.subject && ` · ${item.subject} · ${item.date}`}</p>
-    <p className="text-sm">{label(item.current_status ?? '')} → {label(item.requested_status ?? '')}</p>
+    {item.kind === 'FACE_UPDATE'
+      ? <p className="text-sm">Approval lets the student replace saved photos for seven days.</p>
+      : <p className="text-sm">{label(item.current_status ?? '')} → {label(item.requested_status ?? '')}</p>}
     <p className="whitespace-pre-wrap break-words text-sm">{item.reason}</p>
     <label className="block max-w-md text-sm">Review note
       <textarea className={fieldClass} maxLength={1000} value={note} onChange={event => setNote(event.target.value)} />

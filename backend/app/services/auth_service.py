@@ -1,10 +1,11 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 import uuid
 from fastapi import HTTPException, status
 from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.app.services.audit_service import record_student_activity
+from backend.app.services.audit_service import record_activity, record_student_activity
 from backend.app.core.security import decode_access_token
 
 from backend.app.core.config import settings
@@ -19,6 +20,15 @@ from backend.app.core.security import (
 )
 from backend.app.models.entities import AuthSession, ClassSection, User
 from backend.app.schemas.auth import TokenResponse, UserRegisterRequest, UserResponse
+
+
+# A fixed dummy hash equalizes work for sign-ins that have no account.
+DUMMY_PASSWORD_HASH = hash_password("unused-placeholder-for-login-timing")
+
+
+def record_auth_event(db: AsyncSession, user: User | None, action: str) -> None:
+    prefix = "STUDENT_" if user and user.role == "STUDENT" else ""
+    record_activity(db, user, prefix + action, "User", user.id if user else "unknown")
 
 
 class AuthService:
@@ -73,6 +83,9 @@ class AuthService:
             if actor is None:
                 await db.flush()
                 record_student_activity(db, user, "REGISTER_ACCOUNT", "User", user.id)
+            elif actor.id is not None:
+                await db.flush()
+                record_activity(db, actor, "CREATE_ACCOUNT", "User", user.id)
             await db.commit()
         except IntegrityError:
             await db.rollback()
@@ -92,7 +105,7 @@ class AuthService:
         )
         refresh_token = create_refresh_token({"sub": user.id, "sid": session_id})
         if interactive:
-            record_student_activity(db, user, "SIGN_IN", "User", user.id)
+            record_auth_event(db, user, "SIGN_IN")
         await db.commit()
         return TokenResponse(
             access_token=access_token,
@@ -108,15 +121,22 @@ class AuthService:
             or_(User.username == username_or_email, User.email == username_or_email)
         )
         user = (await db.execute(query)).scalars().first()
-        if not user or not verify_password(password, user.password_hash):
+        valid_password = await asyncio.to_thread(verify_password, password, user.password_hash if user else DUMMY_PASSWORD_HASH)
+        if not user or not valid_password:
+            record_auth_event(db, user, "SIGN_IN_FAILED")
+            await db.commit()
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid username/email or password.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         if not user.is_active:
+            record_auth_event(db, user, "SIGN_IN_FAILED")
+            await db.commit()
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This user account has been disabled.")
         if settings.ENVIRONMENT.lower() in {"production", "prod"} and user.username == "admin" and password == "Admin@12345":
+            record_auth_event(db, user, "SIGN_IN_FAILED")
+            await db.commit()
             raise HTTPException(403, "Change the development administrator password before production use.")
         result = await cls._issue_session(db, user, interactive=True)
         logger.info("User login successful: %s (Role: %s)", user.username, user.role)
@@ -148,5 +168,5 @@ class AuthService:
         auth_session = await db.get(AuthSession, payload["sid"])
         if auth_session is not None and auth_session.revoked_at is None:
             auth_session.revoked_at = datetime.now(timezone.utc)
-            record_student_activity(db, user, "SIGN_OUT", "User", user.id)
+            record_auth_event(db, user, "SIGN_OUT")
             await db.commit()

@@ -7,6 +7,8 @@ from time import monotonic
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from backend.app.core.client_ip import request_client_ip
+
 
 @dataclass(frozen=True)
 class Limit:
@@ -23,6 +25,7 @@ ROUTE_LIMITS = {
     "/auth/login": ("login", LOGIN),
     "/recognition/process": ("live", LIVE),
     "/recognition/analyze-frame": ("live", LIVE),
+    "/student-portal/face/match": ("student-face-check", LIVE),
     "/recognition/detect": ("live", LIVE),
     "/recognition/debug/detect": ("live", LIVE),
     "/detection/photo": ("photo", PHOTO),
@@ -60,8 +63,7 @@ class RequestRateLimit:
                     rule = ROUTE_LIMITS.get(path[len(prefix):])
                     if rule:
                         group, limit = rule
-                        client = scope.get("client")
-                        host = client[0] if client else "unknown"
+                        host = request_client_ip(scope) or "unknown"
                         wait = self.retry_after((host, group), limit, monotonic())
                         if wait:
                             response = JSONResponse(

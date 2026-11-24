@@ -23,7 +23,7 @@ export const Sidebar: React.FC<SidebarProps> = ({role = 'STUDENT', userName = ''
  {label:'Attendance',items:[{id:'live',label:'Live Attendance',icon:CheckSquare},{id:'attendance',label:'Attendance Sessions',icon:Calendar},{id:'media',label:'Photo Attendance',icon:ImageIcon}]},
  {label:'People',items:[{id:'students',label:'Students',icon:Users}]},
  {label:'Academics',items:[...(role === 'FACULTY' ? academicItems : []),{id:'timetable',label:'Timetable',icon:Calendar}]},
- {label:'Recognition tools',items:[...(role === 'FACULTY' ? [{id:'recognition-test',label:'Recognition Test',icon:Camera},{id:'anonymous-detection',label:'Anonymous Detection',icon:ImageIcon}] : [])]},
+ {label:'Recognition tools',items:[...(role === 'FACULTY' ? [{id:'anonymous-detection',label:'Anonymous Detection',icon:ImageIcon}] : [])]},
  {label:'Reports',items:[{id:'reports',label:'Reports',icon:BarChart2}]}];
  const content = (compact: boolean) => {
  const query = compact ? '' : menuSearch.trim().toLowerCase();

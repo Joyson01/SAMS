@@ -6,7 +6,7 @@ import { PeriodCalendar, type PeriodRecord } from './PeriodCalendar';
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, Users, RefreshCw } from 'lucide-react';
 import { apiClient } from '../../services/api';
-import { CorrectionForm, FaceRequests, fieldClass, RequestState, StudentReviewQueue } from './StudentRequests';
+import { CorrectionForm, FaceMatchPanel, FaceRequests, FaceUpdateForm, fieldClass, RequestState, StudentReviewQueue } from './StudentRequests';
 import { TeacherClasses } from './TeacherClasses';
 import { AuthUser } from '../../services/authApi';
 import { formatApiErrorMessage } from '../../utils/apiError';
@@ -255,8 +255,10 @@ function AttendanceDashboard({ items, requests, onSaved }: { items: AttendanceIt
   </>;
 }
 
+type FacePanel = 'setup' | 'check' | 'update';
+
 export function MyAttendancePage({ profileView = false }: { profileView?: boolean }) {
-  const [faceSetupOpen, setFaceSetupOpen] = useState(false);
+  const [facePanel, setFacePanel] = useState<FacePanel | null>(null);
   const [data, setData] = useState<PersonalAttendance | null>(null);
   const [error, setError] = useState('');
   const [requestError, setRequestError] = useState('');
@@ -286,10 +288,21 @@ export function MyAttendancePage({ profileView = false }: { profileView?: boolea
   const absent = items.filter(item => ['ABSENT', 'MANUAL_ABSENT'].includes(item.status)).length;
   const rate = items.length ? Math.round(attended / items.length * 100) : null;
   const displayName = data?.profile?.display_name || data?.profile?.name;
-  const requiredPoses = requests?.required_poses ?? [];
-  const savedPoses = requiredPoses.filter(pose => requests?.existing_poses.includes(pose)).length;
-  const needsFaceRegistration = savedPoses < requiredPoses.length;
-  const hasLegacySamples = requests?.existing_poses.some(pose => !requiredPoses.includes(pose)) ?? false;
+  const hasFaceSamples = Boolean(requests?.existing_poses.length);
+  const faceActions: { id: FacePanel; title: string }[] = [];
+  if (!hasFaceSamples || requests?.can_update_face || facePanel === 'setup') {
+    faceActions.push({
+      id: 'setup',
+      title: facePanel === 'setup' ? 'Close face setup' : hasFaceSamples ? 'Open face setup' : 'Register face',
+    });
+  }
+  if (hasFaceSamples) {
+    faceActions.push({ id: 'check', title: 'Check recognition' }, {
+      id: 'update',
+      title: requests?.can_update_face ? 'Update approval'
+        : requests?.face_update_request?.status === 'PENDING' ? 'View pending request' : 'Request face update',
+    });
+  }
 
   return <div className="mx-auto max-w-5xl space-y-5">
     <header className="overflow-hidden rounded-3xl bg-[#102920] p-5 text-white sm:p-7">
@@ -312,24 +325,28 @@ export function MyAttendancePage({ profileView = false }: { profileView?: boolea
       : !data ? <div role="status"><span className="sr-only">Loading student record…</span><Skeleton className="h-48" /></div>
       : !data.linked ? <EmptyState title="Connect your student record" description="Ask your administrator to link your account using your roll number and student code." />
       : profileView ? <>
-        {requests && <section className={`rounded-2xl border ${needsFaceRegistration ? 'border-primary/30 bg-primary/5' : 'border-border bg-surface'}`} aria-labelledby="face-setup-heading">
+        {requests && <section className={`rounded-2xl border ${hasFaceSamples ? 'border-border bg-surface' : 'border-primary/30 bg-primary/5'}`} aria-labelledby="face-setup-heading">
           <div className="flex flex-wrap items-start gap-3 p-5">
             <ScanFace size={24} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
             <div className="min-w-0 flex-1 basis-44">
-              <h2 id="face-setup-heading" className="font-semibold">{needsFaceRegistration ? (hasLegacySamples ? 'Face samples already on file' : 'Register your face for attendance') : 'Face recognition'}</h2>
-              {needsFaceRegistration && <p className="mt-1 text-sm text-text-muted">
-                {hasLegacySamples ? `Your previous samples are still saved. Guided setup: ${savedPoses} of ${requiredPoses.length} photos saved.`
-                  : savedPoses ? `${savedPoses} of ${requiredPoses.length} photos saved. Finish guided setup when ready.`
-                  : 'Set up face recognition so your teacher can mark you present using the camera.'}
-              </p>}
+              <h2 id="face-setup-heading" className="font-semibold">{hasFaceSamples ? 'Face recognition' : 'Register your face for attendance'}</h2>
+              <p className="mt-1 text-sm text-text-muted">
+                {hasFaceSamples ? 'Your face is registered.'
+                  : 'Follow the guided poses to set up camera attendance.'}
+              </p>
             </div>
-            <Button aria-expanded={faceSetupOpen} aria-controls="student-face-setup"
-              variant={needsFaceRegistration ? 'primary' : 'secondary'} onClick={() => setFaceSetupOpen(open => !open)}>
-              {faceSetupOpen ? 'Close setup' : needsFaceRegistration ? (savedPoses ? 'Continue setup' : hasLegacySamples ? 'Open guided setup' : 'Register face') : 'Manage setup'}
-            </Button>
           </div>
-          <div id="student-face-setup" hidden={!faceSetupOpen} className="border-t border-border p-3 sm:p-4">
-            {faceSetupOpen && <FaceRequests studentName={displayName} state={requests} onSaved={() => void loadRequests()} />}
+          <div className="flex flex-wrap gap-2 px-5 pb-5">
+            {faceActions.map(({ id, title }) => (
+              <Button key={id} aria-expanded={facePanel === id} aria-controls="student-face-panel"
+                variant={facePanel === id || (!hasFaceSamples && id === 'setup') ? 'primary' : 'secondary'}
+                onClick={() => setFacePanel(current => current === id ? null : id)}>{title}</Button>
+            ))}
+          </div>
+          <div id="student-face-panel" hidden={!facePanel} className="border-t border-border p-3 sm:p-4">
+            {facePanel === 'setup' && <FaceRequests state={requests} onSaved={() => void loadRequests()} />}
+            {facePanel === 'check' && <FaceMatchPanel />}
+            {facePanel === 'update' && <FaceUpdateForm state={requests} onSaved={() => void loadRequests()} />}
           </div>
         </section>}
         {data.profile && <section className="space-y-4 rounded-2xl border border-border bg-surface p-5">

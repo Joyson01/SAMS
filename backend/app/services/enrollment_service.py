@@ -2,15 +2,17 @@
 import asyncio
 import hashlib
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import cv2
 import numpy as np
 from fastapi import HTTPException
 from sqlalchemy import delete, select, update
+from ai_engine.recognition.photo_matcher import assign_faces, classify_scores
 from backend.app.services.audit_service import record_student_activity
 from backend.app.core.config import settings
 from backend.app.models.entities import User, AuditLog, FaceProfile, Student, StudentPortalRequest
 from backend.app.services.recognition_service import get_pipeline, RecognitionService
+from backend.app.services.photo_attendance_service import decode_photo, recognize_photo
 
 POSE_HINTS = {'FRONT':'Look straight ahead', 'LEFT_15':'Turn slightly to your left', 'RIGHT_15':'Turn slightly to your right', 'TILT_UP':'Tilt your chin up', 'TILT_DOWN':'Tilt your chin down', 'ROLL_RIGHT':'Tilt your head slightly sideways', 'BACKUP_FRONT':'Look straight ahead for the backup sample'}
 _enrollment_lock = asyncio.Lock()
@@ -32,9 +34,7 @@ def pose_matches(pose, target):
     if target=='ROLL_RIGHT': return 10<=abs(pose.roll)<=30 and abs(pose.yaw)<=25
     return False
 
-def check_image(data, target, embed=False, *, match_test=False):
-    if not (match_test and target == "FRONT") and target not in required_poses():
-        raise HTTPException(422,'Choose a configured enrollment pose.')
+def decode_face_image(data):
     if not data or len(data)>10*1024*1024:
         raise HTTPException(413,'Upload a nonempty image under 10 MB.')
     image=cv2.imdecode(np.frombuffer(data,np.uint8),cv2.IMREAD_COLOR)
@@ -44,6 +44,13 @@ def check_image(data, target, embed=False, *, match_test=False):
         pipeline=get_pipeline()
     except Exception as exc:
         raise HTTPException(503,'AI engine unavailable. Run python -m scripts.check_models.') from exc
+    return image, pipeline
+
+
+def check_image(data, target, embed=False):
+    if target not in required_poses():
+        raise HTTPException(422, 'Choose a configured enrollment pose.')
+    image, pipeline = decode_face_image(data)
     faces=pipeline.detector.detect(image)
     result={'face_count':len(faces),'bbox':None,'yaw':None,'pitch':None,'roll':None,'blur':None,'brightness':None,'valid':False,'hint':'No face detected. Move into the guide.','frame_width':image.shape[1],'frame_height':image.shape[0]}
     if len(faces)!=1:
@@ -52,7 +59,7 @@ def check_image(data, target, embed=False, *, match_test=False):
     face=faces[0]
     quality=pipeline.quality_analyzer.analyze(image,face.bbox)
     pose=pipeline.pose_estimator.estimate(face.landmarks)
-    valid=quality.is_valid and (match_test or pose_matches(pose,target))
+    valid=quality.is_valid and pose_matches(pose,target)
     hint='Hold still' if valid else (quality.rejection_reason if not quality.is_valid else POSE_HINTS[target])
     if quality.brightness and quality.brightness<40: hint='Too dark. Face a light source.'
     result.update(bbox=face.bbox.to_list()[:4],yaw=pose.yaw,pitch=pose.pitch,roll=pose.roll,blur=quality.sharpness,brightness=quality.brightness,valid=bool(valid),hint=hint,quality=asdict(quality))
@@ -66,6 +73,56 @@ def matches_template(embedding, stored) -> bool:
         return False
     norm = np.linalg.norm(vector)
     return bool(norm > 0 and float(np.dot(embedding, vector / norm)) >= 0.58)
+
+def check_face_matches(data, templates, names, *, photo=False):
+    gallery = {}
+    for student_id, stored in templates:
+        vector = np.asarray(stored, dtype=np.float32)
+        if vector.shape != (512,) or not np.isfinite(vector).all():
+            continue
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            gallery.setdefault(student_id, []).append(vector / norm)
+
+    if photo:
+        image = decode_photo(data)
+        faces = recognize_photo(image, gallery)
+    else:
+        image, pipeline = decode_face_image(data)
+        faces = []
+        for face in pipeline.detector.detect(image):
+            result = {"bbox": face.bbox.to_list()[:4], "bucket": "LOW_QUALITY", "similarity": 0.0, "quality_flags": []}
+            quality = pipeline.quality_analyzer.analyze(image, face.bbox)
+            if quality.is_valid:
+                crop = pipeline.aligner.align(image, face.landmarks)
+                embedding = pipeline.embedder.extract_from_crop(crop)
+                norm = np.linalg.norm(embedding)
+                scores = []
+                if np.isfinite(norm) and norm > 0:
+                    query = embedding / norm
+                    scores = sorted(
+                        ((sid, max(float(np.dot(query, v)) for v in vectors)) for sid, vectors in gallery.items()),
+                        key=lambda item: (-item[1], item[0]),
+                    )
+                result["bucket"] = classify_scores(
+                    scores, settings.FACE_RECOGNITION_THRESHOLD,
+                    settings.UNCERTAIN_LOWER_THRESHOLD, settings.PHOTO_MARGIN,
+                )
+                if scores and result["bucket"] != "UNKNOWN":
+                    result["student_id"], result["similarity"] = scores[0]
+            faces.append(result)
+        faces = assign_faces(faces)
+
+    results = []
+    for face in faces:
+        status = face["bucket"]
+        result = {"bbox": face["bbox"], "status": status}
+        if status in {"VERIFIED", "NEEDS_REVIEW"} and face.get("student_id") in names:
+            result["name"] = names[face["student_id"]]
+            result["similarity"] = round(face["similarity"], 3)
+        results.append(result)
+    return {"faces": results, "width": image.shape[1], "height": image.shape[0]}
+
 
 async def enrollment_status(db, student_id):
     if not await db.get(Student,student_id): raise HTTPException(404,'Student not found.')
@@ -105,6 +162,16 @@ async def remove_face_data(db, student_id: str, admin_id: str):
         await RecognitionService.sync_gallery_from_db(db)
     return await enrollment_status(db, student_id)
 
+async def face_update_allowed(db, student_id: str, user_id: str) -> bool:
+    return await db.scalar(select(StudentPortalRequest.id).where(
+        StudentPortalRequest.student_id == student_id,
+        StudentPortalRequest.requested_by == user_id,
+        StudentPortalRequest.kind == "FACE_UPDATE",
+        StudentPortalRequest.status == "APPROVED",
+        StudentPortalRequest.reviewed_at >= datetime.now(timezone.utc) - timedelta(days=7),
+    ).limit(1)) is not None
+
+
 async def enroll(db, student_id, data, target, *, self_enrollment: bool = False, actor: User | None = None):
     student=await db.get(Student,student_id)
     if not student: raise HTTPException(404,'Student not found.')
@@ -124,6 +191,8 @@ async def enroll(db, student_id, data, target, *, self_enrollment: bool = False,
             if vector.shape==(512,) and np.linalg.norm(vector)>0 and float(np.dot(embedding,vector/np.linalg.norm(vector)))>=0.80:
                 raise HTTPException(409, "This face is already enrolled for another student. Ask an administrator to review the identity.")
         same=[p for p in profiles if p.student_id==student_id and p.pose_type==target]
+        if self_enrollment and same and (actor is None or not await face_update_allowed(db, student_id, actor.id)):
+            raise HTTPException(403, "Ask your administrator to approve replacing saved face photos.")
         profile=same[0] if same else FaceProfile(student_id=student_id,pose_type=target)
         profile.embedding_data=embedding.tolist()
         profile.image_hash=hashlib.sha256(data).hexdigest()

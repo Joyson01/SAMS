@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Security, status
+from fastapi import APIRouter, Depends, Response, Security, status
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,7 @@ from backend.app.schemas.auth import (
     UserResponse,
 )
 from backend.app.services.auth_service import AuthService
+from backend.app.services.audit_service import record_activity
 
 router = APIRouter(prefix="/auth", tags=["Authentication & Access Control"])
 
@@ -35,16 +36,20 @@ async def register(
 @router.post("/login", response_model=TokenResponse, summary="Login and receive access/refresh tokens")
 async def login(
     login_in: UserLoginRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
+    response.headers["Cache-Control"] = "no-store"
     return await AuthService.authenticate_user(db, login_in.username_or_email, login_in.password)
 
 
 @router.post("/refresh", response_model=TokenResponse, summary="Rotate a refresh token")
 async def refresh(
     request: RefreshTokenRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
+    response.headers["Cache-Control"] = "no-store"
     return await AuthService.refresh_session(db, request.refresh_token)
 
 
@@ -128,6 +133,9 @@ async def update_user(user_id: str, payload: UserUpdateRequest, db: AsyncSession
         user.is_active = payload.is_active
     if payload.password:
         user.password_hash = hash_password(payload.password)
+        record_activity(db, actor, "RESET_PASSWORD", "User", user.id)
+    if payload.is_active is not None:
+        record_activity(db, actor, "ENABLE_ACCOUNT" if payload.is_active else "DISABLE_ACCOUNT", "User", user.id)
     if payload.password or payload.is_active is False:
         await db.execute(update(AuthSession).where(AuthSession.user_id == user_id).values(revoked_at=datetime.now(timezone.utc)))
     await db.commit()
@@ -147,6 +155,7 @@ async def link_student(user_id: str, payload: StudentLinkRequest, db: AsyncSessi
         link.student_id = student.id
     else:
         db.add(UserStudentLink(user_id=user_id, student_id=student.id))
+    record_activity(db, actor, "LINK_STUDENT_ACCOUNT", "User", user.id)
     try:
         await db.commit()
     except IntegrityError:

@@ -1,6 +1,7 @@
 import pytest
+from sqlalchemy import select
 
-from backend.app.models.entities import Student, UserStudentLink
+from backend.app.models.entities import AuditLog, Student, UserStudentLink
 
 
 @pytest.mark.asyncio
@@ -78,3 +79,12 @@ async def test_classmates_directory_and_private_chat(staff_client, test_db_sessi
     own.status = "INACTIVE"
     await db.commit()
     assert (await staff_client.get(portal, headers=headers)).status_code == 403
+
+    events = (await db.scalars(select(AuditLog).where(AuditLog.entity_type == "ClassmateMessage"))).all()
+    assert {event.action: event.new_values for event in events} == {
+        "STUDENT_SEND_MESSAGE": {"classmate_id": friend.id, "classmate_name": "friend Student"},
+        "STUDENT_SHARE_FILE": {"classmate_id": friend.id, "classmate_name": "friend Student"},
+        "STUDENT_DOWNLOAD_FILE": {"classmate_id": own.id, "classmate_name": "own Student"},
+    }
+    assert all(event.ip_address and event.user_agent for event in events)
+    assert (await staff_client.get("/api/v1/audit-logs", headers=headers)).status_code == 403

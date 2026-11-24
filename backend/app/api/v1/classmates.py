@@ -58,7 +58,14 @@ async def chat_members(db, user, peer_id):
     peer = (await db.execute(classmates_query(own).where(Student.id == peer_id, User.id.is_not(None)))).first()
     if peer is None:
         raise HTTPException(404, "This classmate is unavailable for chat.")
-    return own.id, peer_id
+    return own.id, peer[0]
+
+
+def private_chat_metadata(peer: Student) -> dict[str, str]:
+    return {
+        "classmate_id": peer.id,
+        "classmate_name": f"{peer.first_name} {peer.last_name}".strip(),
+    }
 
 
 def message_data(message, own_id, filename=None):
@@ -77,8 +84,8 @@ async def messages(peer_id: str, db: AsyncSession = Depends(get_db), user: User 
     rows = (await db.execute(select(message, ClassmateAttachment.filename).outerjoin(
         ClassmateAttachment, ClassmateAttachment.message_id == message.id,
     ).where(or_(
-        and_(message.sender_id == own, message.recipient_id == peer),
-        and_(message.sender_id == peer, message.recipient_id == own),
+        and_(message.sender_id == own, message.recipient_id == peer.id),
+        and_(message.sender_id == peer.id, message.recipient_id == own),
     )).order_by(message.created_at.desc(), message.id.desc()).limit(100))).all()
     return [message_data(row, own, filename) for row, filename in reversed(rows)]
 
@@ -87,10 +94,11 @@ async def messages(peer_id: str, db: AsyncSession = Depends(get_db), user: User 
 async def send_message(peer_id: str, payload: MessageInput, db: AsyncSession = Depends(get_db),
                        user: User = Depends(student_only)):
     own, peer = await chat_members(db, user, peer_id)
-    message = ClassmateMessage(sender_id=own, recipient_id=peer, body=payload.body)
+    message = ClassmateMessage(sender_id=own, recipient_id=peer.id, body=payload.body)
     db.add(message)
     await db.flush()
-    record_student_activity(db, user, "SEND_MESSAGE", "ClassmateMessage", message.id)
+    record_student_activity(db, user, "SEND_MESSAGE", "ClassmateMessage", message.id,
+                            metadata=private_chat_metadata(peer))
     return message_data(message, own)
 
 
@@ -122,12 +130,13 @@ async def send_attachment(peer_id: str, file: UploadFile = File(...), db: AsyncS
         raise HTTPException(422, "Choose a file that is not empty.")
     filename = (file.filename or "").replace("\\", "/").rsplit("/", 1)[-1]
     filename = "".join(character for character in filename if character.isprintable()).strip()[:255] or "attachment"
-    message = ClassmateMessage(sender_id=own, recipient_id=peer, body="")
+    message = ClassmateMessage(sender_id=own, recipient_id=peer.id, body="")
     db.add(message)
     await db.flush()
     db.add(ClassmateAttachment(message_id=message.id, filename=filename, content=content))
     await db.flush()
-    record_student_activity(db, user, "SHARE_FILE", "ClassmateMessage", message.id)
+    record_student_activity(db, user, "SHARE_FILE", "ClassmateMessage", message.id,
+                            metadata=private_chat_metadata(peer))
     return message_data(message, own, filename)
 
 
@@ -138,12 +147,13 @@ async def download_attachment(peer_id: str, message_id: str, db: AsyncSession = 
     message = ClassmateMessage
     attachment = await db.scalar(select(ClassmateAttachment).join(message, message.id == ClassmateAttachment.message_id)
                                  .where(message.id == message_id, or_(
-                                     and_(message.sender_id == own, message.recipient_id == peer),
-                                     and_(message.sender_id == peer, message.recipient_id == own),
+                                     and_(message.sender_id == own, message.recipient_id == peer.id),
+                                     and_(message.sender_id == peer.id, message.recipient_id == own),
                                  )))
     if attachment is None:
         raise HTTPException(404, "Attachment not found.")
-    record_student_activity(db, user, "DOWNLOAD_FILE", "ClassmateMessage", message_id)
+    record_student_activity(db, user, "DOWNLOAD_FILE", "ClassmateMessage", message_id,
+                            metadata=private_chat_metadata(peer))
     return Response(attachment.content, media_type="application/octet-stream", headers={
         "Content-Disposition": "attachment; filename*=UTF-8''" + quote(attachment.filename, safe=""),
         "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
