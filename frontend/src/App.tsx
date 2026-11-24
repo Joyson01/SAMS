@@ -94,9 +94,9 @@ const Workspace: React.FC = () => {
     return () => clearInterval(interval);
   }, [isAuthenticated]);
 
-  const academicTab = (activeTab === 'classroom' || (activeTab === 'semester-results' && role !== 'STUDENT')) && ['STUDENT', 'FACULTY', 'HOD', 'ADMIN'].includes(role);
+  const academicTab = ['classroom', 'semester-results'].includes(activeTab) && ['FACULTY', 'HOD', 'ADMIN'].includes(role);
   const currentTab = academicTab ? activeTab
-    : role === 'STUDENT' ? (['classmates', 'my-timetable'].includes(activeTab) ? activeTab : 'my-attendance')
+    : role === 'STUDENT' ? (['classmates', 'classroom'].includes(activeTab) ? 'classmates' : ['my-attendance', 'my-timetable'].includes(activeTab) ? activeTab : 'student-profile')
     : role === 'HOD' ? 'department'
     : (activeTab === 'recognition-test' || activeTab === 'anonymous-detection') && !['ADMIN', 'FACULTY'].includes(role) ? 'dashboard'
     : role === 'FACULTY' && activeTab === 'dashboard' ? 'attendance' : activeTab;
@@ -152,7 +152,8 @@ const Workspace: React.FC = () => {
         setActiveTab={setActiveTab}
       >
         <ErrorBoundary key={activeTab} fallbackTitle={`Error in ${activeTab.toUpperCase()}`}>
-          {currentTab === 'my-attendance' && role === 'STUDENT' && <MyAttendancePage onNavigate={setActiveTab} />}
+          {currentTab === 'my-attendance' && role === 'STUDENT' && <MyAttendancePage />}
+          {currentTab === 'student-profile' && role === 'STUDENT' && <MyAttendancePage profileView />}
           {currentTab === 'my-timetable' && role === 'STUDENT' && <StudentTimetable />}
           {currentTab === 'classmates' && role === 'STUDENT' && <Classmates selection={chatSelection} onSelectionHandled={() => setChatSelection(undefined)} />}
           {academicTab && currentTab === 'classroom' && <ClassroomBoard />}
@@ -162,7 +163,7 @@ const Workspace: React.FC = () => {
           {currentTab === 'recognition-test' && ['ADMIN','FACULTY'].includes(role) && <RecognitionTestPage />}
           {currentTab === 'anonymous-detection' && ['ADMIN','FACULTY'].includes(role) && <AnonymousDetectionPage />}
           {currentTab === 'users' && role === 'ADMIN' && <UsersPage />}
-          {currentTab === 'dashboard' && role !== 'FACULTY' && <DashboardOverview onNavigate={handleNavigate} />}
+          {currentTab === 'dashboard' && role !== 'FACULTY' && <DashboardOverview onNavigate={handleNavigate} admin={role === 'ADMIN'} />}
           {currentTab === 'students' && <StudentListPage onNavigate={handleNavigate} canManage={role === 'ADMIN' || role === 'OPERATOR'} />}
           {currentTab === 'subjects' && role === 'ADMIN' && <><SubjectManagementPage onNavigate={handleNavigate} /><AcademicTools /></>}
           {activeTab === 'timetable' && <><TimetablePage onNavigate={handleNavigate} canEdit={role === 'ADMIN'} />{role === 'ADMIN' && <TimetableEditor />}</>}

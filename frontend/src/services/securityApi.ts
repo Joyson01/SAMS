@@ -5,6 +5,7 @@ export interface AuditLogFilterParams {
   action?: string;
   entity_type?: string;
   user_id?: string;
+  student_activity?: boolean;
   page?: number;
   page_size?: number;
 }

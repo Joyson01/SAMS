@@ -54,7 +54,7 @@ async def test_all_five_weekdays_official_timetable_structure(test_db_session):
     # MONDAY VERIFICATION (2026-08-31 is Monday)
     # ----------------------------------------------------
     mon = await ClassService.list_timetable_entries(test_db_session, class_id=teb.id, scheduled_date=date(2026, 8, 31))
-    assert len(mon) == 8
+    assert len(mon) == 10
     mon_map = {f"{e.start_time}-{e.end_time}": e for e in mon}
     assert mon_map["09:00-10:00"].label == "H/M" and mon_map["09:00-10:00"].entry_type == "ACTIVITY"
     assert mon_map["10:00-11:00"].label == "AIML - DN" and mon_map["10:00-11:00"].entry_type == "SUBJECT"
@@ -62,8 +62,11 @@ async def test_all_five_weekdays_official_timetable_structure(test_db_session):
     assert mon_map["12:00-13:00"].label == "TCS - DM" and mon_map["12:00-13:00"].entry_type == "SUBJECT"
     assert mon_map["13:00-14:00"].label == "LUNCH BREAK" and mon_map["13:00-14:00"].entry_type == "BREAK"
     assert mon_map["14:00-15:00"].label == "CSS - DM" and mon_map["14:00-15:00"].entry_type == "SUBJECT"
-    assert mon_map["15:00-16:00"].label == "B1 - TCS - DM" and mon_map["15:00-16:00"].batch == "B1"
-    assert mon_map["16:00-17:00"].label == "B2 - WTL - SP - L6" and mon_map["16:00-17:00"].batch == "B2" and mon_map["16:00-17:00"].room == "L6"
+    for start in ("15:00", "16:00"):
+        labs = {entry.batch: entry for entry in mon if entry.start_time == start}
+        assert labs["B1"].label == "B1 - TCS - DM"
+        assert labs["B2"].label == "B2 - WTL - SP - L6"
+        assert labs["B2"].room == "L6"
 
     # ----------------------------------------------------
     # TUESDAY VERIFICATION (2026-09-01 is Tuesday)
@@ -98,8 +101,8 @@ async def test_all_five_weekdays_official_timetable_structure(test_db_session):
     # ----------------------------------------------------
     thu = await ClassService.list_timetable_entries(test_db_session, class_id=teb.id, scheduled_date=date(2026, 9, 3))
     assert len(thu) == 8
-    thu_10_12 = [e for e in thu if e.start_time in ["10:00", "11:00"]]
-    assert all("OE - I" in e.label for e in thu_10_12)
+    thu_oe = [e for e in thu if e.start_time in ["10:00", "11:00", "12:00"]]
+    assert [e.label for e in thu_oe] == ["OE - I"] * 3
     thu_16 = next(e for e in thu if e.start_time == "16:00")
     assert thu_16.label == "SC - SKP (SL)" and thu_16.room == "SL"
 
@@ -172,3 +175,27 @@ async def test_create_session_from_slot_and_duplicate_rejection(test_db_session)
     # 3. Start Session
     started = await AttendanceService.start_session(test_db_session, created.id)
     assert started.status == "ACTIVE"
+
+
+@pytest.mark.asyncio
+async def test_official_import_preserves_existing_slot_id(test_db_session):
+    from sqlalchemy import select
+    from scripts.import_teb_timetable import sync_timetable_entries
+
+    db = test_db_session
+    section = ClassSection(name="TE-B", department="Computer Engineering")
+    db.add(section)
+    await db.flush()
+    old_slot = TimetableEntry(class_id=section.id, day_of_week="Thursday", start_time="12:00",
+                              end_time="13:00", entry_type="SUBJECT", label="AIML - DN")
+    db.add(old_slot)
+    await db.flush()
+    old_id = old_slot.id
+
+    for _ in range(2):
+        await sync_timetable_entries(db, section.id, {}, {})
+        await db.flush()
+
+    slots = (await db.scalars(select(TimetableEntry).where(TimetableEntry.class_id == section.id))).all()
+    assert len(slots) == len(TIMETABLE_DEFINITIONS)
+    assert next(slot for slot in slots if slot.id == old_id).label == "OE - I"

@@ -52,7 +52,7 @@ async def test_student_timetable_filters_class_and_batch(staff_client, test_db_s
     for missing in (None, foreign.id):
         student.batch_id = missing
         await db.commit()
-        assert await labels() == {"Lecture", "Break"}
+        assert await labels() == {"Lecture", "Break", "Lab", "Legacy lab", "Other lab", "Other legacy lab"}
     own.status = "INACTIVE"
     await db.commit()
     assert (await client.get(path, headers=headers)).status_code == 409

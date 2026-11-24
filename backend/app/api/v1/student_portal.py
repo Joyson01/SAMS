@@ -20,6 +20,8 @@ from backend.app.schemas.attendance import AttendanceOverridePayload
 from backend.app.services.attendance_service import AttendanceService
 from backend.app.services.enrollment_service import POSE_HINTS, check_image, enroll, matches_template, required_poses
 
+from backend.app.services.audit_service import record_student_activity
+
 router = APIRouter(prefix="/student-portal", tags=["Student Portal"])
 student_only = require_roles("STUDENT")
 admin_only = require_roles("ADMIN")
@@ -88,11 +90,15 @@ async def student_timetable(db: AsyncSession = Depends(get_db), user: User = Dep
     if batch:
         visible = or_(visible, TimetableEntry.batch_id == batch.id,
                       and_(TimetableEntry.batch_id.is_(None), legacy_batch == batch.name.strip().upper()))
-    rows = await db.execute(select(
+    query = select(
         TimetableEntry.id, TimetableEntry.day_of_week, TimetableEntry.start_time,
         TimetableEntry.end_time, TimetableEntry.label, TimetableEntry.room,
-    ).where(TimetableEntry.class_id == class_id, TimetableEntry.status == "ACTIVE", visible)
-     .order_by(TimetableEntry.start_time, TimetableEntry.end_time, TimetableEntry.label, TimetableEntry.id))
+    ).where(TimetableEntry.class_id == class_id, TimetableEntry.status == "ACTIVE")
+    if batch:
+        query = query.where(visible)
+    rows = await db.execute(query.order_by(
+        TimetableEntry.start_time, TimetableEntry.end_time, TimetableEntry.label, TimetableEntry.id
+    ))
     return {"class_name": student.class_name, "batch": batch.name if batch else None,
             "entries": rows.mappings().all()}
 
@@ -127,11 +133,13 @@ async def submit_correction(
         raise HTTPException(422, "Leave requests can excuse an existing absence.")
     if record.status.removeprefix("MANUAL_") == payload.requested_status:
         raise HTTPException(422, "Choose a status different from the recorded mark.")
-    return await save_request(db, StudentPortalRequest(
+    result = await save_request(db, StudentPortalRequest(
         student_id=sid, requested_by=user.id, kind=payload.kind,
         pending_key=f"record:{record.id}", record_id=record.id,
         requested_status=payload.requested_status, reason=payload.reason,
     ))
+    record_student_activity(db, user, "REQUEST_" + payload.kind, "StudentPortalRequest", result["id"])
+    return result
 
 
 @router.post("/face", status_code=201)
@@ -145,7 +153,7 @@ async def submit_face(
         raise HTTPException(413, "Upload a JPEG under 2 MB.")
     if not data.startswith(b"\xff\xd8\xff") or not data.endswith(b"\xff\xd9"):
         raise HTTPException(422, "Capture or upload a JPEG image.")
-    result = await enroll(db, sid, data, pose, self_enrollment=True)
+    result = await enroll(db, sid, data, pose, self_enrollment=True, actor=user)
     if not result["success"]:
         raise HTTPException(422, result["message"])
     return result
@@ -179,6 +187,7 @@ async def test_face_match(
     result, embedding = await asyncio.to_thread(check_image, data, "FRONT", True, match_test=True)
     if embedding is None:
         raise HTTPException(422, result["hint"])
+    record_student_activity(db, user, "CHECK_FACE_MATCH", "Student", sid)
     return {
         "matched": any(matches_template(embedding, stored) for stored in templates),
         "face": {"bbox": result["bbox"], "width": result["frame_width"], "height": result["frame_height"]},

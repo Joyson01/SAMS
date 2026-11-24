@@ -1,8 +1,9 @@
+from backend.app.services.audit_service import AuditService
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from backend.app.api.v1.classroom import PostInput, SubmissionInput, board, publish, review_submissions, turn_in
+from backend.app.api.v1.classroom import ClassNoteInput, GroupMessageInput, PostInput, SubmissionInput, board, group_messages, publish, review_submissions, send_group_message, share_note, turn_in
 from backend.app.models.entities import ClassSection, Student, TeacherClassAssignment, User, UserStudentLink
 
 
@@ -61,14 +62,38 @@ async def test_classroom_stream_is_scoped(test_db_session):
         stream = await board(scoped_user, db)
         assert [p["title"] for p in stream["posts"]] == [payload.title]
         assert stream["can_publish"] == (scoped_user != student_user)
+    with pytest.raises(HTTPException) as forbidden_note:
+        await share_note(ClassNoteInput(class_id=second.id, title="Notes", body="Out of scope"), student_user, db)
+    assert forbidden_note.value.status_code == 403
+    note = await share_note(ClassNoteInput(class_id=first.id, title="Chapter one notes", body="  Key terms  "), student_user, db)
+    peer_posts = (await board(peer, db))["posts"]
+    shared = next(item for item in peer_posts if item["id"] == note["id"])
+    assert (shared["kind"], shared["author"], shared["body"]) == ("material", student_user.full_name, "Key terms")
+    message = await send_group_message(first.id, GroupMessageInput(body="  Hello TE-B  "), student_user, db)
+    assert message["mine"]
+    peer_messages = await group_messages(first.id, peer, db)
+    assert len(peer_messages) == 1
+    assert (peer_messages[0]["body"], peer_messages[0]["author"], peer_messages[0]["mine"]) == ("Hello TE-B", student_user.full_name, False)
+    assert all(item["id"] != message["id"] for item in (await board(peer, db))["posts"])
+    with pytest.raises(HTTPException) as forbidden_group:
+        await send_group_message(second.id, GroupMessageInput(body="Out of scope"), student_user, db)
+    assert forbidden_group.value.status_code == 403
+    await db.flush()
+    events, count = await AuditService.list_audit_logs(db, student_activity=True)
+    assert count == 3
+    assert {entry.action for entry in events} == {"STUDENT_TURN_IN_ASSIGNMENT", "STUDENT_SHARE_NOTE", "STUDENT_SEND_GROUP_MESSAGE"}
+    assert all(entry.user_id == student_user.id and entry.old_values is None and entry.new_values is None for entry in events)
     student.section = "A"
     await db.flush()
     assert not (await board(student_user, db))["posts"]
+    with pytest.raises(HTTPException) as hidden_group:
+        await group_messages(first.id, student_user, db)
+    assert hidden_group.value.status_code == 403
     student.section = "B"
     student.department = second.department
     await db.flush()
     assert not (await board(student_user, db))["posts"]
-    assert len((await board(admin, db))["posts"]) == 2
+    assert len((await board(admin, db))["posts"]) == 3
 
 
 def test_rejects_other_links_and_material_deadlines():

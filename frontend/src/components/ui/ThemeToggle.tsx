@@ -4,7 +4,7 @@ import { IconButton } from './IconButton';
 export function initializeTheme() {
   let saved: string | null = null;
   try { saved = localStorage.getItem('attedel-theme'); } catch { /* Browser storage may be disabled. */ }
-  const dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const dark = saved === 'dark';
   document.documentElement.classList.toggle('dark', dark);
   return dark;
 }

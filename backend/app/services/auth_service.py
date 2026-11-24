@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from backend.app.services.audit_service import record_student_activity
 from backend.app.core.security import decode_access_token
 
 from backend.app.core.config import settings
@@ -69,6 +70,9 @@ class AuthService:
         )
         db.add(user)
         try:
+            if actor is None:
+                await db.flush()
+                record_student_activity(db, user, "REGISTER_ACCOUNT", "User", user.id)
             await db.commit()
         except IntegrityError:
             await db.rollback()
@@ -78,7 +82,7 @@ class AuthService:
         return UserResponse.model_validate(user)
 
     @classmethod
-    async def _issue_session(cls, db: AsyncSession, user: User) -> TokenResponse:
+    async def _issue_session(cls, db: AsyncSession, user: User, *, interactive: bool = False) -> TokenResponse:
         session_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
         refresh_expiry = now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
@@ -87,6 +91,8 @@ class AuthService:
             {"sub": user.id, "sid": session_id, "username": user.username, "role": user.role}
         )
         refresh_token = create_refresh_token({"sub": user.id, "sid": session_id})
+        if interactive:
+            record_student_activity(db, user, "SIGN_IN", "User", user.id)
         await db.commit()
         return TokenResponse(
             access_token=access_token,
@@ -112,7 +118,7 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This user account has been disabled.")
         if settings.ENVIRONMENT.lower() in {"production", "prod"} and user.username == "admin" and password == "Admin@12345":
             raise HTTPException(403, "Change the development administrator password before production use.")
-        result = await cls._issue_session(db, user)
+        result = await cls._issue_session(db, user, interactive=True)
         logger.info("User login successful: %s (Role: %s)", user.username, user.role)
         return result
 
@@ -137,9 +143,10 @@ class AuthService:
     async def logout_session(cls, db: AsyncSession, access_token: str) -> None:
         from backend.app.core.security import _resolve_user, decode_access_token
 
-        await _resolve_user(access_token, db, "access")
+        user = await _resolve_user(access_token, db, "access")
         payload = decode_access_token(access_token)
         auth_session = await db.get(AuthSession, payload["sid"])
         if auth_session is not None and auth_session.revoked_at is None:
             auth_session.revoked_at = datetime.now(timezone.utc)
+            record_student_activity(db, user, "SIGN_OUT", "User", user.id)
             await db.commit()

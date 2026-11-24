@@ -7,8 +7,9 @@ import cv2
 import numpy as np
 from fastapi import HTTPException
 from sqlalchemy import delete, select, update
+from backend.app.services.audit_service import record_student_activity
 from backend.app.core.config import settings
-from backend.app.models.entities import AuditLog, FaceProfile, Student, StudentPortalRequest
+from backend.app.models.entities import User, AuditLog, FaceProfile, Student, StudentPortalRequest
 from backend.app.services.recognition_service import get_pipeline, RecognitionService
 
 POSE_HINTS = {'FRONT':'Look straight ahead', 'LEFT_15':'Turn slightly to your left', 'RIGHT_15':'Turn slightly to your right', 'TILT_UP':'Tilt your chin up', 'TILT_DOWN':'Tilt your chin down', 'ROLL_RIGHT':'Tilt your head slightly sideways', 'BACKUP_FRONT':'Look straight ahead for the backup sample'}
@@ -104,7 +105,7 @@ async def remove_face_data(db, student_id: str, admin_id: str):
         await RecognitionService.sync_gallery_from_db(db)
     return await enrollment_status(db, student_id)
 
-async def enroll(db, student_id, data, target, *, self_enrollment: bool = False):
+async def enroll(db, student_id, data, target, *, self_enrollment: bool = False, actor: User | None = None):
     student=await db.get(Student,student_id)
     if not student: raise HTTPException(404,'Student not found.')
     result,embedding=await asyncio.to_thread(check_image,data,target,True)
@@ -132,6 +133,8 @@ async def enroll(db, student_id, data, target, *, self_enrollment: bool = False)
         for duplicate in same[1:]: await db.delete(duplicate)
         completed={p.pose_type for p in profiles if p.student_id==student_id}|{target}
         student.enrollment_status='ENROLLED' if set(required_poses())<=completed else 'PARTIAL'
+        if actor is not None:
+            record_student_activity(db, actor, "UPDATE_FACE" if same else "REGISTER_FACE", "Student", student_id)
         await db.commit()
         await RecognitionService.sync_gallery_from_db(db)
     return {'success':True,'message':'Sample saved and recognition gallery updated.',**(await enrollment_status(db,student_id))}

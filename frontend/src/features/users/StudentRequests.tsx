@@ -1,6 +1,5 @@
-import mascotIcon from '../../assets/atted-icon.png';
 import { useEffect, useRef, useState } from 'react';
-import { Camera, Check, ScanFace, Upload } from 'lucide-react';
+import { Camera, Check, ShieldCheck, Upload } from 'lucide-react';
 import { FrameResult, WebcamPanel } from '../../components/camera/WebcamPanel';
 import { Button } from '../../components/ui';
 import { apiClient } from '../../services/api';
@@ -187,17 +186,18 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
     }
   }
 
+  const photoInput = <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium focus-within:outline focus-within:outline-2 focus-within:outline-primary">
+              <Upload size={16} aria-hidden /> {image ? 'Replace photo' : 'Upload a photo'}
+              <input type="file" className="sr-only" accept="image/jpeg" disabled={busy} onChange={event => {
+                const file = event.target.files?.[0];
+                if (file) choosePhoto(file);
+                event.target.value = '';
+              }} />
+            </label>;
+
   return <section id="face-registration" className="scroll-mt-24 overflow-hidden rounded-2xl border border-border bg-surface">
-    <header className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 sm:px-6">
-      <div className="flex items-center gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
-          {complete ? <Check size={22} aria-hidden /> : <ScanFace size={22} aria-hidden />}
-        </span>
-        <div>
-          <h2 className="text-lg font-semibold">{complete ? 'Face registered' : 'Set up face recognition'}</h2>
-          <p className="text-sm text-text-muted">{complete ? `${count} of ${state.required_poses.length} photos saved` : 'Save one picture at a time. Your progress is saved as you go.'}</p>
-        </div>
-      </div>
+    {(complete || enrolled.size > 0) && <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-6">
+      {complete && <h2 className="flex items-center gap-2 font-semibold"><Check size={19} className="text-primary" /> Face registered</h2>}
       <div className="flex flex-wrap gap-2">
         {enrolled.size > 0 && <Button variant="secondary" disabled={busy} onClick={() => {
           stable.current = null;
@@ -212,29 +212,44 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
           setImage(null);
         }}>{editing ? 'Close editor' : 'Update photos'}</Button>}
       </div>
-    </header>
-    {checkingMatch ? <FaceMatchPanel studentName={studentName} /> : (!complete || editing) && <div className="space-y-4 border-t border-border px-5 py-5 sm:px-6">
-      <div className="flex items-center justify-between gap-3 text-sm">
-        <span className="font-semibold">Registration progress</span>
-        <span className="text-text-muted">{count} / {state.required_poses.length} saved</span>
+    </header>}
+    {checkingMatch ? <FaceMatchPanel studentName={studentName} /> : (!complete || editing) && <div className="space-y-5 p-4 sm:p-6">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="font-semibold">Photos saved</span>
+          <span className="tabular-nums text-text-muted">{count} of {state.required_poses.length}</span>
+        </div>
+        <div role="progressbar" aria-label="Registration photos saved" aria-valuemin={0}
+          aria-valuemax={Math.max(1, state.required_poses.length)} aria-valuenow={count}
+          className="flex gap-1.5">
+          {state.required_poses.map(item => <span key={item} className={`h-2 flex-1 rounded-full ${enrolled.has(item) ? 'bg-primary' : 'bg-border'}`} />)}
+        </div>
       </div>
-      <progress className="block h-2 w-full accent-primary" aria-label="Saved poses"
-        max={Math.max(1, state.required_poses.length)} value={count} />
-      <div className="max-w-2xl space-y-4">
-        <aside className="flex items-center gap-3 rounded-xl bg-primary/5 p-3 text-sm text-text-muted">
-          <img src={mascotIcon} alt="" width={40} height={40} className="shrink-0" />
-          <p><strong className="text-text">Face privacy.</strong> We process your photo to create a face template for attendance. We save the template and discard the photo.</p>
-        </aside>
+      <div className="space-y-4">
         {pose ? <>
-          <div className="rounded-xl bg-surface-muted p-4">
-            <h3 className="font-semibold">{enrolled.has(pose) ? 'Update photo' : `Photo ${count + 1} of ${state.required_poses.length}`} · {poseNames[pose] ?? label(pose)}</h3>
-            <p className="mt-1 text-sm text-text-muted">{state.hints[pose]}</p>
+          <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:p-5">
+            <p className="text-sm font-medium text-primary">{enrolled.has(pose) ? 'Replace a saved photo' : `Photo ${count + 1} of ${state.required_poses.length}`}</p>
+            <h3 className="mt-1 text-xl font-semibold">{poseNames[pose] ?? label(pose)}</h3>
+            {state.hints[pose] && state.hints[pose].trim() !== (poseNames[pose] ?? label(pose)).trim() &&
+              <p className="mt-1 text-sm text-text-muted">{state.hints[pose]}</p>}
+            {!image && <p className="mt-2 text-sm text-text-muted">Use the camera or upload a JPEG showing this pose.</p>}
           </div>
           {image && preview && <div className="overflow-hidden rounded-xl border border-border bg-background">
             <img src={preview} alt="Photo selected for this pose" className="aspect-video w-full object-contain" />
           </div>}
           {!image && <div className="space-y-3">
             <WebcamPanel compact
+            secondaryAction={photoInput}
+            cameraOptions={<label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" className="h-5 w-5 accent-primary" checked={automatic}
+                disabled={busy}
+                onChange={event => {
+                  stable.current = null;
+                  autoEnabled.current = event.target.checked;
+                  setAutomatic(event.target.checked);
+                }} />
+              Take photos automatically when ready
+            </label>}
             onCapture={blob => choosePhoto(new File([blob], 'face.jpg', {type: 'image/jpeg'}))}
             onFrame={async (blob, signal): Promise<FrameResult> => {
               if (image || saving.current) return {};
@@ -266,31 +281,14 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
               };
             }}
           />
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" className="h-5 w-5 accent-primary" checked={automatic}
-                disabled={busy}
-                onChange={event => {
-                  stable.current = null;
-                  autoEnabled.current = event.target.checked;
-                  setAutomatic(event.target.checked);
-                }} />
-              Save automatically when the pose is ready
-            </label>
           </div>}
-          <div className="flex flex-wrap gap-2">
-            {image && <Button type="button" variant="secondary" disabled={busy} icon={<Camera size={16} />}
+          {image && <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" disabled={busy} icon={<Camera size={16} />}
               onClick={() => { setImage(null); setError(''); }}>
               Retake with camera
-            </Button>}
-            <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium focus-within:outline focus-within:outline-2 focus-within:outline-primary">
-              <Upload size={16} aria-hidden /> {image ? 'Replace photo' : 'Upload a photo'}
-              <input type="file" className="sr-only" accept="image/jpeg" disabled={busy} onChange={event => {
-                const file = event.target.files?.[0];
-                if (file) choosePhoto(file);
-                event.target.value = '';
-              }} />
-            </label>
-          </div>
+            </Button>
+            {photoInput}
+          </div>}
           {image && <Button type="button" disabled={busy} onClick={() => void submitPhoto(image, pose)}>
             {busy ? 'Submitting…' : enrolled.has(pose) ? 'Save updated photo' : 'Save photo'}
           </Button>}
@@ -299,7 +297,7 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
           All required poses are saved. Select a pose to update it.
         </p>}
         <details className="rounded-xl border border-border p-3">
-          <summary className="cursor-pointer font-medium">{complete ? 'Choose a photo to update' : 'See all poses'}</summary>
+          <summary className="cursor-pointer font-medium">{complete ? 'Choose a photo to update' : 'View all photo poses'}</summary>
           <ul className="mt-2 grid gap-2 sm:grid-cols-2">
             {state.required_poses.map(item => <li key={item}>
               <button type="button" aria-pressed={item === pose} disabled={busy}
@@ -311,8 +309,11 @@ export function FaceRequests({ state, onSaved, studentName }: { studentName?: st
             </li>)}
           </ul>
         </details>
-        {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+        {error && <p role="alert" className="rounded-xl border border-danger/30 bg-danger/10 p-3 text-sm text-danger">{error}</p>}
         {notice && <p role="status" className="text-sm text-success">{notice}</p>}
+        <p className="flex items-start gap-2 text-sm text-text-muted"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+          <span>We save a face template for attendance and discard the photo.</span>
+        </p>
       </div>
     </div>}
   </section>;

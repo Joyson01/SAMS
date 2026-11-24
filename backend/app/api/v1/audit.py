@@ -1,7 +1,6 @@
-from backend.app.core.security import require_roles
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
-from backend.app.core.security import get_current_user, require_roles
+from backend.app.core.security import require_roles
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_db
@@ -21,6 +20,7 @@ async def list_audit_logs(
     action: Optional[str] = Query(None, description="Filter by action (e.g., MANUAL_OVERRIDE, CREATE, UPDATE)"),
     entity_type: Optional[str] = Query(None, description="Filter by entity type (e.g., AttendanceRecord, Student)"),
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    student_activity: bool = Query(False),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -32,6 +32,7 @@ async def list_audit_logs(
         user_id=user_id,
         page=page,
         page_size=page_size,
+        student_activity=student_activity,
     )
     return AuditLogListResponse(
         total_count=total,

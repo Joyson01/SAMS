@@ -7,6 +7,12 @@ from backend.app.models.entities import AuditLog, User
 from backend.app.schemas.audit import AuditLogResponse
 
 
+def record_student_activity(db: AsyncSession, user: User, action: str, entity_type: str, entity_id: str) -> None:
+    """Add metadata to the caller's transaction without copying student content."""
+    if user.role == "STUDENT":
+        db.add(AuditLog(user_id=user.id, action=f"STUDENT_{action}", entity_type=entity_type, entity_id=entity_id))
+
+
 class AuditService:
     """Service managing compliance audit logging, activity tracking, and history search."""
 
@@ -48,10 +54,14 @@ class AuditService:
         user_id: Optional[str] = None,
         page: int = 1,
         page_size: int = 25,
+        student_activity: bool = False,
     ) -> Tuple[List[AuditLogResponse], int]:
         """Lists audit logs with filtering and pagination."""
         query = select(AuditLog).options(selectinload(AuditLog.user))
         filters = []
+
+        if student_activity:
+            filters.append(AuditLog.action.startswith("STUDENT_", autoescape=True))
 
         if action:
             filters.append(AuditLog.action == action.upper())

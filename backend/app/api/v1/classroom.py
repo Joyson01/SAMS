@@ -14,6 +14,8 @@ from backend.app.database.session import get_db
 from backend.app.models.classroom import AssignmentSubmission, ClassroomPost
 from backend.app.models.entities import ClassSection, Student, User, UserStudentLink
 
+from backend.app.services.audit_service import record_student_activity
+
 router = APIRouter(prefix="/classroom", tags=["Classroom"])
 staff = require_roles("ADMIN", "HOD", "FACULTY")
 members = require_roles("ADMIN", "HOD", "FACULTY", "STUDENT")
@@ -62,7 +64,7 @@ async def board(user: User = Depends(members), db: AsyncSession = Depends(get_db
                                .where(ClassSection.id.in_(allowed)).order_by(ClassSection.name))
     posts = await db.execute(select(ClassroomPost, User.full_name)
                              .outerjoin(User, User.id == ClassroomPost.author_id)
-                             .where(ClassroomPost.class_id.in_(allowed))
+                             .where(ClassroomPost.class_id.in_(allowed), ClassroomPost.kind != "group_message")
                              .order_by(ClassroomPost.created_at.desc(), ClassroomPost.id.desc()))
     own_submissions = {}
     if user.role == "STUDENT":
@@ -91,6 +93,62 @@ async def publish(payload: PostInput, user: User = Depends(staff), db: AsyncSess
     db.add(post)
     await db.flush()
     return {"id": post.id}
+
+
+class ClassNoteInput(BaseModel):
+    class_id: str = Field(min_length=1, max_length=36)
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=160)]
+    body: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=6000)]
+
+
+@router.post("/notes", status_code=201)
+async def share_note(
+    payload: ClassNoteInput,
+    user: User = Depends(require_roles("STUDENT")),
+    db: AsyncSession = Depends(get_db),
+):
+    if not await db.scalar(visible_classes(user).where(ClassSection.id == payload.class_id)):
+        raise HTTPException(403, "You can only share notes with your own class.")
+    post = ClassroomPost(author_id=user.id, kind="material", **payload.model_dump())
+    db.add(post)
+    await db.flush()
+    record_student_activity(db, user, "SHARE_NOTE", "ClassroomPost", post.id)
+    return {"id": post.id}
+
+
+class GroupMessageInput(BaseModel):
+    body: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+
+
+def group_message_data(post: ClassroomPost, author: str | None, user: User):
+    created_at = post.created_at
+    return {"id": post.id, "body": post.body, "author": author or "Former member",
+            "mine": post.author_id == user.id,
+            "created_at": created_at if created_at.tzinfo else created_at.replace(tzinfo=timezone.utc)}
+
+
+@router.get("/{class_id}/messages")
+async def group_messages(class_id: str, user: User = Depends(members), db: AsyncSession = Depends(get_db)):
+    if not await db.scalar(visible_classes(user).where(ClassSection.id == class_id)):
+        raise HTTPException(403, "This group chat is only available to class members.")
+    rows = (await db.execute(
+        select(ClassroomPost, User.full_name).outerjoin(User, User.id == ClassroomPost.author_id)
+        .where(ClassroomPost.class_id == class_id, ClassroomPost.kind == "group_message")
+        .order_by(ClassroomPost.created_at.desc(), ClassroomPost.id.desc()).limit(100)
+    )).all()
+    return [group_message_data(post, author, user) for post, author in reversed(rows)]
+
+
+@router.post("/{class_id}/messages", status_code=201)
+async def send_group_message(class_id: str, payload: GroupMessageInput, user: User = Depends(members),
+                             db: AsyncSession = Depends(get_db)):
+    if not await db.scalar(visible_classes(user).where(ClassSection.id == class_id)):
+        raise HTTPException(403, "This group chat is only available to class members.")
+    post = ClassroomPost(class_id=class_id, author_id=user.id, kind="group_message", title="", body=payload.body)
+    db.add(post)
+    await db.flush()
+    record_student_activity(db, user, "SEND_GROUP_MESSAGE", "ClassroomPost", post.id)
+    return group_message_data(post, user.full_name, user)
 
 
 class SubmissionInput(BaseModel):
@@ -123,6 +181,7 @@ async def turn_in(post_id: str, payload: SubmissionInput, user: User = Depends(r
             async with db.begin_nested():
                 db.add(submission)
                 await db.flush()
+            record_student_activity(db, user, "TURN_IN_ASSIGNMENT", "AssignmentSubmission", post_id)
             return submission_view(submission)
         except IntegrityError:
             existing = await db.get(AssignmentSubmission, key)

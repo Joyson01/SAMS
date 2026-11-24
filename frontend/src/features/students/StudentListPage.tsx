@@ -2039,18 +2039,9 @@ export const StudentListPage: React.FC<StudentListPageProps> = ({ onNavigate, ca
                     onChange={handleFormChange}
                     className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
-                  <StudentBatchSelect className={formData.class_name} value={formData.batch_id} onChange={batch_id => setFormData(prev => ({...prev,batch_id}))} />
                 </div>
-                <div className="space-y-1">
-                  <label className="font-semibold text-text">Section</label>
-                  <input
-                    type="text"
-                    name="section"
-                    value={formData.section}
-                    onChange={handleFormChange}
-                    className="w-full bg-surface-muted border border-border rounded-lg px-3 py-1.5 text-xs text-text focus:bg-surface focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
+                <StudentBatchSelect className={formData.class_name} value={formData.batch_id}
+                  onChange={batch_id => setFormData(prev => ({ ...prev, batch_id }))} />
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">

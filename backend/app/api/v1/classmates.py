@@ -14,6 +14,8 @@ from backend.app.database.session import get_db
 from backend.app.models.classroom import ClassmateAttachment, ClassmateMessage
 from backend.app.models.entities import Student, User, UserStudentLink
 
+from backend.app.services.audit_service import record_student_activity
+
 router = APIRouter(prefix="/student-portal", tags=["Student Portal"])
 
 
@@ -87,6 +89,7 @@ async def send_message(peer_id: str, payload: MessageInput, db: AsyncSession = D
     message = ClassmateMessage(sender_id=own, recipient_id=peer, body=payload.body)
     db.add(message)
     await db.flush()
+    record_student_activity(db, user, "SEND_MESSAGE", "ClassmateMessage", message.id)
     return message_data(message, own)
 
 
@@ -123,6 +126,7 @@ async def send_attachment(peer_id: str, file: UploadFile = File(...), db: AsyncS
     await db.flush()
     db.add(ClassmateAttachment(message_id=message.id, filename=filename, content=content))
     await db.flush()
+    record_student_activity(db, user, "SHARE_FILE", "ClassmateMessage", message.id)
     return message_data(message, own, filename)
 
 
@@ -138,6 +142,7 @@ async def download_attachment(peer_id: str, message_id: str, db: AsyncSession = 
                                  )))
     if attachment is None:
         raise HTTPException(404, "Attachment not found.")
+    record_student_activity(db, user, "DOWNLOAD_FILE", "ClassmateMessage", message_id)
     return Response(attachment.content, media_type="application/octet-stream", headers={
         "Content-Disposition": "attachment; filename*=UTF-8''" + quote(attachment.filename, safe=""),
         "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",

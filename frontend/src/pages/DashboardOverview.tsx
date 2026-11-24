@@ -1,3 +1,4 @@
+import { formatCalendarDate } from '../utils/formatDate';
 import { SystemHealthCard } from '../components/SystemHealthCard';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -7,6 +8,7 @@ import {
   Eye,
   RefreshCw,
   ArrowRight,
+  Users, ClipboardList, ChartNoAxesColumn, ShieldCheck, Image,
 } from 'lucide-react';
 import { fetchDashboardSummary } from '../services/dashboardApi';
 import { fetchAllTimetableEntries } from '../services/subjectApi';
@@ -24,8 +26,18 @@ import {
 } from '../components/ui';
 
 interface DashboardOverviewProps {
+  admin?: boolean;
   onNavigate?: (tab: string, studentId?: string) => void;
 }
+
+const adminActions = [
+  { tab: 'attendance', label: 'Attendance sessions', help: 'Review and correct marks', icon: ClipboardList },
+  { tab: 'students', label: 'Students', help: 'Manage roster and enrollment', icon: Users },
+  { tab: 'timetable', label: 'Timetable', help: 'View the weekly schedule', icon: Calendar },
+  { tab: 'media', label: 'Photo attendance', help: 'Review classroom photos', icon: Image },
+  { tab: 'reports', label: 'Reports', help: 'Review trends and export records', icon: ChartNoAxesColumn },
+  { tab: 'audit', label: 'Audit logs', help: 'Review student and staff activity', icon: ShieldCheck },
+];
 
 // Helper to format 24h "HH:MM" to 12h "hh:mm A"
 const formatDisplayTime = (timeStr?: string): string => {
@@ -40,7 +52,7 @@ const formatDisplayTime = (timeStr?: string): string => {
   return `${String(displayHour).padStart(2, '0')}:${minute} ${ampm}`;
 };
 
-export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate }) => {
+export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate, admin = false }) => {
   const [data, setData] = useState<DashboardSummaryResponse | null>(null);
   const [timetableBackup, setTimetableBackup] = useState<TimetableEntry[]>([]);
   const [recentSessions, setRecentSessions] = useState<AttendanceSession[]>([]);
@@ -219,13 +231,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
 
   return (
     <div className="space-y-6">
-      {/* 1. HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className={`flex flex-col justify-between gap-4 sm:flex-row sm:items-center ${admin ? "rounded-3xl bg-[#102920] p-5 text-white sm:p-7" : ""}`}>
         <div>
-          <h1 className="text-2xl sm:text-[28px] font-medium text-text">
-            Attendance overview
+          <h1 className={`text-2xl font-semibold tracking-tight sm:text-3xl ${admin ? "text-white" : "text-text"}`}>
+            {admin ? "Admin dashboard" : "Attendance overview"}
           </h1>
-          <p className="text-sm text-text-muted mt-2">{fullFormattedDate}</p>
+          <p className={`mt-2 text-sm ${admin ? "text-emerald-100" : "text-text-muted"}`}>{fullFormattedDate}</p>
         </div>
 
         <Button
@@ -234,13 +245,26 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           size="md"
           icon={<Play className="w-3.5 h-3.5 fill-current" />}
         >
-          Start attendance
+          Open live attendance
         </Button>
       </div>
 
+      {admin && <section aria-labelledby="admin-quick-actions">
+        <h2 id="admin-quick-actions" className="mb-3 text-lg font-semibold">Quick actions</h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {adminActions.map(({ tab, label, help, icon: Icon }) => <button key={tab} type="button"
+            onClick={() => onNavigate?.(tab)}
+            className="flex min-h-16 items-center gap-3 rounded-xl border border-border bg-surface p-3 text-left hover:border-primary hover:bg-surface-muted">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><Icon size={19} aria-hidden="true" /></span>
+            <span className="min-w-0 flex-1"><strong className="block text-sm">{label}</strong><span className="block text-xs text-text-muted">{help}</span></span>
+            <ArrowRight size={16} className="shrink-0 text-text-muted" aria-hidden="true" />
+          </button>)}
+        </div>
+      </section>}
+
       <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border lg:grid-cols-4">
         {[
-          ['Enrolled students', summary.enrolled_students, 'In the directory'],
+          ['Students on roster', summary.total_students, `${summary.enrolled_students} enrolled for recognition`],
           ['Present today', summary.present_today, 'Recorded attendance'],
           ['Absent today', summary.absent_today, 'Recorded absences'],
           ['Attendance rate', `${summary.attendance_rate_pct}%`, 'Today'],
@@ -251,19 +275,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
         </div>)}
       </div>
 
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-medium text-text">Attendance trend</h2>
-          {data?.attendance_trend.length ? <span className="text-xs text-text-muted">Most recent {Math.min(7, data.attendance_trend.length)} reported days</span> : null}
-        </div>
-        {data?.attendance_trend.length ? <div className="mt-6 flex h-44 items-end gap-3" role="img" aria-label={data.attendance_trend.slice(-7).map(day => `${day.day_label}: ${day.attendance_pct}% attendance`).join(', ')}>
-          {data.attendance_trend.slice(-7).map((day, index, days) => <div key={day.record_date} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
-            <span className="text-xs tabular-nums text-text">{day.attendance_pct}%</span>
-            <div className={`w-full max-w-16 rounded-t ${index === days.length - 1 ? 'bg-primary' : 'bg-slate-300'}`} style={{height: `${Math.max(2, Math.min(100, day.attendance_pct))}%`}} />
-            <span className="text-xs text-text-muted">{day.day_label}</span>
-          </div>)}
-        </div> : <p className="mt-2 text-sm text-text-muted">The trend will appear as attendance sessions are completed</p>}
-      </Card>
       {/* 3. CURRENT / NEXT CLASS (Primary Action Hero Panel) */}
       {(activeSession || nextClass) && <Card>
         {activeSession ? (
@@ -393,21 +404,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
                         />
                       </td>
                       <td data-label="Action" className="py-3 px-3 text-right">
-                        {item.isLive ? (
-                          <button
-                            onClick={() => onNavigate && onNavigate('live')}
-                            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium cursor-pointer transition-colors"
-                          >
-                            Open
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => onNavigate && onNavigate('live')}
-                            className="text-text-muted hover:text-primary font-medium text-xs cursor-pointer"
-                          >
-                            Start
-                          </button>
-                        )}
+                        <button type="button" onClick={() => onNavigate?.(item.isLive ? 'live' : todaySessions.length ? 'attendance' : 'timetable')}
+                          className="min-h-11 whitespace-nowrap text-xs font-semibold text-primary hover:underline">
+                          {item.isLive ? 'Open live attendance' : todaySessions.length ? 'Attendance sessions' : 'View timetable'}
+                        </button>
                       </td>
                     </tr>
                   ))
@@ -526,7 +526,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
                       {sess.subject}
                     </td>
                     <td data-label="Date & time" className="py-3 px-4 text-text-muted">
-                      {sess.scheduled_date} • {formatDisplayTime(sess.start_time)}
+                      {formatCalendarDate(sess.scheduled_date)} • {formatDisplayTime(sess.start_time)}
                     </td>
                     <td data-label="Status" className="py-3 px-4">
                       <StatusBadge status={sess.status} category="session" size="sm" />
@@ -536,7 +536,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
                         onClick={() => onNavigate && onNavigate('attendance')}
                         className="text-text-muted hover:text-primary font-medium text-xs cursor-pointer"
                       >
-                        View details
+                        Open sessions
                       </button>
                     </td>
                   </tr>
@@ -546,6 +546,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           </div>
         </div>
       )}
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-medium text-text">Attendance trend</h2>
+          {data?.attendance_trend.length ? <span className="text-xs text-text-muted">Most recent {Math.min(7, data.attendance_trend.length)} reported days</span> : null}
+        </div>
+        {data?.attendance_trend.length ? <div className="mt-6 flex h-44 items-end gap-3" role="img" aria-label={data.attendance_trend.slice(-7).map(day => `${day.day_label}: ${day.attendance_pct}% attendance`).join(', ')}>
+          {data.attendance_trend.slice(-7).map((day, index, days) => <div key={day.record_date} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
+            <span className="text-xs tabular-nums text-text">{day.attendance_pct}%</span>
+            <div className={`w-full max-w-16 rounded-t ${index === days.length - 1 ? 'bg-primary' : 'bg-slate-300'}`} style={{height: `${Math.max(2, Math.min(100, day.attendance_pct))}%`}} />
+            <span className="text-xs text-text-muted">{day.day_label}</span>
+          </div>)}
+        </div> : <p className="mt-2 text-sm text-text-muted">The trend will appear as attendance sessions are completed</p>}
+      </Card>
       <SystemHealthCard />
     </div>
   );

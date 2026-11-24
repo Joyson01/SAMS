@@ -1,17 +1,18 @@
-import React, { useMemo } from 'react';
-import { Menu, User } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { CalendarDays, ChevronDown, ChevronRight, LogOut, Menu, UserRound } from 'lucide-react';
 import { StudentNotifications } from './StudentNotifications';
 import { ThemeToggle } from './ui/ThemeToggle';
-import { ServiceHealthResponse } from '../types';
+import { StudentAvatar } from './ui/StudentAvatar';
+import { ConfirmDialog } from './ui';
 
 interface HeaderProps {
-  healthData?: ServiceHealthResponse | null;
-  healthStatus?: 'healthy' | 'degraded' | 'unhealthy' | 'loading';
   userName?: string;
   role?: string;
   activeTab: string;
   openChat?: (peer: string) => void;
   onToggleMobileMenu?: () => void;
+  onOpenProfile?: () => void;
+  onLogout?: () => void;
 }
 
 const TAB_TITLES: Record<string, string> = {
@@ -21,7 +22,8 @@ const TAB_TITLES: Record<string, string> = {
   'my-attendance': 'My Attendance',
   dashboard: 'Dashboard',
   'my-timetable': 'My Timetable',
-  classmates: 'Chats / Classmates',
+  classmates: 'Class Space',
+  'student-profile': 'My Profile',
   classroom: 'Classroom',
   'semester-results': 'Semester marksheets',
   department: 'Department',
@@ -43,64 +45,87 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   openChat,
   onToggleMobileMenu,
+  onOpenProfile,
+  onLogout,
 }) => {
-  const formattedDate = useMemo(() => {
-    return new Intl.DateTimeFormat('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-    }).format(new Date());
+  const profileMenu = useRef<HTMLDetailsElement>(null);
+  const profileTrigger = useRef<HTMLElement>(null);
+  const [showSignOut, setShowSignOut] = useState(false);
+  useEffect(() => {
+    function closeOnOutsideClick(event: PointerEvent) {
+      const menu = profileMenu.current;
+      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) menu.open = false;
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape' && profileMenu.current?.open) {
+        profileMenu.current.open = false;
+        profileTrigger.current?.focus();
+      }
+    }
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
   }, []);
 
+  const today = new Date();
+  const dateLabel = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric',
+  }).format(today);
+  const weekday = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', weekday: 'short' }).format(today);
   const pageTitle = TAB_TITLES[activeTab] || 'Dashboard';
 
   return (
-    <header className="min-h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 select-none">
-      {/* LEFT: Page title / breadcrumb */}
-      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-        {onToggleMobileMenu && (
-          <button
-            onClick={onToggleMobileMenu}
-            className="grid min-h-11 min-w-11 place-items-center rounded-xl text-text-muted hover:bg-surface-muted md:hidden"
-            title="Open Navigation"
-            aria-label="Open Navigation"
-          >
-            <Menu className="w-4 h-4" />
-          </button>
-        )}
-
-        <div className="flex items-center gap-1.5 min-w-0 text-xs">
-          <span className="hidden sm:inline text-xs font-medium text-text-muted shrink-0">
-            AttedDEL
-          </span>
-          <span className="hidden sm:inline text-slate-300 font-normal">/</span>
-          <span className="font-semibold text-slate-800 truncate text-xs sm:text-sm">
-            {pageTitle}
-          </span>
-          <span className="text-slate-300 font-normal hidden lg:inline">•</span>
-          <span className="font-medium text-text-muted hidden lg:inline truncate">
-            {formattedDate}
-          </span>
+    <header className="sticky top-0 z-[45] flex min-h-16 items-center justify-between gap-2 border-b border-border bg-surface px-3 text-text sm:gap-4 sm:px-6">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+        {onToggleMobileMenu && <button type="button" onClick={onToggleMobileMenu}
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-text-muted hover:bg-surface-muted md:hidden"
+          aria-label="Open navigation"><Menu size={19} aria-hidden="true" /></button>}
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="hidden shrink-0 text-sm font-semibold text-primary sm:inline">AttedDEL</span>
+            <ChevronRight size={14} className="hidden shrink-0 text-text-muted sm:block" aria-hidden="true" />
+            <span className="truncate text-sm font-semibold sm:text-base">{pageTitle}</span>
+          </div>
+          <p className="mt-0.5 text-xs text-text-muted lg:hidden">{weekday}, {dateLabel}</p>
         </div>
       </div>
-
-      {/* RIGHT: System status, Notifications, User profile */}
-      <div className="flex items-center gap-1 sm:gap-3 shrink-0">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+        <div className="mr-2 hidden items-center gap-2 rounded-lg bg-surface-muted px-3 py-2 text-xs font-medium text-text-muted lg:flex">
+          <CalendarDays size={15} aria-hidden="true" /><span>{weekday}, {dateLabel}</span>
+        </div>
         {role === 'STUDENT' && <StudentNotifications openChat={openChat} />}
         <ThemeToggle />
-        {/* User Profile */}
-        <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
-          <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 font-semibold text-xs shrink-0">
-            <User className="w-3.5 h-3.5 text-slate-500" />
+        {onOpenProfile ? <details ref={profileMenu} className="relative ml-1">
+          <summary ref={profileTrigger} aria-label="Profile menu" title="Profile menu"
+            className="flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-border px-1.5 hover:bg-surface-muted sm:px-2 [&::-webkit-details-marker]:hidden">
+            <StudentAvatar name={userName || 'Student'} />
+            <span className="hidden max-w-32 truncate text-sm font-semibold sm:inline">{userName || 'Profile'}</span>
+            <ChevronDown size={14} className="hidden text-text-muted sm:block" aria-hidden="true" />
+          </summary>
+          <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-border bg-surface p-1.5 shadow-lg">
+            <button type="button" className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm hover:bg-surface-muted" onClick={() => {
+              if (profileMenu.current) profileMenu.current.open = false;
+              profileTrigger.current?.focus();
+              onOpenProfile();
+            }}><UserRound size={16} aria-hidden="true" /> My profile</button>
+            {onLogout && <button type="button" className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-danger hover:bg-surface-muted" onClick={() => {
+              if (profileMenu.current) profileMenu.current.open = false;
+              profileTrigger.current?.focus();
+              setShowSignOut(true);
+            }}><LogOut size={16} aria-hidden="true" /> Sign out</button>}
           </div>
-          <div className="hidden xl:flex flex-col min-w-0 text-left">
-            <span className="text-xs font-semibold text-slate-900 leading-tight truncate">
-              {userName}
-            </span>
-            <span className="text-xs text-slate-500 leading-tight truncate">{role.charAt(0) + role.slice(1).toLowerCase()}</span>
-          </div>
-        </div>
+        </details> : <div className="ml-1 flex items-center gap-2 border-l border-border pl-2">
+          <UserRound size={18} className="text-text-muted" aria-hidden="true" />
+          <span className="hidden max-w-32 truncate text-sm font-medium xl:inline">{userName}</span>
+        </div>}
       </div>
+      <ConfirmDialog isOpen={showSignOut} onClose={() => setShowSignOut(false)} onConfirm={() => {
+        setShowSignOut(false);
+        onLogout?.();
+      }} title="Sign out?" description="You can sign back in to access your student portal." confirmLabel="Sign out" />
     </header>
   );
 };

@@ -19,6 +19,9 @@ export const AuditLogsPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [actionFilter, setActionFilter] = useState<string>('');
   const [entityFilter, setEntityFilter] = useState<string>('');
+  const [studentActivity, setStudentActivity] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
   const [selectedLog, setSelectedLog] = useState<AuditLogEntry | null>(null);
 
   const loadData = async () => {
@@ -28,7 +31,9 @@ export const AuditLogsPage: React.FC = () => {
       const data = await fetchAuditLogs({
         action: actionFilter || undefined,
         entity_type: entityFilter || undefined,
-        page_size: 50,
+        page,
+        page_size: pageSize,
+        student_activity: studentActivity || undefined,
       });
       setLogs(data.items);
       setTotalCount(data.total_count);
@@ -41,7 +46,11 @@ export const AuditLogsPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [actionFilter, entityFilter]);
+  }, [actionFilter, entityFilter, studentActivity, page]);
+
+  const actionLabel = (action: string) => action.startsWith('STUDENT_')
+    ? action.toLowerCase().replace(/_/g, ' ').replace(/^./, letter => letter.toUpperCase())
+    : action;
 
   const getActionBadgeColor = (action: string) => {
     switch (action.toUpperCase()) {
@@ -65,10 +74,10 @@ export const AuditLogsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-text flex items-center gap-2">
             <ShieldCheck className="w-6 h-6 text-indigo-400" />
-            Security & Compliance Audit Trail
+            Audit logs
           </h1>
           <p className="text-sm text-text-muted">
-            Immutable system logs tracking administrative actions, manual attendance overrides, and entity state changes.
+            Review student activity, administrative changes, and attendance corrections.
           </p>
         </div>
 
@@ -96,7 +105,7 @@ export const AuditLogsPage: React.FC = () => {
           <select
             aria-label="Filter audit actions"
             value={actionFilter}
-            onChange={(e) => setActionFilter(e.target.value)}
+            onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
             className="bg-surface border border-border rounded-lg px-3 py-1.5 text-text"
           >
             <option value="">All Actions</option>
@@ -112,7 +121,7 @@ export const AuditLogsPage: React.FC = () => {
           <select
             aria-label="Filter audit entities"
             value={entityFilter}
-            onChange={(e) => setEntityFilter(e.target.value)}
+            onChange={(e) => { setEntityFilter(e.target.value); setPage(1); }}
             className="bg-surface border border-border rounded-lg px-3 py-1.5 text-text"
           >
             <option value="">All Entities</option>
@@ -123,6 +132,16 @@ export const AuditLogsPage: React.FC = () => {
           </select>
         </div>
 
+        <label className="flex min-h-11 items-center gap-2 text-sm font-medium">
+          <input type="checkbox" checked={studentActivity} className="h-4 w-4 accent-primary" onChange={event => {
+            setStudentActivity(event.target.checked);
+            setActionFilter('');
+            setEntityFilter('');
+            setPage(1);
+          }} />
+          Student activity only
+        </label>
+
         <div className="ml-auto text-text-muted font-mono">
           Total Logged Actions: <span className="font-bold text-text">{totalCount}</span>
         </div>
@@ -132,7 +151,7 @@ export const AuditLogsPage: React.FC = () => {
       {loading && <Skeleton className="h-32"/>}
       {/* Audit Logs Table */}
       <div className="bg-surface border border-border rounded-xl overflow-x-auto shadow-sm">
-        <div className="divide-y divide-border md:hidden">{!logs.length && !loading && !error && <EmptyState title="No audit entries found" description="Try another filter. New administrative actions will appear here."/>}{logs.map(log=><article key={log.id} className="space-y-3 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><span className={`rounded-full border px-2 py-1 text-xs font-semibold ${getActionBadgeColor(log.action)}`}>{log.action}</span><span className="text-xs text-text-muted">{new Date(log.created_at).toLocaleString()}</span></div><p className="text-sm font-medium">{log.entity_type} · {log.username || 'System'}</p><p className="break-all font-mono text-xs text-text-muted">{log.entity_id}</p><Button variant="secondary" size="sm" icon={<Eye size={15}/>} onClick={()=>setSelectedLog(log)}>View changes</Button></article>)}</div>
+        <div className="divide-y divide-border md:hidden">{!logs.length && !loading && !error && <EmptyState title="No audit entries found" description="Try another filter. New administrative actions will appear here."/>}{logs.map(log=><article key={log.id} className="space-y-3 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><span className={`rounded-full border px-2 py-1 text-xs font-semibold ${getActionBadgeColor(log.action)}`}>{actionLabel(log.action)}</span><span className="text-xs text-text-muted">{new Date(log.created_at).toLocaleString()}</span></div><p className="text-sm font-medium">{log.entity_type} · {log.username || 'System'}</p><p className="break-all font-mono text-xs text-text-muted">{log.entity_id}</p><Button variant="secondary" size="sm" icon={<Eye size={15}/>} onClick={()=>setSelectedLog(log)}>View entry</Button></article>)}</div>
         <table className="hidden w-full text-left text-xs md:table">
           <thead className="bg-surface/80 text-text-muted uppercase tracking-wider font-semibold border-b border-border">
             <tr>
@@ -156,7 +175,7 @@ export const AuditLogsPage: React.FC = () => {
                       log.action
                     )}`}
                   >
-                    {log.action}
+                    {actionLabel(log.action)}
                   </span>
                 </td>
                 <td className="py-3 px-4 font-medium text-text">{log.entity_type}</td>
@@ -187,6 +206,11 @@ export const AuditLogsPage: React.FC = () => {
             )}
           </tbody>
         </table>
+        {totalCount > pageSize && <nav aria-label="Audit pages" className="flex flex-wrap items-center justify-between gap-2 border-t border-border p-3 text-sm">
+          <Button variant="secondary" disabled={loading || page <= 1} onClick={() => setPage(value => value - 1)}>Previous</Button>
+          <span>Page {page} of {Math.ceil(totalCount / pageSize)}</span>
+          <Button variant="secondary" disabled={loading || page * pageSize >= totalCount} onClick={() => setPage(value => value + 1)}>Next</Button>
+        </nav>}
       </div>
 
       {/* Audit Log Diff Detail Modal */}

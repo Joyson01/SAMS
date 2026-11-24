@@ -277,7 +277,7 @@ if _FRONTEND_DIST.exists() and (_FRONTEND_DIST / "index.html").exists():
 @app.get("/", tags=["Root"])
 async def root(request: Request):
     accept = request.headers.get("accept", "")
-    if settings.ENVIRONMENT != "testing" and "text/html" in accept and _FRONTEND_DIST.exists() and (_FRONTEND_DIST / "index.html").exists():
+    if "text/html" in accept and (_FRONTEND_DIST / "index.html").is_file():
         return FileResponse(str(_FRONTEND_DIST / "index.html"))
     return {
         "name": settings.PROJECT_NAME,
