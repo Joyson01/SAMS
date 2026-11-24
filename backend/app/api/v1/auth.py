@@ -62,8 +62,14 @@ async def logout(
     response_model=UserResponse,
     summary="Get current authenticated user profile",
 )
-async def get_me(current_user: User = Depends(get_current_user)) -> UserResponse:
-    return UserResponse.model_validate(current_user)
+async def get_me(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> UserResponse:
+    profile = UserResponse.model_validate(current_user)
+    if current_user.role == "STUDENT":
+        profile.avatar_url = await db.scalar(
+            select(Student.avatar_url).join(UserStudentLink, UserStudentLink.student_id == Student.id)
+            .where(UserStudentLink.user_id == current_user.id)
+        )
+    return profile
 
 
 # Setup is serialized per process and guarded by a database write lock.
@@ -164,6 +170,7 @@ async def my_attendance(db: AsyncSession = Depends(get_db), user: User = Depends
         "name": details.roster_name if details and details.roster_name else f"{student.first_name} {student.last_name}",
         "student_id": user.username,
         "student_pid": student.student_code,
+        "avatar_url": student.avatar_url,
         "roll_number": student.roll_number,
         "department": student.department,
         "class_name": student.class_name,

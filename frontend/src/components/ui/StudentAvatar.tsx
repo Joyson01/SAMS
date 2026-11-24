@@ -1,6 +1,5 @@
 import { Avatar, type AvatarProps } from './Avatar';
 import bear from '../../assets/student-avatars/bear.webp';
-import cat from '../../assets/student-avatars/cat.webp';
 import fox from '../../assets/student-avatars/fox.webp';
 import frog from '../../assets/student-avatars/frog.webp';
 import koala from '../../assets/student-avatars/koala.webp';
@@ -20,7 +19,6 @@ import turtle from '../../assets/student-avatars/turtle.webp';
 import chick from '../../assets/student-avatars/chick.webp';
 import wolf from '../../assets/student-avatars/wolf.webp';
 
-import otter from '../../assets/student-avatars/otter.webp';
 import sloth from '../../assets/student-avatars/sloth.webp';
 import hedgehog from '../../assets/student-avatars/hedgehog.webp';
 import squirrel from '../../assets/student-avatars/squirrel.webp';
@@ -29,24 +27,18 @@ import butterfly from '../../assets/student-avatars/butterfly.webp';
 import whale from '../../assets/student-avatars/whale.webp';
 import parrot from '../../assets/student-avatars/parrot.webp';
 
+const cat = "/assets/student-avatars/cat.webp";
+const otter = "/assets/student-avatars/otter.webp";
+
 const animals = [bear, fox, frog, koala, owl, panda, rabbit,
   dog, tiger, lion, penguin, monkey, hamster, mouse, raccoon, deer, turtle, chick, wolf,
   otter, sloth, hedgehog, squirrel, duck, butterfly, whale, parrot];
 
-// Optional semicolon-separated display-name=animal entries in the deployment's build environment.
-const reservedAnimals: Record<string, string> = { cat, otter };
-const preferredAnimals = new Map(
-  (import.meta.env.VITE_STUDENT_AVATAR_OVERRIDES ?? '').split(';').flatMap(entry => {
-    const [name, animal] = entry.split('=').map(value => value.trim().toLowerCase());
-    return name && Object.prototype.hasOwnProperty.call(reservedAnimals, animal) ? [[name.replace(/\s+/g, ' '), reservedAnimals[animal]] as const] : [];
-  }),
-);
-
-export function StudentAvatar({ name = 'Student', ...props }: Omit<AvatarProps, 'src'>) {
+export function StudentAvatar({ name = 'Student', avatarUrl, ...props }: Omit<AvatarProps, 'src'> & { avatarUrl?: string | null }) {
   const normalizedName = name.trim().toLowerCase().replace(/\s+/g, ' ');
   let index = 0;
   for (const character of normalizedName) {
     index = (index * 31 + character.codePointAt(0)!) >>> 0;
   }
-  return <Avatar {...props} name={name} src={preferredAnimals.get(normalizedName) ?? animals[index % animals.length]} />;
+  return <Avatar {...props} name={name} src={avatarUrl === cat || avatarUrl === otter ? avatarUrl : animals[index % animals.length]} />;
 }

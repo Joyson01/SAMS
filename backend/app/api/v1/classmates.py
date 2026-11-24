@@ -45,7 +45,8 @@ async def classmates(db: AsyncSession = Depends(get_db), user: User = Depends(st
     ])
     return {"department": own.department, "class_name": own.class_name, "section": own.section,
             "students": [{"id": student.id, "roll_number": student.roll_number, "first_name": student.first_name,
-                          "last_name": student.last_name, "can_chat": account is not None} for student, account in ordered]}
+                          "last_name": student.last_name, "can_chat": account is not None,
+                          **({"avatar_url": student.avatar_url} if student.avatar_url else {})} for student, account in ordered]}
 
 
 class MessageInput(BaseModel):

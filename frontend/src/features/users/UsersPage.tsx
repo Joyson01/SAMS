@@ -42,6 +42,7 @@ export function UsersPage() {
 
 type StudentProfile = {
   display_name?: string;
+  avatar_url?: string | null;
   name: string;
   student_id: string;
   student_pid: string;
@@ -292,7 +293,7 @@ export function MyAttendancePage({ profileView = false }: { profileView?: boolea
 
   return <div className="mx-auto max-w-5xl space-y-5">
     <header className="overflow-hidden rounded-3xl bg-[#102920] p-5 text-white sm:p-7">
-      {profileView && <StudentAvatar name={displayName || 'Student'} size="lg" className="mb-3 !h-14 !w-14 !border-white/20" />}
+      {profileView && <StudentAvatar name={displayName || 'Student'} avatarUrl={data?.profile?.avatar_url} size="lg" className="mb-3 !h-14 !w-14 !border-white/20" />}
       <p className="text-sm font-medium text-emerald-200">{displayName ? [displayName, data?.profile?.class_name].filter(Boolean).join(' · ') : 'Student portal'}</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">{profileView ? 'My profile' : 'My attendance'}</h1>
       {profileView && <p className="mt-2 max-w-lg text-sm text-emerald-100/80">Your student details and face recognition setup.</p>}

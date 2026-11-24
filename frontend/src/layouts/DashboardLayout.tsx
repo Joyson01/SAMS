@@ -8,6 +8,7 @@ interface DashboardLayoutProps {
   children: React.ReactNode;
   role?: string;
   userName?: string;
+  avatarUrl?: string | null;
   onLogout?: () => void;
   healthData: ServiceHealthResponse | null;
   healthStatus: 'healthy' | 'degraded' | 'unhealthy' | 'loading';
@@ -40,6 +41,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   children,
   role,
   userName,
+  avatarUrl,
   onLogout,
   activeTab,
   setActiveTab,
@@ -72,6 +74,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
       <div className="flex-1 flex flex-col min-w-0">
         <Header
           userName={userName}
+          avatarUrl={avatarUrl}
           role={role}
           activeTab={activeTab}
           openChat={openChat}

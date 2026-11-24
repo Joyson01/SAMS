@@ -52,6 +52,7 @@ const Workspace: React.FC = () => {
   const [healthStatus, setHealthStatus] = useState<'healthy' | 'degraded' | 'unhealthy' | 'loading'>('loading');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [userName, setUserName] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [role, setRole] = useState('STUDENT');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
@@ -81,7 +82,7 @@ const Workspace: React.FC = () => {
       return () => { mounted = false; };
     }
     getCurrentUser()
-      .then(user => { if (mounted) { setRole(user.role); setUserName(user.full_name); setIsAuthenticated(true); } })
+      .then(user => { if (mounted) { setRole(user.role); setUserName(user.full_name); setAvatarUrl(user.avatar_url ?? null); setIsAuthenticated(true); } })
       .catch(() => { clearAuthTokens(); })
       .finally(() => { if (mounted) setIsAuthChecking(false); });
     return () => { mounted = false; };
@@ -118,6 +119,7 @@ const Workspace: React.FC = () => {
         const user = await getCurrentUser();
         setRole(user.role);
         setUserName(user.full_name);
+        setAvatarUrl(user.avatar_url ?? null);
         setActiveTab(initialTab(window.location.pathname));
         setChatSelection(undefined);
         setIsAuthenticated(true);
@@ -142,6 +144,7 @@ const Workspace: React.FC = () => {
       <DashboardLayout
         role={role}
         userName={userName}
+        avatarUrl={avatarUrl}
         onLogout={handleLogout}
         healthData={healthData}
         healthStatus={healthStatus}

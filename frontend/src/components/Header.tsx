@@ -7,6 +7,7 @@ import { ConfirmDialog } from './ui';
 
 interface HeaderProps {
   userName?: string;
+  avatarUrl?: string | null;
   role?: string;
   activeTab: string;
   openChat?: (peer: string) => void;
@@ -41,6 +42,7 @@ const TAB_TITLES: Record<string, string> = {
 
 export const Header: React.FC<HeaderProps> = ({
   userName = "",
+  avatarUrl,
   role = "",
   activeTab,
   openChat,
@@ -101,7 +103,7 @@ export const Header: React.FC<HeaderProps> = ({
         {onOpenProfile ? <details ref={profileMenu} className="relative ml-1">
           <summary ref={profileTrigger} aria-label="Profile menu" title="Profile menu"
             className="flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-border px-1.5 hover:bg-surface-muted sm:px-2 [&::-webkit-details-marker]:hidden">
-            <StudentAvatar name={userName || 'Student'} />
+            <StudentAvatar name={userName || 'Student'} avatarUrl={avatarUrl} />
             <span className="hidden max-w-32 truncate text-sm font-semibold sm:inline">{userName || 'Profile'}</span>
             <ChevronDown size={14} className="hidden text-text-muted sm:block" aria-hidden="true" />
           </summary>

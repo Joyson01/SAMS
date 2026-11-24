@@ -6,7 +6,7 @@ import { ArrowLeft, BookOpen, ClipboardList, FileText, MessageCircle, Paperclip,
 import ClassroomBoard from './ClassroomBoard';
 import { Button } from './ui';
 
-type Peer = { id: string; roll_number: string; first_name: string; last_name: string; can_chat: boolean };
+type Peer = { id: string; roll_number: string; first_name: string; last_name: string; can_chat: boolean; avatar_url?: string | null };
 type Directory = { department: string; class_name: string; section: string; students: Peer[] };
 type InboxItem = { peer_id: string; body: string; filename?: string };
 const sections = [
@@ -109,7 +109,7 @@ function Chat({ title, conversation, peer, close }: { title: string; conversatio
   return <section className="flex min-w-0 flex-col" aria-label={group ? 'Class group chat' : 'Private conversation'}>
     <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3">
       <Button variant="secondary" className="min-h-11 md:hidden" aria-label="Back to messages" onClick={close}><ArrowLeft size={18} /></Button>
-      {group ? <Initials label={title} /> : <StudentAvatar name={title} size="lg" />}
+      {group ? <Initials label={title} /> : <StudentAvatar name={title} avatarUrl={peer?.avatar_url} size="lg" />}
       <div className="min-w-0">
         <h2 className="truncate font-semibold">{title}</h2>
         <p className="text-sm text-text-muted">{peer ? 'Private chat · Roll ' + peer.roll_number : 'Visible to everyone in your class'}</p>
@@ -271,7 +271,7 @@ export function Classmates({ selection, onSelectionHandled }: {
               {students.map(student => <li key={student.id}>
                 <button type="button" disabled={!student.can_chat} aria-pressed={peer?.id === student.id} onClick={() => { setGroup(undefined); setPeer(student); }}
                   className={`flex min-h-14 w-full items-center gap-3 rounded-xl px-2 text-left hover:bg-surface-muted disabled:opacity-65 ${peer?.id === student.id ? 'bg-primary/10' : ''}`}>
-                  <StudentAvatar name={name(student)} size="lg" />
+                  <StudentAvatar name={name(student)} avatarUrl={student.avatar_url} size="lg" />
                   <span className="min-w-0 flex-1"><strong className="block truncate text-sm font-medium">{name(student)}</strong>
                     <span className="block truncate text-xs text-text-muted">{previews.get(student.id)?.filename
                       ? 'File · ' + previews.get(student.id)?.filename : previews.get(student.id)?.body || `Roll ${student.roll_number}${student.can_chat ? '' : ' · Chat unavailable'}`}</span></span>

@@ -24,6 +24,7 @@ async def test_classmates_directory_and_private_chat(staff_client, test_db_sessi
 
     own, friend, second = student("own"), student("friend"), student("another")
     friend.roll_number, second.roll_number = "2", "10"
+    friend.avatar_url = "/assets/student-avatars/otter.webp"
     outsider = student("outsider", section="A")
     db = test_db_session
     db.add_all([own, friend, second, outsider, student("otherclass", class_name="SE-B"),
@@ -43,10 +44,13 @@ async def test_classmates_directory_and_private_chat(staff_client, test_db_sessi
         return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
     friend_headers = await link_account(friend)
+    me = await staff_client.get("/api/v1/auth/me", headers=friend_headers)
+    assert me.json()["avatar_url"] == friend.avatar_url
     outside_headers = await link_account(outsider)
     response = await staff_client.get(portal, headers=headers)
     assert response.json()["students"] == [
-        {"id": friend.id, "roll_number": "2", "first_name": "friend", "last_name": "Student", "can_chat": True},
+        {"id": friend.id, "roll_number": "2", "first_name": "friend", "last_name": "Student", "can_chat": True,
+         "avatar_url": friend.avatar_url},
         {"id": second.id, "roll_number": "10", "first_name": "another", "last_name": "Student", "can_chat": False},
     ]
     conversation = f"{portal}/{friend.id}/messages"

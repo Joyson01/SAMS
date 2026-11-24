@@ -40,6 +40,7 @@ class UserResponse(BaseModel):
     full_name: str
     role: str
     department: str | None = None
+    avatar_url: str | None = None
     is_active: bool
     created_at: datetime
 
