@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Camera, Check, ScanFace, ShieldCheck, Upload } from 'lucide-react';
+import { createElement, useEffect, useRef, useState } from 'react';
+import { Camera, Check, ChevronDown, ImagePlus, ScanFace, ShieldCheck, Upload } from 'lucide-react';
 import { FrameResult, WebcamPanel } from '../../components/camera/WebcamPanel';
 import { Button } from '../../components/ui';
 import { apiClient } from '../../services/api';
@@ -320,6 +320,7 @@ export function FaceRequests({ state, onSaved }: { state: RequestState; onSaved:
 
 type DetectedMatch = {
   bbox: [number, number, number, number];
+  quality_flags?: string[];
 } & (
   { status: 'VERIFIED'; name: string; similarity: number }
   | { status: 'NEEDS_REVIEW'; name?: string; similarity?: number }
@@ -330,6 +331,9 @@ type MatchResult = {
   width: number;
   height: number;
   faces: DetectedMatch[];
+  gallery_size: number;
+  latency_ms: number;
+  verified_threshold: number;
 };
 
 export function FaceUpdateForm({ state, onSaved }: { state: RequestState; onSaved: () => void }) {
@@ -438,26 +442,34 @@ export function FaceMatchPanel() {
 
   const matchCount = result?.faces.filter(face => face.status === 'VERIFIED').length ?? 0;
 
-  return <div className="space-y-4 p-5 sm:p-6">
-    <h3 className="font-semibold">Check face match</h3>
+  return <div className="min-w-0 space-y-4 p-1 sm:p-4">
+    <h3 className="text-xl font-semibold">Recognition test</h3>
     <p className="text-sm text-text-muted">Check enrolled students in your class and division using the live camera or a photo. This test does not record attendance.</p>
-    <div className="flex gap-2">
-      {(['camera', 'upload'] as const).map(mode => <Button key={mode} variant={source === mode ? 'primary' : 'secondary'}
-        disabled={busy} aria-pressed={source === mode} onClick={() => {
-          setSource(mode);
-          clearCheck();
-        }}>{mode === 'camera' ? 'Live camera' : 'Upload photo'}</Button>)}
-    </div>
+    {createElement('sakuga-recognition-source', { className: 'block' },
+    <div role="group" aria-label="Recognition source" className="grid w-full grid-cols-2 gap-2 rounded-xl border border-border bg-surface-muted p-1 sm:max-w-sm">
+      {(['camera', 'upload'] as const).map(mode => {
+        const Icon = mode === 'camera' ? Camera : ImagePlus;
+        return <Button key={mode} variant={source === mode ? 'primary' : 'ghost'}
+          className="min-w-0 !px-2" aria-pressed={source === mode} onClick={() => {
+            if (source === mode) return;
+            clearCheck();
+            setSource(mode);
+          }}><Icon size={17} className="shrink-0" aria-hidden="true" />{mode === 'camera' ? 'Live camera' : 'Upload photo'}</Button>;
+      })}
+    </div>)}
     <div className={`grid items-start gap-4 ${source === 'camera' ? 'lg:grid-cols-[minmax(0,2fr)_minmax(12rem,1fr)]' : ''}`}>
-    <div className="min-w-0 space-y-3 rounded-xl border border-border bg-surface p-4">
-    {source === 'upload' ? <label className="block text-sm font-medium">Check an uploaded photo
-      <input type="file" accept="image/jpeg,image/png" disabled={busy} className="mt-2 block max-w-full"
+    <div className="min-w-0 space-y-3 rounded-xl border border-border bg-surface p-2.5 sm:p-4">
+    {source === 'upload' ? <label className="flex min-h-24 cursor-pointer flex-wrap items-center gap-3 rounded-xl border border-dashed border-border bg-surface-muted p-3 focus-within:ring-2 focus-within:ring-primary sm:p-4">
+      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Upload size={19} aria-hidden="true" /></span>
+      <span><span className="block text-sm font-semibold">{busy ? 'Checking photo…' : preview ? 'Choose another photo' : 'Choose a photo'}</span>
+        <span className="mt-1 block text-xs text-text-muted">JPEG or PNG, up to 10 MB</span></span>
+      <input type="file" accept="image/jpeg,image/png" disabled={busy} className="sr-only"
         onChange={event => {
           const file = event.target.files?.[0];
           event.target.value = '';
           if (file) void check(file);
         }} />
-    </label> : <WebcamPanel onFrame={analyzeFrame} frameInterval={750} showGuide={false} onCameraChange={clearCheck} />}
+    </label> : <WebcamPanel onFrame={analyzeFrame} frameInterval={350} showGuide={false} previewControls onCameraChange={clearCheck} />}
     {preview && <figure className="w-full">
       <figcaption className="mb-2 text-sm font-medium">Checked image</figcaption>
       <div className="relative overflow-hidden rounded-xl">
@@ -480,24 +492,44 @@ export function FaceMatchPanel() {
         })}
       </div>
     </figure>}
-    {busy && <p role="status" className="text-sm">Checking face…</p>}
+    {busy && <p role="status" className="sr-only">Checking photo…</p>}
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </div>
-    <aside className="min-w-0 rounded-xl border border-border bg-surface p-4">
-      <h4 className="font-semibold">Detected faces{result ? ` · ${result.faces.length}` : ''}</h4>
-      <p className="mt-2 text-sm text-text-muted">
+    <aside className="min-w-0 rounded-xl border border-border bg-surface p-3 sm:p-4">
+      <div className="flex items-center gap-2">
+        <ScanFace size={19} className="shrink-0 text-primary" aria-hidden="true" />
+        <h4 className="min-w-0 font-semibold">Detected faces</h4>
+        {result && <span className="ml-auto rounded-md bg-primary/10 px-2 py-1 text-xs font-semibold tabular-nums text-primary">{result.faces.length}</span>}
+      </div>
+      <p className="mt-2 text-sm text-text-muted" role={source === 'upload' ? 'status' : undefined}>
         {!result ? 'Start the camera or upload a photo to see matches.'
           : !result.faces.length ? 'No faces detected. Try better lighting.'
           : `${matchCount} of ${result.faces.length} faces matched`}
       </p>
-      {!!result?.faces.length && <ol className="mt-3 divide-y divide-border">
-        {result.faces.map((face, index) => <li key={index} className="py-2 text-sm">
+      {!!result?.faces.length && <ol className="mt-3 grid gap-2">
+        {result.faces.map((face, index) => <li key={index} className="min-w-0 rounded-lg border border-border p-3 text-sm">
           <span className="font-medium">Face {index + 1}</span>
           <p className={face.status === 'VERIFIED' ? 'text-success' : face.status === 'UNKNOWN' ? 'text-text-muted' : 'text-warning'}>{statusLabel(face)}</p>
           {(face.status === 'VERIFIED' || face.status === 'NEEDS_REVIEW') && face.similarity !== undefined &&
             <p className="text-xs text-text-muted">Similarity {face.similarity.toFixed(3)}</p>}
+          {!!face.quality_flags?.length && <p className="mt-1 text-xs text-text-muted">{face.quality_flags.map(flag => flag.replace(/_/g, ' ')).join(' · ')}</p>}
         </li>)}
       </ol>}
+      {result && <details className="mt-3 border-t border-border">
+        <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-2 text-sm font-medium text-text-muted">
+          Test details <ChevronDown size={16} aria-hidden="true" />
+        </summary>
+        <dl className="grid gap-2 pb-1 text-sm">
+          {[
+            ['Saved faces in scope', result.gallery_size],
+            ['Processing time', `${Math.round(result.latency_ms)} ms`],
+            ['Match threshold', result.verified_threshold.toFixed(2)],
+          ].map(([label, value]) => <div key={label} className="flex flex-wrap justify-between gap-x-3">
+            <dt className="text-text-muted">{label}</dt><dd className="font-medium tabular-nums">{value}</dd>
+          </div>)}
+        </dl>
+      </details>}
+      {result?.gallery_size === 0 && <p className="mt-2 text-sm text-text-muted">No saved faces are available in your class yet.</p>}
     </aside>
     </div>
   </div>;

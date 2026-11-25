@@ -53,12 +53,14 @@ class FaceRecognitionPipeline:
         run_quality_check: bool = True,
         run_liveness_check: bool = False,  # Optional flag for passive liveness
         top_k: int = 3,
+        matcher: Optional[VectorMatcher] = None,
     ) -> Tuple[List[RecognitionResult], Dict[str, float]]:
         """Executes full face recognition pipeline on a video frame or image.
 
         Returns:
             Tuple[List[RecognitionResult], Dict[str, float]]: (results, latency_breakdown_ms)
         """
+        frame_matcher = matcher if matcher is not None else self.matcher
         latencies: Dict[str, float] = {}
         t0 = time.perf_counter()
 
@@ -134,7 +136,7 @@ class FaceRecognitionPipeline:
             for i, (idx, face, quality, pose, liveness_res, _) in enumerate(valid_faces_info):
                 embedding = embeddings[i]
                 t_match_start = time.perf_counter()
-                decision, best_match, candidates, reason = self.matcher.match(
+                decision, best_match, candidates, reason = frame_matcher.match(
                     query_embedding=embedding,
                     top_k=top_k,
                 )

@@ -1,10 +1,11 @@
 from datetime import time
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 
 import numpy as np
 import pytest
 from sqlalchemy import select
 
+from ai_engine.pipeline.face_pipeline import FaceRecognitionPipeline
 from backend.app.models.entities import (
     AttendanceRecord, AttendanceSession, AuditLog, FaceProfile, Student, UserStudentLink,
 )
@@ -88,10 +89,15 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
     faces = [SimpleNamespace(bbox=SimpleNamespace(to_list=lambda box=box: box), landmarks=index) for index, box in enumerate(boxes)]
     pipeline = SimpleNamespace(
         detector=SimpleNamespace(detect=lambda image: faces),
-        quality_analyzer=SimpleNamespace(analyze=lambda image, box: SimpleNamespace(is_valid=box.to_list()[0] < 75)),
+        quality_analyzer=SimpleNamespace(analyze=lambda image, box: SimpleNamespace(is_valid=box.to_list()[0] < 75, rejection_reason=None)),
+        matcher=SimpleNamespace(known_threshold=0.58, uncertain_threshold=0.4, margin_threshold=0.05),
+        pose_estimator=SimpleNamespace(estimate=lambda landmarks: None),
+        liveness_detector=SimpleNamespace(predict=lambda *args: SimpleNamespace(is_live=False, liveness_score=0)),
         aligner=SimpleNamespace(align=lambda image, index: index),
         embedder=SimpleNamespace(extract_from_crop=lambda index: candidate if index == 0 else np.zeros(512)),
     )
+    pipeline.embedder.extract_batch = lambda crops: [pipeline.embedder.extract_from_crop(crop) for crop in crops]
+    pipeline.process_frame = MethodType(FaceRecognitionPipeline.process_frame, pipeline)
     monkeypatch.setattr(enrollment_service, "decode_face_image", lambda data: (np.empty((100, 100, 3)), pipeline))
     monkeypatch.setattr(enrollment_service, "check_image", validated_image)
     monkeypatch.setattr(enrollment_service.RecognitionService, "sync_gallery_from_db", sync_gallery)
@@ -106,7 +112,10 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
         return await client.post(f"{portal}/face/match", headers=student_headers, files=files)
 
     assert (await client.post(f"{portal}/face/match", files=files)).status_code == 403
-    assert (await match_face()).status_code == 409
+    empty = await match_face()
+    assert empty.status_code == 200
+    assert empty.json()["gallery_size"] == 0
+    assert empty.json()["faces"][0]["status"] == "UNKNOWN"
     update_url = f"{portal}/face/update-request"
     update_payload = {"reason": "The camera struggles to recognize me."}
     assert (await client.post(update_url, headers=student_headers, json=update_payload)).status_code == 409
@@ -114,7 +123,11 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
     assert registered.status_code == 201, registered.text
     assert registered.json()["completed_poses"] == ["FRONT"]
     assert (await test_db_session.scalar(select(FaceProfile.student_id))) == own.id
-    assert (await match_face()).json() == {
+    match_result = (await match_face()).json()
+    assert match_result.pop("latency_ms") >= 0
+    assert match_result.pop("gallery_size") == 1
+    assert match_result.pop("verified_threshold") == 0.58
+    assert match_result == {
         "faces": [
             {"bbox": boxes[0], "status": "VERIFIED", "name": "Portal own", "similarity": 1.0},
             {"bbox": boxes[1], "status": "UNKNOWN"},
@@ -152,7 +165,11 @@ async def test_student_requests_require_admin_and_keep_data_linked(staff_client,
     monkeypatch.setattr(enrollment_service, "recognize_photo", analyze_group_photo)
     group = await client.post(f"{portal}/face/match?photo=true", headers=student_headers, files=files)
     assert group.status_code == 200, group.text
-    assert group.json() == {
+    group_result = group.json()
+    assert group_result.pop("latency_ms") >= 0
+    assert group_result.pop("gallery_size") == 1
+    assert group_result.pop("verified_threshold") > 0
+    assert group_result == {
         "faces": [
             {"bbox": boxes[0], "status": "VERIFIED", "name": "Portal own", "similarity": 0.812},
             {"bbox": boxes[1], "status": "NEEDS_REVIEW", "name": "Portal own", "similarity": 0.514},

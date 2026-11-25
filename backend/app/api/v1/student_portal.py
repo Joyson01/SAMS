@@ -221,8 +221,6 @@ async def test_face_match(
         .join(FaceProfile, FaceProfile.student_id == Student.id)
         .where(Student.status == "ACTIVE", scope)
     )).all()
-    if not any(row.id == sid for row in rows):
-        raise HTTPException(409, "Register a face before checking for a match.")
     data = await file.read(10 * 1024 * 1024 + 1)
     if len(data) > 10 * 1024 * 1024:
         raise HTTPException(413, "Upload a JPEG or PNG under 10 MB.")

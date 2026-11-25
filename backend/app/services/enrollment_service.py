@@ -1,13 +1,16 @@
 """Guided enrollment with server-owned quality, pose and identity validation."""
 import asyncio
 import hashlib
+from time import perf_counter
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 import cv2
 import numpy as np
 from fastapi import HTTPException
 from sqlalchemy import delete, select, update
-from ai_engine.recognition.photo_matcher import assign_faces, classify_scores
+from ai_engine.base import DecisionState
+from ai_engine.recognition.photo_matcher import assign_faces
+from ai_engine.recognition.vector_matcher import EnrolledTemplate, VectorMatcher
 from backend.app.services.audit_service import record_student_activity
 from backend.app.core.config import settings
 from backend.app.models.entities import User, AuditLog, FaceProfile, Student, StudentPortalRequest
@@ -75,6 +78,7 @@ def matches_template(embedding, stored) -> bool:
     return bool(norm > 0 and float(np.dot(embedding, vector / norm)) >= 0.58)
 
 def check_face_matches(data, templates, names, *, photo=False):
+    started = perf_counter()
     gallery = {}
     for student_id, stored in templates:
         vector = np.asarray(stored, dtype=np.float32)
@@ -84,32 +88,30 @@ def check_face_matches(data, templates, names, *, photo=False):
         if norm > 0:
             gallery.setdefault(student_id, []).append(vector / norm)
 
+    verified_threshold = settings.FACE_RECOGNITION_THRESHOLD
     if photo:
         image = decode_photo(data)
         faces = recognize_photo(image, gallery)
     else:
         image, pipeline = decode_face_image(data)
+        verified_threshold = pipeline.matcher.known_threshold
+        matcher = VectorMatcher(verified_threshold, pipeline.matcher.uncertain_threshold, pipeline.matcher.margin_threshold)
+        matcher.build_index([
+            EnrolledTemplate("", student_id, "", "", names[student_id], vector, 0.0, "")
+            for student_id, vectors in gallery.items() for vector in vectors
+        ])
+        detections, _ = pipeline.process_frame(image, matcher=matcher)
         faces = []
-        for face in pipeline.detector.detect(image):
-            result = {"bbox": face.bbox.to_list()[:4], "bucket": "LOW_QUALITY", "similarity": 0.0, "quality_flags": []}
-            quality = pipeline.quality_analyzer.analyze(image, face.bbox)
-            if quality.is_valid:
-                crop = pipeline.aligner.align(image, face.landmarks)
-                embedding = pipeline.embedder.extract_from_crop(crop)
-                norm = np.linalg.norm(embedding)
-                scores = []
-                if np.isfinite(norm) and norm > 0:
-                    query = embedding / norm
-                    scores = sorted(
-                        ((sid, max(float(np.dot(query, v)) for v in vectors)) for sid, vectors in gallery.items()),
-                        key=lambda item: (-item[1], item[0]),
-                    )
-                result["bucket"] = classify_scores(
-                    scores, settings.FACE_RECOGNITION_THRESHOLD,
-                    settings.UNCERTAIN_LOWER_THRESHOLD, settings.PHOTO_MARGIN,
-                )
-                if scores and result["bucket"] != "UNKNOWN":
-                    result["student_id"], result["similarity"] = scores[0]
+        for face in detections:
+            result = {"bbox": face.bbox.to_list()[:4], "bucket": "UNKNOWN", "similarity": 0.0, "quality_flags": []}
+            if not face.quality.is_valid:
+                result["bucket"] = "LOW_QUALITY"
+                if face.quality.rejection_reason:
+                    result["quality_flags"].append(face.quality.rejection_reason)
+            elif face.decision in {DecisionState.KNOWN, DecisionState.UNCERTAIN} and face.best_match is not None:
+                result["bucket"] = "VERIFIED" if face.decision == DecisionState.KNOWN else "NEEDS_REVIEW"
+                result["student_id"] = face.best_match.student_id
+                result["similarity"] = face.best_match.similarity
             faces.append(result)
         faces = assign_faces(faces)
 
@@ -117,11 +119,17 @@ def check_face_matches(data, templates, names, *, photo=False):
     for face in faces:
         status = face["bucket"]
         result = {"bbox": face["bbox"], "status": status}
+        if face.get("quality_flags"):
+            result["quality_flags"] = face["quality_flags"]
         if status in {"VERIFIED", "NEEDS_REVIEW"} and face.get("student_id") in names:
             result["name"] = names[face["student_id"]]
             result["similarity"] = round(face["similarity"], 3)
         results.append(result)
-    return {"faces": results, "width": image.shape[1], "height": image.shape[0]}
+    return {
+        "faces": results, "width": image.shape[1], "height": image.shape[0],
+        "gallery_size": len(gallery), "latency_ms": round((perf_counter() - started) * 1000, 2),
+        "verified_threshold": verified_threshold,
+    }
 
 
 async def enrollment_status(db, student_id):

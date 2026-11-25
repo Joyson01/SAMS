@@ -296,8 +296,9 @@ export function MyAttendancePage({ profileView = false }: { profileView?: boolea
       title: facePanel === 'setup' ? 'Close face setup' : hasFaceSamples ? 'Open face setup' : 'Register face',
     });
   }
+  faceActions.push({ id: 'check', title: 'Check recognition' });
   if (hasFaceSamples) {
-    faceActions.push({ id: 'check', title: 'Check recognition' }, {
+    faceActions.push({
       id: 'update',
       title: requests?.can_update_face ? 'Update approval'
         : requests?.face_update_request?.status === 'PENDING' ? 'View pending request' : 'Request face update',

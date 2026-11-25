@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Camera, ChevronDown } from 'lucide-react';
 import { formatApiErrorMessage } from '../../utils/apiError';
 
 export type FaceBox = { bbox: number[]; label: string; color: string };
 export type FrameResult = { boxes?: FaceBox[]; message?: string; valid?: boolean; quality?: { blur?: number; brightness?: number } };
-export function WebcamPanel({ onFrame, onSample, onCapture, disabled=false, compact=false, captureLabel="Capture photo", captureBusy=false, onCameraChange, cameraOptions, secondaryAction, frameInterval=250, showGuide=true }: {onFrame?:(blob:Blob, signal:AbortSignal)=>Promise<FrameResult>;onSample?:(blob:Blob)=>void;onCapture?:(blob:Blob)=>void;disabled?:boolean;compact?:boolean;captureLabel?:string;captureBusy?:boolean;onCameraChange?:()=>void;cameraOptions?:ReactNode;secondaryAction?:ReactNode;frameInterval?:number;showGuide?:boolean}) {
+export function WebcamPanel({ onFrame, onSample, onCapture, disabled=false, compact=false, captureLabel="Capture photo", captureBusy=false, onCameraChange, cameraOptions, secondaryAction, frameInterval=250, showGuide=true, previewControls=false }: {onFrame?:(blob:Blob, signal:AbortSignal)=>Promise<FrameResult>;onSample?:(blob:Blob)=>void;onCapture?:(blob:Blob)=>void;disabled?:boolean;compact?:boolean;captureLabel?:string;captureBusy?:boolean;onCameraChange?:()=>void;cameraOptions?:ReactNode;secondaryAction?:ReactNode;frameInterval?:number;showGuide?:boolean;previewControls?:boolean}) {
  const video=useRef<HTMLVideoElement>(null), overlay=useRef<HTMLCanvasElement>(null), callback=useRef(onFrame), sample=useRef(onSample);
  const [captureReady, setCaptureReady] = useState(false);
  const analyzesFrames = Boolean(onFrame || onSample);
@@ -64,7 +65,7 @@ export function WebcamPanel({ onFrame, onSample, onCapture, disabled=false, comp
  },[running,device,disabled,analyzesFrames,frameInterval]);
  const deviceControl = <label className="min-w-0 flex-1 text-xs font-medium text-text-muted">Camera device<select className="mt-1 block min-h-11 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text" value={device} onChange={e=>{onCameraChange?.();setDevice(e.target.value);}}><option value="">Built-in / default</option>{devices.map(d=><option key={d.deviceId} value={d.deviceId}>{d.label||'Camera'}</option>)}</select></label>;
  const cameraToggle = <button type="button" disabled={disabled}
-   className={`min-h-11 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 ${cameraOptions && running ? 'border border-border bg-surface text-text' : 'bg-primary text-primary-foreground'}`}
+   className={`min-h-11 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 ${(cameraOptions || previewControls) && running ? 'border border-border bg-surface text-text' : 'bg-primary text-primary-foreground'}`}
    onClick={()=>{const canvas=overlay.current;canvas?.getContext('2d')?.clearRect(0,0,canvas.width,canvas.height);setError('');setMessage('');setQuality(undefined);setValid(false);onCameraChange?.();setRunning(!running);}}>
    {running?'Stop camera':error?'Retry camera':'Start camera'}
  </button>;
@@ -72,29 +73,33 @@ export function WebcamPanel({ onFrame, onSample, onCapture, disabled=false, comp
    className={`min-h-11 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 ${cameraOptions ? 'bg-primary text-primary-foreground' : 'border border-border'}`}
    onClick={capture}>{captureBusy ? 'Working…' : captureLabel}</button>;
  return <section className="space-y-3">
- {!cameraOptions && <div className="flex flex-wrap items-end gap-3">{cameraToggle}{secondaryAction}{deviceControl}</div>}
- {(!compact || running || cameraOptions) && <div className={`relative overflow-hidden rounded-xl ${cameraOptions && !running ? 'border border-dashed border-border bg-surface-muted' : 'bg-[#020617]'}`}>
+ {!cameraOptions && !previewControls && <div className="flex flex-wrap items-end gap-3">{cameraToggle}{secondaryAction}{deviceControl}</div>}
+ <div className="relative">
+ {(!compact || running || cameraOptions || previewControls) && <div className={`relative overflow-hidden rounded-xl ${(cameraOptions || previewControls) && !running ? 'border border-dashed border-border bg-surface-muted' : 'bg-[#020617]'}`}>
    <video ref={video} aria-label="Mirrored camera preview" playsInline muted
-     className={`block w-full -scale-x-100 ${running ? 'h-auto' : cameraOptions ? 'h-36' : 'aspect-video h-auto'}`}/>
+     className={`block w-full -scale-x-100 ${running ? 'h-auto' : previewControls ? 'h-48 sm:h-56' : cameraOptions ? 'h-36' : 'aspect-video h-auto'}`}/>
    <canvas ref={overlay} className="pointer-events-none absolute inset-0 h-full w-full"/>
    {running
      ? showGuide && <div className={`pointer-events-none absolute left-1/2 top-1/2 h-3/4 w-1/3 -translate-x-1/2 -translate-y-1/2 rounded-[50%] border-2 border-dashed ${valid?'border-green-400':'border-white/50'}`}/>
-     : <div className={`absolute inset-0 flex flex-col items-center justify-center gap-1 p-4 text-center ${cameraOptions ? 'text-text' : 'text-white'}`}>
+     : <div className={`absolute inset-0 flex flex-col items-center justify-center gap-1 p-4 text-center ${previewControls ? 'pb-20 text-text' : cameraOptions ? 'text-text' : 'text-white'}`}>
+       {previewControls && <span className="mb-1 grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><Camera size={20} aria-hidden="true" /></span>}
        <span className="text-sm font-semibold">Camera is off</span>
-       <span className={`max-w-xs text-xs leading-relaxed ${cameraOptions ? 'text-text-muted' : 'text-[#cbd5e1]'}`}>
-         {cameraOptions ? 'Start your camera or upload a JPEG photo.' : 'Start your camera when ready. Your browser will ask for permission.'}
+       <span className={`max-w-xs text-xs leading-relaxed ${cameraOptions || previewControls ? 'text-text-muted' : 'text-[#cbd5e1]'}`}>
+         {previewControls ? 'Allow camera access to see live matches.' : cameraOptions ? 'Start your camera or upload a JPEG photo.' : 'Start your camera when ready. Your browser will ask for permission.'}
        </span>
      </div>}
-   {analyzesFrames&&!compact&&<span className="absolute bottom-3 left-3 rounded-md bg-black/70 px-2 py-1 font-mono text-xs text-white">{running?fps.toFixed(1):'0'} FPS · mirrored</span>}
+   {analyzesFrames&&!compact&&(!previewControls||running)&&<span className="absolute bottom-3 left-3 rounded-md bg-black/70 px-2 py-1 font-mono text-xs text-white">{running?fps.toFixed(1):'0'} FPS · mirrored</span>}
  </div>}
- {cameraOptions
+ {previewControls && <div className={running ? 'mt-3 flex flex-wrap items-center gap-2' : 'absolute inset-x-0 bottom-4 flex justify-center'}>{cameraToggle}{captureButton}</div>}
+ </div>
+ {!previewControls && (cameraOptions
    ? <div className="flex flex-wrap items-center gap-2">{captureButton}{cameraToggle}{secondaryAction}</div>
-   : captureButton}
+   : captureButton)}
  {message&&(!compact||running)&&<p role="status" className="rounded-lg border border-primary/20 bg-primary/10 p-3 text-sm text-text">{message}</p>}{error&&<p role="alert" className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">{error}</p>}
- {cameraOptions && <details className="rounded-xl border border-border px-3">
-   <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-text-muted">Camera settings</summary>
+ {(cameraOptions || previewControls) && <details className="rounded-xl border border-border px-3">
+   <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-2 py-2 text-sm font-medium text-text-muted">Camera settings <ChevronDown size={16} aria-hidden="true" /></summary>
    <div className="space-y-3 pb-3">{deviceControl}{cameraOptions}</div>
  </details>}
  {quality&&<dl className="grid grid-cols-2 gap-3">{[['Sharpness',quality.blur],['Brightness',quality.brightness]].map(([label,value])=><div key={label} className="rounded-lg bg-surface-muted p-3"><dt className="text-xs text-text-muted">{label}</dt><dd className="mt-1 font-mono text-sm text-text">{typeof value==='number'?value.toFixed(0):'—'}</dd></div>)}</dl>}
- {analyzesFrames&&!compact&&<p className="text-xs leading-relaxed text-text-muted">Frames pause while this tab is hidden. Stop camera to release it.</p>}</section>;
+ {analyzesFrames&&!compact&&(!previewControls||running)&&<p className="text-xs leading-relaxed text-text-muted">Frames pause while this tab is hidden. Stop camera to release it.</p>}</section>;
 }
